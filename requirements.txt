@@ -1,0 +1,11 @@
+streamlit==1.53.0
+pandas==2.3.3
+numpy==2.4.1
+matplotlib==3.10.8
+mplfinance==0.12.10b0
+akshare==1.18.20
+baostock==0.8.9
+python-dotenv==1.2.1
+requests==2.32.5
+tushare==1.4.24
+openpyxl==3.1.5
