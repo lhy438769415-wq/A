@@ -598,6 +598,21 @@ def run_tracker_dashboard():
     """
     init_signal_archive()
     
+    # Step 0: 数据新鲜度检查
+    try:
+        with get_db_connection() as conn:
+            r = conn.execute('SELECT MAX(trade_date) FROM daily_bars').fetchone()
+            if r and r[0]:
+                data_date = r[0]
+                today = datetime.now().strftime('%Y-%m-%d')
+                if data_date < today:
+                    d1 = datetime.strptime(data_date, '%Y-%m-%d')
+                    d2 = datetime.strptime(today, '%Y-%m-%d')
+                    lag = (d2 - d1).days
+                    logger.warning(f"⚠️ 日线数据停留在 {data_date} (滞后 {lag} 天)")
+    except Exception:
+        pass
+    
     # Step 1: 追踪更新
     stats = track_signals()
     

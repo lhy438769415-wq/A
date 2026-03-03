@@ -634,8 +634,87 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
 
     return new_signals
 
+
+def _check_data_freshness():
+    """检查日线/周线数据新鲜度, 返回提示信息 (无副作用, 仅读 DB)"""
+    msgs = []
+    try:
+        from core.database import get_db_connection
+        with get_db_connection() as conn:
+            r = conn.execute('SELECT MAX(trade_date) FROM daily_bars').fetchone()
+            if r and r[0]:
+                from datetime import datetime
+                last = r[0]
+                today = datetime.now().strftime('%Y-%m-%d')
+                if last < today:
+                    # 计算滞后天数 (粗略, 不考虑节假日)
+                    d1 = datetime.strptime(last, '%Y-%m-%d')
+                    d2 = datetime.strptime(today, '%Y-%m-%d')
+                    lag = (d2 - d1).days
+                    msgs.append(f"⚠️ 日线数据停留在 {last} (滞后 {lag} 天, 建议先选 4 同步)")
+                else:
+                    msgs.append(f"✅ 日线数据已是最新 ({last})")
+    except Exception:
+        msgs.append("⚠️ 日线数据库读取失败")
+    
+    try:
+        import sqlite3, os
+        from config import settings
+        wb_path = os.path.join(os.path.dirname(settings.DB_PATH), 'baostock_weekly.db')
+        if os.path.exists(wb_path):
+            wconn = sqlite3.connect(wb_path)
+            wr = wconn.execute('SELECT MAX(trade_date) FROM weekly_bars').fetchone()
+            wconn.close()
+            if wr and wr[0]:
+                msgs.append(f"  周线数据最新: {wr[0]}")
+    except Exception:
+        pass
+    
+    return msgs
+
+
+def _run_data_sync():
+    """数据同步子菜单 (选项 4)"""
+    print("\n  选择同步周期:")
+    print("  1. 📈 日线 (约5-10分钟)")
+    print("  2. 📊 周线 (约3-5分钟)")
+    print("  3. 🔄 全部同步 (日线+周线)")
+    try:
+        sync_choice = input("  请选择 (默认 3): ").strip() or '3'
+    except (EOFError, KeyboardInterrupt):
+        sync_choice = '3'
+    
+    import time
+    
+    if sync_choice in ('1', '3'):
+        print("\n🔄 开始日线数据同步...")
+        t0 = time.time()
+        try:
+            from core.data_provider import update_daily_data_batch
+            update_daily_data_batch()
+            elapsed = time.time() - t0
+            print(f"✅ 日线同步完成 (耗时 {elapsed:.0f}秒)")
+        except Exception as e:
+            print(f"❌ 日线同步失败: {e}")
+    
+    if sync_choice in ('2', '3'):
+        print("\n🔄 开始周线数据同步...")
+        t0 = time.time()
+        try:
+            from core.data_provider import update_weekly_data_batch
+            update_weekly_data_batch()
+            elapsed = time.time() - t0
+            print(f"✅ 周线同步完成 (耗时 {elapsed:.0f}秒)")
+        except Exception as e:
+            print(f"❌ 周线同步失败: {e}")
+    
+    # 同步后显示最新状态
+    for msg in _check_data_freshness():
+        print(f"  {msg}")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Brooks-AI Hunter (V9.0 - Daily & Weekly)")
+    parser = argparse.ArgumentParser(description="Brooks-AI Hunter (V9.1 - Daily & Weekly)")
     parser.add_argument('--strategy', type=str, default=None, help='Select Trading Strategy')
     parser.add_argument('--limit', type=int, default=0, help='Limit number of stocks for testing')
     parser.add_argument('--timeframe', type=str, default=None, choices=['daily', 'weekly'], help='时间周期: daily 或 weekly')
@@ -678,11 +757,12 @@ def main():
     else:
         # 交互式主菜单
         print("\n" + "═"*40)
-        print("  Brooks-AI 猎手 V9.0")
+        print("  Brooks-AI 猎手 V9.1")
         print("═"*40)
         print("  1. 🔭 扫描新机会 (周末埋伏)")
         print("  2. 📊 信号追踪 (日常管理)")
         print("  3. 🛡️ 持仓管家 (Guardian)")
+        print("  4. 🔄 数据同步")
         print("═"*40)
         try:
             mode_choice = input("请选择 (默认 1): ").strip()
@@ -705,6 +785,11 @@ def main():
             for item in holdings:
                 try: analyze_single_stock_micro(item)
                 except Exception as e: print(f"❌ {item['code']} 分析失败: {e}")
+            return
+        
+        # 路径 4: 数据同步
+        if mode_choice == '4':
+            _run_data_sync()
             return
         
         # 路径 1: 扫描 → 选时间周期
