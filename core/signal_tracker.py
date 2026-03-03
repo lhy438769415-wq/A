@@ -915,7 +915,7 @@ def _make_progress_bar(progress, width=10):
 
 
 def _format_dashboard_discord(profit, loss, pending, wins, losses_count, wr, avg_r):
-    """格式化 Discord 推送消息"""
+    """格式化 Discord 推送消息 (严格控制 2000 字符限制)"""
     msg = "📊 **信号追踪仪表盘**\n"
     
     if profit:
@@ -925,7 +925,7 @@ def _format_dashboard_discord(profit, loss, pending, wins, losses_count, wr, avg
     
     if loss:
         msg += f"\n🔴 **亏损预警 ({len(loss)}只)**\n"
-        for l in loss[:5]:
+        for l in loss[:3]:
             danger = " ⚠️" if l['dist_sl'] < 3 else ""
             msg += f"  {l['name']} [{l['rating']}] | {l['pnl_pct']:+.1f}% | 距SL {l['dist_sl']:.1f}%{danger}\n"
     
@@ -934,18 +934,26 @@ def _format_dashboard_discord(profit, loss, pending, wins, losses_count, wr, avg
         a_p = [p for p in pending if p.get('rating') == 'A']
         msg += f"\n⏳ **等待入场 ({len(pending)}只)**\n"
         if vip_p:
-            msg += f"🌟🌟 **A+ 极品:**\n"
-            for p in vip_p:
+            show_vip = vip_p[:5]  # 只显示最近 5 只 A+
+            msg += f"🌟🌟 **A+ 极品 ({len(vip_p)}只):**\n"
+            for p in show_vip:
                 fire = "🔥" if p['dist_entry_pct'] < 3 else ""
-                msg += f"  {fire}{p['name']} | 现价{p['current']:.2f} | {_format_entry_distance(p['dist_entry_pct'])} | 入场{p['entry']:.2f}\n"
+                msg += f"  {fire}{p['name']} | {_format_entry_distance(p['dist_entry_pct'])}\n"
+            if len(vip_p) > 5:
+                msg += f"  ...另有 {len(vip_p) - 5} 只 A+\n"
         if a_p:
-            msg += f"🌟 A级: "
-            msg += " / ".join([f"{p['name']}({_format_entry_distance(p['dist_entry_pct'])})" for p in a_p[:6]])
-            msg += "\n"
+            # A 级只显示名字列表
+            names = [p['name'] for p in a_p[:5]]
+            msg += f"🌟 A级 ({len(a_p)}只): {' / '.join(names)}\n"
         other_count = len(pending) - len(vip_p) - len(a_p)
         if other_count > 0:
             msg += f"  + {other_count} 只 B/C 级\n"
     
     msg += f"\n📈 本月: 胜{wins} 负{losses_count} | 胜率{wr:.0f}% | {avg_r:+.2f}R"
+    
+    # 安全截断 (Discord 限制 2000 字符)
+    if len(msg) > 1950:
+        msg = msg[:1940] + "\n... (已截断)"
+    
     return msg
 
