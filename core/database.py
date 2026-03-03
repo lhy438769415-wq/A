@@ -164,8 +164,39 @@ def init_db():
             );
             """)
             
+            # [Signal Tracker] 信号追踪归档表
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS signal_archive (
+                signal_id      TEXT PRIMARY KEY,
+                code           TEXT NOT NULL,
+                name           TEXT,
+                strategy       TEXT NOT NULL,
+                timeframe      TEXT DEFAULT 'daily',
+                signal_date    TEXT NOT NULL,
+                scan_date      TEXT NOT NULL,
+                entry_price    REAL,
+                sl_price       REAL,
+                tp_price       REAL,
+                rr_ratio       REAL,
+                ev_rating      TEXT,
+                ev_score       INTEGER,
+                status         TEXT DEFAULT 'PENDING',
+                activated_date TEXT,
+                resolved_date  TEXT,
+                exit_price     REAL,
+                max_favorable  REAL,
+                max_adverse    REAL,
+                bars_to_resolve INTEGER,
+                extra_json     TEXT,
+                created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sa_status ON signal_archive (status);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sa_code ON signal_archive (code);")
+            
             conn.commit()
-            logger.info("✅ 数据库初始化成功 (Tables: daily_bars, abu_indicators)")
+            logger.info("✅ 数据库初始化成功 (Tables: daily_bars, abu_indicators, signal_archive)")
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")
         raise

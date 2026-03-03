@@ -42,10 +42,20 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- Config ---
+# 🟢 [P1 Opt 3] 字体 fallback：优先使用 settings 配置路径，否则在脚本同目录或项目根目录中查找
 try:
     from config.settings import FONT_PATH
 except ImportError:
     FONT_PATH = "simhei.ttf"
+
+# Fallback: 如果配置路径不存在，尝试脚本所在目录和项目根目录
+if not os.path.exists(FONT_PATH):
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    _project_root = os.path.dirname(_script_dir)
+    for _candidate in [os.path.join(_project_root, 'config', 'fonts', 'SimHei.ttf'), os.path.join(_project_root, 'SimHei.ttf'), os.path.join(_script_dir, 'SimHei.ttf')]:
+        if os.path.exists(_candidate):
+            FONT_PATH = _candidate
+            break
     
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial'] 
 plt.rcParams['axes.unicode_minus'] = False
@@ -58,17 +68,23 @@ def load_watchlist(json_path):
         data = json.load(f)
     return data.get('signals_gap', [])
 
-def draw_chart(code, name, entry, sl, tp, is_pending, ev_rating, sig_quality, bears):
+# 🟢 [P1 Opt 1] 缓存策略计算结果，避免切换股票时重复运算
+@st.cache_data(ttl=600, show_spinner=False)
+def _compute_signals(code):
+    from core.strategies.structural_gap_strategy import StructuralGapStrategy
     df = dp.get_stock_data_weekly(code, limit=200)
     if df is None or df.empty:
+        return None
+    df = add_indicators(df)
+    return StructuralGapStrategy().calculate_signals(df)
+
+def draw_chart(code, name, entry, sl, tp, is_pending, ev_rating, sig_quality, bears):
+    df = _compute_signals(code)
+    if df is None:
         st.error(f"Failed to fetch data for {code}")
         return
         
-    df = add_indicators(df)
-    
-    # Run strategy to get the struct_gap signals for drawing exact anchor points
-    from core.strategies.structural_gap_strategy import StructuralGapStrategy
-    plot_df = StructuralGapStrategy().calculate_signals(df).tail(120).copy()
+    plot_df = df.tail(120).copy()
     
     if 'date' in plot_df.columns:
         plot_df.loc[:, 'date'] = pd.to_datetime(plot_df['date'])
@@ -197,13 +213,16 @@ def draw_chart(code, name, entry, sl, tp, is_pending, ev_rating, sig_quality, be
 
             # Left panel
             rr_ratio = (tp - entry) / (entry - sl) if tp and entry > sl and tp > entry else 0
+            # 🟢 [P2 Fix] sig_quality 为 0 时标注 (待确认)；ev_rating 用 truthiness 判断而非 pd.notna
+            quality_str = f"{sig_quality:.2f}" if sig_quality > 0 else "(待确认)"
+            rating_str = ev_rating if ev_rating else 'N/A'
             panel_text = f"买入点：{entry:.2f}\n" \
                          f"极限防守：{sl:.2f}\n" \
                          f"对称止盈：{tp:.2f} ({rr_ratio:.2f}R)\n" \
                          f"------------------\n" \
-                         f"动能质量：{sig_quality:.2f}\n" \
+                         f"动能质量：{quality_str}\n" \
                          f"回调连阴：{bears} 连阴\n" \
-                         f"系统评级：{ev_rating if pd.notna(ev_rating) else 'N/A'}"
+                         f"系统评级：{rating_str}"
             
             ax.text(0.02, 0.96, panel_text, transform=ax.transAxes, fontsize=10,
                     verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.9, edgecolor='gray'))

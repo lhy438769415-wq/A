@@ -20,8 +20,9 @@ def deploy_to_github():
     logging.info("Preparing to push weekly watchlist to GitHub...")
     
     # Git commands
+    # 🟢 [P0 Fix] git add -A 确保代码变更（如 web_viewer.py）也随数据一起推送到 GitHub
     commands = [
-        ["git", "add", "data/weekly_gap_watchlist.json"],
+        ["git", "add", "-A"],
         ["git", "commit", "-m", f"Auto-update Brooks-AI Radar Data - {datetime.now().strftime('%Y-%m-%d %H:%M')}"],
         ["git", "push"]
     ]

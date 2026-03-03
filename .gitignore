@@ -57,13 +57,40 @@ ENV/
 env.bak/
 venv.bak/
 
-# Project specifics
-data/*.db
-data/*.sqlite
-logs/
-
 # IDE / Editor
 .idea/
 .vscode/
 *.swp
 *.swo
+*.code-workspace
+
+# =============================================
+# Project specifics
+# =============================================
+
+# 数据文件 (大体积, 不入仓库)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.sqlite
+data/*.csv
+
+# 字体文件 (9MB, 不入仓库)
+config/fonts/*.ttf
+
+# 日志
+logs/
+
+# 临时/研究文件
+tools/_tmp_*
+tools/_verify_*
+strategy_lab/*.txt
+strategy_lab/*.csv
+strategy_lab/plots/
+
+# AI Agent 配置 (各开发者本地不同)
+.agent/
+.agents/
+.claude/
+.gemini/
+.opencode/

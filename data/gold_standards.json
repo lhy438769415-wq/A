@@ -1,0 +1,167 @@
+[
+    {
+        "symbol": "sz.000001",
+        "date": "2024-11-05",
+        "climax_date": "2024-09-12",
+        "mlh_date": "2024-08-26",
+        "mlh_val": 9.8,
+        "break_date": "2024-09-26",
+        "low_val": 8.93,
+        "hl_val": 9.76,
+        "retrenchment": 0.77
+    },
+    {
+        "symbol": "sz.000002",
+        "date": "2024-10-28",
+        "climax_date": "2024-08-29",
+        "mlh_date": "2024-08-09",
+        "mlh_val": 7.38,
+        "break_date": "2024-09-26",
+        "low_val": 6.18,
+        "hl_val": 7.22,
+        "retrenchment": 0.77
+    },
+    {
+        "symbol": "sz.000004",
+        "date": "2024-09-03",
+        "climax_date": "2024-06-07",
+        "mlh_date": "2024-05-15",
+        "mlh_val": 12.38,
+        "break_date": "2024-07-22",
+        "low_val": 8.32,
+        "hl_val": 10.21,
+        "retrenchment": 0.62
+    },
+    {
+        "symbol": "sz.000006",
+        "date": "2024-09-26",
+        "climax_date": "2024-06-14",
+        "mlh_date": "2024-05-22",
+        "mlh_val": 4.36,
+        "break_date": "2024-09-20",
+        "low_val": 3.36,
+        "hl_val": 4.21,
+        "retrenchment": 0.36
+    },
+    {
+        "symbol": "sz.000007",
+        "date": "2024-10-22",
+        "climax_date": "2024-08-23",
+        "mlh_date": "2024-07-03",
+        "mlh_val": 5.73,
+        "break_date": "2024-09-26",
+        "low_val": 4.16,
+        "hl_val": 5.6,
+        "retrenchment": 0.59
+    },
+    {
+        "symbol": "sz.000008",
+        "date": "2025-07-07",
+        "climax_date": "2025-03-31",
+        "mlh_date": "2025-02-20",
+        "mlh_val": 3.05,
+        "break_date": "2025-04-10",
+        "low_val": 2.52,
+        "hl_val": 2.64,
+        "retrenchment": 0.84
+    },
+    {
+        "symbol": "sz.000009",
+        "date": "2024-11-11",
+        "climax_date": "2024-09-18",
+        "mlh_date": "2024-09-05",
+        "mlh_val": 8.02,
+        "break_date": "2024-09-26",
+        "low_val": 7.08,
+        "hl_val": 7.83,
+        "retrenchment": 0.81
+    },
+    {
+        "symbol": "sz.000010",
+        "date": "2025-06-24",
+        "climax_date": "2025-04-09",
+        "mlh_date": "2025-03-24",
+        "mlh_val": 3.2,
+        "break_date": "2025-06-09",
+        "low_val": 2.16,
+        "hl_val": 2.86,
+        "retrenchment": 0.43
+    },
+    {
+        "symbol": "sz.000011",
+        "date": "2024-12-27",
+        "climax_date": "2024-08-28",
+        "mlh_date": "2024-08-09",
+        "mlh_val": 9.39,
+        "break_date": "2024-09-30",
+        "low_val": 7.25,
+        "hl_val": 8.37,
+        "retrenchment": 0.7
+    },
+    {
+        "symbol": "sz.000012",
+        "date": "2024-10-31",
+        "climax_date": "2024-09-10",
+        "mlh_date": "2024-08-30",
+        "mlh_val": 5.16,
+        "break_date": "2024-09-27",
+        "low_val": 4.58,
+        "hl_val": 5.13,
+        "retrenchment": 0.67
+    },
+    {
+        "symbol": "sz.000014",
+        "date": "2024-10-22",
+        "climax_date": "2024-08-29",
+        "mlh_date": "2024-08-09",
+        "mlh_val": 9.45,
+        "break_date": "2024-09-26",
+        "low_val": 7.64,
+        "hl_val": 9.23,
+        "retrenchment": 0.64
+    },
+    {
+        "symbol": "sz.000016",
+        "date": "2024-09-27",
+        "climax_date": "2024-07-10",
+        "mlh_date": "2024-05-20",
+        "mlh_val": 3.05,
+        "break_date": "2024-08-02",
+        "low_val": 1.87,
+        "hl_val": 2.2,
+        "retrenchment": 0.78
+    },
+    {
+        "symbol": "sz.000017",
+        "date": "2024-11-07",
+        "climax_date": "2024-09-18",
+        "mlh_date": "2024-09-04",
+        "mlh_val": 6.11,
+        "break_date": "2024-09-30",
+        "low_val": 5.06,
+        "hl_val": 5.77,
+        "retrenchment": 0.68
+    },
+    {
+        "symbol": "sz.000019",
+        "date": "2024-11-06",
+        "climax_date": "2024-09-18",
+        "mlh_date": "2024-09-04",
+        "mlh_val": 6.36,
+        "break_date": "2024-09-30",
+        "low_val": 5.39,
+        "hl_val": 6.15,
+        "retrenchment": 0.59
+    },
+    {
+        "symbol": "sz.000020",
+        "date": "2024-09-09",
+        "climax_date": "2024-07-25",
+        "mlh_date": "2024-04-30",
+        "mlh_val": 12.66,
+        "break_date": "2024-09-04",
+        "low_val": 9.0,
+        "hl_val": 11.09,
+        "retrenchment": 0.49
+    }
+]

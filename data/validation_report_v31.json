@@ -1,0 +1,21 @@
+{
+    "timestamp": "2026-02-10 21:51:58.537784",
+    "strategy": "MTR_V31_GEOMETRIC",
+    "total": 15,
+    "hits": 14,
+    "recall": 93.33333333333333,
+    "misses": [
+        {
+            "symbol": "sz.000011",
+            "date": "2024-12-27",
+            "diag": {
+                "GeoBreak": false,
+                "HasBrkFact": false,
+                "IsHL": true,
+                "Leg1Str": 6.556097538588929,
+                "GeoTrend": 9.94085106382979,
+                "Stage": "TREND (GEO)"
+            }
+        }
+    ]
+}

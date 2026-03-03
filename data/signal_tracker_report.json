@@ -1,0 +1,27 @@
+{
+  "total_resolved": 2,
+  "pending_active": 96,
+  "wins": 2,
+  "losses": 0,
+  "expired": 0,
+  "win_rate": 100.0,
+  "avg_r": 2.4,
+  "by_rating": {
+    "A": {
+      "total": 1,
+      "wins": 1,
+      "win_rate": 100.0,
+      "avg_r": 1.92
+    },
+    "B": {
+      "total": 1,
+      "wins": 1,
+      "win_rate": 100.0,
+      "avg_r": 2.88
+    }
+  },
+  "timeframe": "all",
+  "strategy": "all",
+  "days": 90,
+  "generated_at": "2026-03-03 10:01:43"
+}

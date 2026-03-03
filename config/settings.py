@@ -12,7 +12,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, 'data', 'baostock.db')  # 🟢 V8.13 新库
 
 # 字体路径
-FONT_PATH = os.path.join(BASE_DIR, 'SimHei.ttf')
+FONT_PATH = os.path.join(BASE_DIR, 'config', 'fonts', 'SimHei.ttf')
 
 # 报告/日志输出目录 (这就是报错缺失的变量)
 REPORT_DIR = os.path.join(BASE_DIR, 'reports')
