@@ -724,6 +724,7 @@ def run_tracker_dashboard():
             
             entry = sig['entry_price'] or 0
             sl = sig['sl_price'] or 0
+            tp = sig['tp_price'] or 0
             rating = _simplify_rating(sig.get('ev_rating', ''))
             
             # 距 entry 还差多少 (正数=还没到, 负数=已超过)
@@ -735,7 +736,7 @@ def run_tracker_dashboard():
                 'name': sig['name'] or sig['code'],
                 'code': sig['code'],
                 'rating': rating,
-                'entry': entry, 'sl': sl,
+                'entry': entry, 'sl': sl, 'tp': tp,
                 'current': current_price,
                 'dist_entry_pct': dist_entry_pct,
                 'dist_sl_pct': dist_sl_pct,
@@ -744,23 +745,35 @@ def run_tracker_dashboard():
         # 按距 entry 从近到远排序 (快要触发的排前面)
         pending_details.sort(key=lambda x: x['dist_entry_pct'])
         
-        # 分组: 高评级 vs 一般
-        top_pending = [p for p in pending_details if p['rating'] in ('A+', 'A')]
+        # 分组: A+ / A / 其他
+        vip_pending = [p for p in pending_details if p['rating'] == 'A+']
+        a_pending = [p for p in pending_details if p['rating'] == 'A']
         other_pending = [p for p in pending_details if p['rating'] not in ('A+', 'A')]
         
         print(f"\n  ⏳ 等待入场 ({len(pending_details)}只)")
         
-        if top_pending:
-            print(f"  ── 重点关注 ({len(top_pending)}只) ──")
-            for p in top_pending:
-                status_icon = "🔥" if p['dist_entry_pct'] < 3 else "  "
-                danger = " ⚠️SL近!" if p['dist_sl_pct'] < 5 else ""
+        # A+ VIP — 每只都详细展示
+        if vip_pending:
+            print(f"  ┏━ 🌟🌟 A+ 极品 ({len(vip_pending)}只) ━━━")
+            for p in vip_pending:
+                fire = "🔥" if p['dist_entry_pct'] < 3 else ""
+                danger = " ⚠️" if p['dist_sl_pct'] < 5 else ""
                 entry_desc = _format_entry_distance(p['dist_entry_pct'])
-                print(f"  {status_icon} {p['name']} {p['code']} [{p['rating']}] "
-                      f"现价 {p['current']:.2f} | {entry_desc} | 距止损 {p['dist_sl_pct']:.1f}%{danger}")
+                print(f"  ┃ {fire}{p['name']} {p['code']}")
+                print(f"  ┃   现价 {p['current']:.2f} | {entry_desc} | 距止损 {p['dist_sl_pct']:.1f}%{danger}")
+                print(f"  ┃   入场 {p['entry']:.2f} → 止盈 {p.get('tp', 0):.2f} (止损 {p['sl']:.2f})")
+            print(f"  ┗━━━━━━━━━━━━━━━━━")
         
+        # A 级 — 正常展示
+        if a_pending:
+            print(f"  ── 🌟 A 级 ({len(a_pending)}只) ──")
+            for p in a_pending:
+                fire = "🔥" if p['dist_entry_pct'] < 3 else "  "
+                entry_desc = _format_entry_distance(p['dist_entry_pct'])
+                print(f"  {fire} {p['name']} {p['code']} | 现价 {p['current']:.2f} | {entry_desc}")
+        
+        # 其他 — 只摘要
         if other_pending:
-            # B/C/D 只显示摘要
             print(f"  ── 其他 ({len(other_pending)}只) ──")
             close_ones = [p for p in other_pending if p['dist_entry_pct'] < 5]
             if close_ones:
@@ -902,13 +915,19 @@ def _format_dashboard_discord(profit, loss, pending, wins, losses_count, wr, avg
             msg += f"  {l['name']} [{l['rating']}] | {l['pnl_pct']:+.1f}% | 距SL {l['dist_sl']:.1f}%{danger}\n"
     
     if pending:
-        top_p = [p for p in pending if p.get('rating') in ('A+', 'A')]
+        vip_p = [p for p in pending if p.get('rating') == 'A+']
+        a_p = [p for p in pending if p.get('rating') == 'A']
         msg += f"\n⏳ **等待入场 ({len(pending)}只)**\n"
-        if top_p:
-            for p in top_p[:8]:
+        if vip_p:
+            msg += f"🌟🌟 **A+ 极品:**\n"
+            for p in vip_p:
                 fire = "🔥" if p['dist_entry_pct'] < 3 else ""
-                msg += f"  {fire}{p['name']}[{p['rating']}] {_format_entry_distance(p['dist_entry_pct'])}\n"
-        other_count = len(pending) - len(top_p)
+                msg += f"  {fire}{p['name']} | 现价{p['current']:.2f} | {_format_entry_distance(p['dist_entry_pct'])} | 入场{p['entry']:.2f}\n"
+        if a_p:
+            msg += f"🌟 A级: "
+            msg += " / ".join([f"{p['name']}({_format_entry_distance(p['dist_entry_pct'])})" for p in a_p[:6]])
+            msg += "\n"
+        other_count = len(pending) - len(vip_p) - len(a_p)
         if other_count > 0:
             msg += f"  + {other_count} 只 B/C 级\n"
     
