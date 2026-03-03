@@ -167,9 +167,14 @@ def track_signals(timeframe=None):
                         stats['activated'] += 1
                     elif new_status == 'WIN':
                         stats['wins'] += 1
+                        _push_resolved_alert(sig, new_status)
                     elif new_status == 'LOSS':
                         stats['losses'] += 1
-                    elif new_status in ('EXPIRED', 'INVALIDATED'):
+                        _push_resolved_alert(sig, new_status)
+                    elif new_status == 'INVALIDATED':
+                        stats['expired'] += 1
+                        _push_resolved_alert(sig, new_status)
+                    elif new_status == 'EXPIRED':
                         stats['expired'] += 1
             
             conn.commit()
@@ -750,8 +755,9 @@ def run_tracker_dashboard():
             for p in top_pending:
                 status_icon = "🔥" if p['dist_entry_pct'] < 3 else "  "
                 danger = " ⚠️SL近!" if p['dist_sl_pct'] < 5 else ""
+                entry_desc = _format_entry_distance(p['dist_entry_pct'])
                 print(f"  {status_icon} {p['name']} {p['code']} [{p['rating']}] "
-                      f"现价 {p['current']:.2f} | 距入场 {p['dist_entry_pct']:+.1f}% | 距SL {p['dist_sl_pct']:.1f}%{danger}")
+                      f"现价 {p['current']:.2f} | {entry_desc} | 距止损 {p['dist_sl_pct']:.1f}%{danger}")
         
         if other_pending:
             # B/C/D 只显示摘要
@@ -759,7 +765,8 @@ def run_tracker_dashboard():
             close_ones = [p for p in other_pending if p['dist_entry_pct'] < 5]
             if close_ones:
                 for p in close_ones:
-                    print(f"    {p['name']}[{p['rating']}] 距入场 {p['dist_entry_pct']:+.1f}%")
+                    entry_desc = _format_entry_distance(p['dist_entry_pct'])
+                    print(f"    {p['name']}[{p['rating']}] {entry_desc}")
             far_count = len(other_pending) - len(close_ones)
             if far_count > 0:
                 print(f"    ... 另有 {far_count} 只距入场较远")
@@ -805,6 +812,63 @@ def _get_latest_price(code, timeframe='daily'):
     return None
 
 
+def _format_entry_distance(dist_pct):
+    """将入场距离百分比转为人话: 正数=还没到, 负数=已超过"""
+    if dist_pct > 0:
+        return f"还差 {dist_pct:.1f}%"
+    elif dist_pct < 0:
+        return f"已超入场 {abs(dist_pct):.1f}%"
+    else:
+        return "刚好到入场价"
+
+
+def _push_resolved_alert(sig, status):
+    """信号结算时推送 Discord 通知 (含K线图)"""
+    try:
+        code = sig['code']
+        name = sig.get('name', code)
+        rating = _simplify_rating(sig.get('ev_rating', ''))
+        entry = sig.get('entry_price', 0)
+        sl = sig.get('sl_price', 0)
+        tp = sig.get('tp_price', 0)
+        
+        # 构造消息
+        if status == 'WIN':
+            icon = "🟢"
+            title = "止盈达成"
+            detail = f"入场 {entry:.2f} → 止盈 {tp:.2f}"
+        elif status == 'LOSS':
+            icon = "🔴"
+            title = "触发止损"
+            detail = f"入场 {entry:.2f} → 止损 {sl:.2f}"
+        elif status == 'INVALIDATED':
+            icon = "💀"
+            title = "缺口被回补"
+            detail = f"入场价 {entry:.2f} 未触发, SL {sl:.2f} 已击穿"
+        else:
+            return
+        
+        msg = f"{icon} **{name}** ({code}) [{rating}]\n"
+        msg += f"状态: **{title}**\n"
+        msg += f"{detail}\n"
+        
+        from tools.notifier import send_discord_message, generate_chart_bytes, send_discord_image
+        send_discord_message(msg)
+        
+        # 生成并推送K线图
+        chart_buf = generate_chart_bytes(
+            code=code, stock_name=name,
+            strategy_type=sig.get('strategy', 'STRUCTURAL_GAP'),
+            sl_price=sl, tp1=tp,
+            ev_rating=sig.get('ev_rating', '')
+        )
+        if chart_buf:
+            send_discord_image(chart_buf, filename=f"{code}_{status}.png")
+            logger.info(f"📤 {name}({code}) [{status}] 图表已推送 Discord")
+    except Exception as e:
+        logger.warning(f"推送结算通知失败: {e}")
+
+
 def _simplify_rating(rating_str):
     """'🌟🌟 极品 (A+)' → 'A+'"""
     if not rating_str:
@@ -843,7 +907,7 @@ def _format_dashboard_discord(profit, loss, pending, wins, losses_count, wr, avg
         if top_p:
             for p in top_p[:8]:
                 fire = "🔥" if p['dist_entry_pct'] < 3 else ""
-                msg += f"  {fire}{p['name']}[{p['rating']}] 距入场 {p['dist_entry_pct']:+.1f}%\n"
+                msg += f"  {fire}{p['name']}[{p['rating']}] {_format_entry_distance(p['dist_entry_pct'])}\n"
         other_count = len(pending) - len(top_p)
         if other_count > 0:
             msg += f"  + {other_count} 只 B/C 级\n"
