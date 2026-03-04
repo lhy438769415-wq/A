@@ -614,16 +614,13 @@ def run_tracker_dashboard():
     # Step 1: 追踪更新
     stats = track_signals()
     
-    # Step 2: 获取所有未结信号
+    # Step 2: 获取所有信号 (按状态)
     try:
         with get_db_connection() as conn:
             col_names = [desc[0] for desc in conn.execute("SELECT * FROM signal_archive LIMIT 0").description]
             
-            active_rows = conn.execute(
-                "SELECT * FROM signal_archive WHERE status = 'ACTIVE' ORDER BY ev_score DESC"
-            ).fetchall()
-            pending_rows = conn.execute(
-                "SELECT * FROM signal_archive WHERE status = 'PENDING' ORDER BY ev_score DESC"
+            all_rows = conn.execute(
+                "SELECT * FROM signal_archive ORDER BY ev_score DESC"
             ).fetchall()
             
             # 本月已结算统计
@@ -636,173 +633,64 @@ def run_tracker_dashboard():
         logger.error(f"仪表盘查询失败: {e}")
         return
     
-    active_signals = [dict(zip(col_names, r)) for r in active_rows]
-    pending_signals = [dict(zip(col_names, r)) for r in pending_rows]
+    all_signals = [dict(zip(col_names, r)) for r in all_rows]
     
-    # Step 3: 获取最新价格并分组
-    profit_group = []  # 盈利中
-    loss_group = []    # 亏损中
-    
-    for sig in active_signals:
+    # Step 3: 为所有信号获取最新价 + 分组
+    enriched = []  # 所有带最新价的信号
+    for sig in all_signals:
+        rating = _simplify_rating(sig.get('ev_rating', ''))
         current_price = _get_latest_price(sig['code'], sig['timeframe'])
-        if current_price is None:
-            continue
-        
         entry = sig['entry_price'] or 0
         sl = sig['sl_price'] or 0
         tp = sig['tp_price'] or 0
-        
-        pnl_pct = (current_price - entry) / entry * 100 if entry > 0 else 0
-        
-        # 计算进度: 从 SL → Entry → TP 的百分比位置
-        total_range = tp - sl if tp > sl > 0 else 1
-        progress = (current_price - sl) / total_range if total_range > 0 else 0.5
-        progress = max(0, min(1, progress))
-        
-        # 距离 TP / SL 的百分比
-        dist_tp = (tp - current_price) / current_price * 100 if tp > 0 and current_price > 0 else 0
-        dist_sl = (current_price - sl) / current_price * 100 if sl > 0 and current_price > 0 else 0
-        
-        # MFE/MAE 百分比
-        mfe_pct = ((sig.get('max_favorable') or entry) - entry) / entry * 100 if entry > 0 else 0
-        mae_pct = ((sig.get('max_adverse') or entry) - entry) / entry * 100 if entry > 0 else 0
-        
-        # 持仓天数
-        activated = sig.get('activated_date', sig['signal_date'])
-        try:
-            days_held = (datetime.now() - datetime.strptime(str(activated)[:10], '%Y-%m-%d')).days
-        except:
-            days_held = 0
-        
-        # 简化评级
-        rating = _simplify_rating(sig.get('ev_rating', ''))
         
         item = {
             'name': sig['name'] or sig['code'],
             'code': sig['code'],
             'rating': rating,
+            'status': sig['status'],
             'entry': entry, 'sl': sl, 'tp': tp,
-            'current': current_price,
-            'pnl_pct': pnl_pct,
-            'progress': progress,
-            'dist_tp': dist_tp, 'dist_sl': dist_sl,
-            'mfe_pct': mfe_pct, 'mae_pct': mae_pct,
-            'days_held': days_held,
+            'current': current_price or 0,
+            'ev_rating': sig.get('ev_rating', ''),
+            'strategy': sig.get('strategy', ''),
         }
         
-        if pnl_pct >= 0:
-            profit_group.append(item)
+        # 计算关键指标
+        if current_price and entry > 0:
+            item['pnl_pct'] = (current_price - entry) / entry * 100
+            item['dist_entry_pct'] = (entry - current_price) / current_price * 100
+            item['dist_tp'] = (tp - current_price) / current_price * 100 if tp > 0 else 0
+            item['dist_sl'] = (current_price - sl) / current_price * 100 if sl > 0 else 0
         else:
-            loss_group.append(item)
-    
-    # 排序: 盈利按 pnl 从高到低, 亏损按 pnl 从低到高 (最危险的在前)
-    profit_group.sort(key=lambda x: x['pnl_pct'], reverse=True)
-    loss_group.sort(key=lambda x: x['pnl_pct'])
-    
-    # Step 4: 控制台输出
-    today = datetime.now().strftime('%Y-%m-%d')
-    print(f"\n{'═' * 60}")
-    print(f"  📊 信号追踪仪表盘 | {today}")
-    print(f"{'═' * 60}")
-    
-    # 盈利组
-    if profit_group:
-        print(f"\n  🟢 盈利中 ({len(profit_group)}只)")
-        for item in profit_group:
-            bar = _make_progress_bar(item['progress'], 10)
-            print(f"  ┌─ {item['name']} {item['code']} [{item['rating']}]")
-            print(f"  │  入场 {item['entry']:.2f} → 现价 {item['current']:.2f} ({item['pnl_pct']:+.1f}%)  {bar} TP {item['tp']:.2f}")
-            print(f"  └─ 距止盈 {item['dist_tp']:.1f}% | 持仓 {item['days_held']} 天 | MFE {item['mfe_pct']:+.1f}%")
-    
-    # 亏损组
-    if loss_group:
-        print(f"\n  🔴 亏损预警 ({len(loss_group)}只)")
-        for item in loss_group:
-            danger = " ⚠️ 危险！" if item['dist_sl'] < 3 else ""
-            print(f"  ┌─ {item['name']} {item['code']} [{item['rating']}]{danger}")
-            print(f"  │  入场 {item['entry']:.2f} → 现价 {item['current']:.2f} ({item['pnl_pct']:+.1f}%)")
-            print(f"  └─ 距止损 {item['dist_sl']:.1f}% | 持仓 {item['days_held']} 天 | MAE {item['mae_pct']:+.1f}%")
-    
-    if not profit_group and not loss_group:
-        print(f"\n  (暂无持仓中的信号)")
-    
-    # 等待入场 — 详细视图
-    pending_details = []
-    if pending_signals:
-        for sig in pending_signals:
-            current_price = _get_latest_price(sig['code'], sig['timeframe'])
-            if current_price is None:
-                continue
-            
-            entry = sig['entry_price'] or 0
-            sl = sig['sl_price'] or 0
-            tp = sig['tp_price'] or 0
-            rating = _simplify_rating(sig.get('ev_rating', ''))
-            
-            # 距 entry 还差多少 (正数=还没到, 负数=已超过)
-            dist_entry_pct = (entry - current_price) / current_price * 100 if current_price > 0 and entry > 0 else 0
-            # 距 SL 百分比 (越小越危险)
-            dist_sl_pct = (current_price - sl) / current_price * 100 if current_price > 0 and sl > 0 else 999
-            
-            pending_details.append({
-                'name': sig['name'] or sig['code'],
-                'code': sig['code'],
-                'rating': rating,
-                'entry': entry, 'sl': sl, 'tp': tp,
-                'current': current_price,
-                'dist_entry_pct': dist_entry_pct,
-                'dist_sl_pct': dist_sl_pct,
-            })
+            item['pnl_pct'] = 0
+            item['dist_entry_pct'] = 0
+            item['dist_tp'] = 0
+            item['dist_sl'] = 0
         
-        # 按距 entry 从近到远排序 (快要触发的排前面)
-        pending_details.sort(key=lambda x: x['dist_entry_pct'])
-        
-        # 分组: A+ / A / 其他
-        vip_pending = [p for p in pending_details if p['rating'] == 'A+']
-        a_pending = [p for p in pending_details if p['rating'] == 'A']
-        other_pending = [p for p in pending_details if p['rating'] not in ('A+', 'A')]
-        
-        print(f"\n  ⏳ 等待入场 ({len(pending_details)}只)")
-        
-        # A+ VIP — 每只都详细展示
-        if vip_pending:
-            print(f"  ┏━ 🌟🌟 A+ 极品 ({len(vip_pending)}只) ━━━")
-            for p in vip_pending:
-                fire = "🔥" if p['dist_entry_pct'] < 3 else ""
-                danger = " ⚠️" if p['dist_sl_pct'] < 5 else ""
-                entry_desc = _format_entry_distance(p['dist_entry_pct'])
-                print(f"  ┃ {fire}{p['name']} {p['code']}")
-                print(f"  ┃   现价 {p['current']:.2f} | {entry_desc} | 距止损 {p['dist_sl_pct']:.1f}%{danger}")
-                print(f"  ┃   入场 {p['entry']:.2f} → 止盈 {p.get('tp', 0):.2f} (止损 {p['sl']:.2f})")
-            print(f"  ┗━━━━━━━━━━━━━━━━━")
-        
-        # A 级 — 正常展示
-        if a_pending:
-            print(f"  ── 🌟 A 级 ({len(a_pending)}只) ──")
-            for p in a_pending:
-                fire = "🔥" if p['dist_entry_pct'] < 3 else "  "
-                entry_desc = _format_entry_distance(p['dist_entry_pct'])
-                print(f"  {fire} {p['name']} {p['code']} | 现价 {p['current']:.2f} | {entry_desc}")
-        
-        # 其他 — 只摘要
-        if other_pending:
-            print(f"  ── 其他 ({len(other_pending)}只) ──")
-            close_ones = [p for p in other_pending if p['dist_entry_pct'] < 5]
-            if close_ones:
-                for p in close_ones:
-                    entry_desc = _format_entry_distance(p['dist_entry_pct'])
-                    print(f"    {p['name']}[{p['rating']}] {entry_desc}")
-            far_count = len(other_pending) - len(close_ones)
-            if far_count > 0:
-                print(f"    ... 另有 {far_count} 只距入场较远")
+        enriched.append(item)
+    
+    # 按维度分组
+    active_all = [s for s in enriched if s['status'] == 'ACTIVE']
+    pending_all = [s for s in enriched if s['status'] == 'PENDING']
+    invalidated_all = [s for s in enriched if s['status'] == 'INVALIDATED']
+    win_all = [s for s in enriched if s['status'] == 'WIN']
+    loss_all = [s for s in enriched if s['status'] == 'LOSS']
+    
+    # A+ 分组 (跨所有状态)
+    aplus_active = [s for s in active_all if s['rating'] == 'A+']
+    aplus_pending = sorted([s for s in pending_all if s['rating'] == 'A+'], key=lambda x: x['dist_entry_pct'])
+    aplus_invalidated = [s for s in invalidated_all if s['rating'] == 'A+']
+    aplus_total = len(aplus_active) + len(aplus_pending) + len(aplus_invalidated)
+    
+    # 非 A+ 入场
+    other_active = [s for s in active_all if s['rating'] != 'A+']
+    other_active.sort(key=lambda x: x['pnl_pct'], reverse=True)
     
     # 月度统计
-    wins = sum(1 for r in resolved_rows if r[0] == 'WIN')
+    wins_count = sum(1 for r in resolved_rows if r[0] == 'WIN')
     losses_count = sum(1 for r in resolved_rows if r[0] == 'LOSS')
-    total = wins + losses_count
-    wr = wins / total * 100 if total > 0 else 0
-    
-    # 计算平均 R
+    total_resolved = wins_count + losses_count
+    wr = wins_count / total_resolved * 100 if total_resolved > 0 else 0
     r_list = []
     for r in resolved_rows:
         e, s, ex = r[1] or 0, r[2] or 0, r[3] or 0
@@ -811,17 +699,97 @@ def run_tracker_dashboard():
             r_list.append((ex - e) / risk)
     avg_r = sum(r_list) / len(r_list) if r_list else 0
     
-    print(f"\n  📈 本月战绩: 胜 {wins} 负 {losses_count} | 胜率 {wr:.0f}% | 平均 {avg_r:+.2f}R")
-    print(f"{'═' * 60}\n")
+    # =====================================================================
+    # Step 4: 控制台输出 — 先概述 → 再 A+ → 再入场 → 再其他
+    # =====================================================================
+    weekday_map = {0: '周一', 1: '周二', 2: '周三', 3: '周四', 4: '周五', 5: '周六', 6: '周日'}
+    today = datetime.now()
+    today_str = today.strftime('%Y-%m-%d')
+    weekday = weekday_map.get(today.weekday(), '')
     
-    # Step 5: Discord 推送
-    try:
-        discord_msg = _format_dashboard_discord(profit_group, loss_group, pending_details, wins, losses_count, wr, avg_r)
-        from tools.notifier import send_discord_message
-        send_discord_message(discord_msg)
-        logger.info("✅ 仪表盘已推送 Discord")
-    except Exception as e:
-        logger.warning(f"Discord 推送失败: {e}")
+    print(f"\n{'═' * 58}")
+    print(f"  📊 周线信号追踪 | {today_str} ({weekday})")
+    print(f"{'═' * 58}")
+    
+    # 📌 概览 (一行)
+    print(f"\n  📌 概览: 追踪 {len(enriched)} | "
+          f"入场 {len(active_all)} | 等待 {len(pending_all)} | "
+          f"失效 {len(invalidated_all)} | "
+          f"胜 {wins_count} 负 {losses_count}")
+    
+    # 🌟🌟 A+ 极品动态 — 主角
+    if aplus_total > 0:
+        gap_ok = len(aplus_active) + len(aplus_pending)
+        gap_dead = len(aplus_invalidated)
+        print(f"\n  🌟🌟 A+ 极品动态 ({aplus_total}只)")
+        print(f"  ┃ 缺口完好: {gap_ok}只 | 缺口已补: {gap_dead}只")
+        
+        if aplus_active:
+            print(f"  ┃")
+            print(f"  ┃ 🎯 已入场 ({len(aplus_active)}只):")
+            for s in aplus_active:
+                dist_tp_desc = f"距止盈 {s['dist_tp']:.0f}%" if s['dist_tp'] > 0 else "已达止盈区"
+                print(f"  ┃  {s['name']} | 现价 {s['current']:.2f} | 浮盈 {s['pnl_pct']:+.1f}% | {dist_tp_desc}")
+        
+        if aplus_pending:
+            print(f"  ┃")
+            close_p = [s for s in aplus_pending if s['dist_entry_pct'] < 5]
+            far_p = [s for s in aplus_pending if s['dist_entry_pct'] >= 5]
+            if close_p:
+                print(f"  ┃ 🔥 快要入场 ({len(close_p)}只):")
+                for s in close_p:
+                    print(f"  ┃  {s['name']} | {_format_entry_distance(s['dist_entry_pct'])} → 入场 {s['entry']:.2f}")
+            if far_p:
+                print(f"  ┃ ⏳ 等待中 ({len(far_p)}只):")
+                for s in far_p:
+                    print(f"  ┃  {s['name']} | {_format_entry_distance(s['dist_entry_pct'])}")
+        
+        if aplus_invalidated:
+            print(f"  ┃")
+            names = " / ".join([s['name'] for s in aplus_invalidated])
+            print(f"  ┃ 💀 已失效 ({len(aplus_invalidated)}只): {names}")
+    
+    # 🎯 非 A+ 入场汇总
+    if other_active:
+        print(f"\n  🎯 其他入场 ({len(other_active)}只)")
+        # 只展示盈亏前3
+        profit_ones = [s for s in other_active if s['pnl_pct'] >= 0]
+        loss_ones = [s for s in other_active if s['pnl_pct'] < 0]
+        if profit_ones:
+            top3 = profit_ones[:3]
+            print(f"  浮盈: " + " | ".join([f"{s['name']} {s['pnl_pct']:+.0f}%" for s in top3]))
+        if loss_ones:
+            loss_ones.sort(key=lambda x: x['pnl_pct'])
+            bot3 = loss_ones[:3]
+            print(f"  浮亏: " + " | ".join([f"{s['name']} {s['pnl_pct']:+.0f}%" for s in bot3]))
+    
+    # 📊 尾部一行汇总
+    a_pending = [s for s in pending_all if s['rating'] == 'A']
+    other_pending = [s for s in pending_all if s['rating'] not in ('A+', 'A')]
+    rest_parts = []
+    if a_pending:
+        rest_parts.append(f"A级等待 {len(a_pending)}只")
+    if other_pending:
+        rest_parts.append(f"B/C级等待 {len(other_pending)}只")
+    if invalidated_all:
+        non_aplus_inv = len(invalidated_all) - len(aplus_invalidated)
+        if non_aplus_inv > 0:
+            rest_parts.append(f"其他失效 {non_aplus_inv}只")
+    if rest_parts:
+        print(f"\n  📊 " + " | ".join(rest_parts))
+    
+    if total_resolved > 0:
+        print(f"  📈 本月: 胜{wins_count} 负{losses_count} | 胜率{wr:.0f}% | {avg_r:+.2f}R")
+    print(f"{'═' * 58}\n")
+    
+    # =====================================================================
+    # Step 5: Discord 多条推送
+    # =====================================================================
+    _push_dashboard_discord(
+        enriched, aplus_active, aplus_pending, aplus_invalidated,
+        other_active, pending_all, invalidated_all,
+        wins_count, losses_count, wr, avg_r, today_str, weekday
+    )
 
 
 def _get_latest_price(code, timeframe='daily'):
@@ -927,46 +895,100 @@ def _make_progress_bar(progress, width=10):
     return '█' * filled + '░' * (width - filled)
 
 
-def _format_dashboard_discord(profit, loss, pending, wins, losses_count, wr, avg_r):
-    """格式化 Discord 推送消息 (严格控制 2000 字符限制)"""
-    msg = "📊 **信号追踪仪表盘**\n"
+def _push_dashboard_discord(enriched, aplus_active, aplus_pending, aplus_invalidated,
+                             other_active, pending_all, invalidated_all,
+                             wins_count, losses_count, wr, avg_r, today_str, weekday):
+    """Discord 多条推送 (分类消息 + A+ 个股图表)"""
+    try:
+        from tools.notifier import send_discord_message, generate_chart_bytes, send_discord_image
+    except ImportError:
+        logger.warning("Discord notifier 不可用")
+        return
     
-    if profit:
-        msg += f"\n🟢 **盈利中 ({len(profit)}只)**\n"
-        for p in profit[:5]:
-            msg += f"  {p['name']} [{p['rating']}] | {p['pnl_pct']:+.1f}% | 距TP {p['dist_tp']:.1f}%\n"
+    # ── 消息 1: 概览 ──
+    msg1 = f"📊 **周线信号追踪 | {today_str} ({weekday})**\n"
+    msg1 += f"━━━━━━━━━━━━━━━━\n"
+    msg1 += f"追踪 {len(enriched)} | 入场 {len([s for s in enriched if s['status']=='ACTIVE'])} | "
+    msg1 += f"等待 {len(pending_all)} | 失效 {len(invalidated_all)}\n"
+    if wins_count + losses_count > 0:
+        msg1 += f"📈 本月: 胜{wins_count} 负{losses_count} | 胜率{wr:.0f}% | {avg_r:+.2f}R\n"
     
-    if loss:
-        msg += f"\n🔴 **亏损预警 ({len(loss)}只)**\n"
-        for l in loss[:3]:
-            danger = " ⚠️" if l['dist_sl'] < 3 else ""
-            msg += f"  {l['name']} [{l['rating']}] | {l['pnl_pct']:+.1f}% | 距SL {l['dist_sl']:.1f}%{danger}\n"
+    try:
+        send_discord_message(msg1)
+    except Exception as e:
+        logger.warning(f"Discord 概览推送失败: {e}")
+        return
     
-    if pending:
-        vip_p = [p for p in pending if p.get('rating') == 'A+']
-        a_p = [p for p in pending if p.get('rating') == 'A']
-        msg += f"\n⏳ **等待入场 ({len(pending)}只)**\n"
-        if vip_p:
-            show_vip = vip_p[:5]  # 只显示最近 5 只 A+
-            msg += f"🌟🌟 **A+ 极品 ({len(vip_p)}只):**\n"
-            for p in show_vip:
-                fire = "🔥" if p['dist_entry_pct'] < 3 else ""
-                msg += f"  {fire}{p['name']} | {_format_entry_distance(p['dist_entry_pct'])}\n"
-            if len(vip_p) > 5:
-                msg += f"  ...另有 {len(vip_p) - 5} 只 A+\n"
-        if a_p:
-            # A 级只显示名字列表
-            names = [p['name'] for p in a_p[:5]]
-            msg += f"🌟 A级 ({len(a_p)}只): {' / '.join(names)}\n"
-        other_count = len(pending) - len(vip_p) - len(a_p)
-        if other_count > 0:
-            msg += f"  + {other_count} 只 B/C 级\n"
+    # ── 消息 2: A+ 极品动态 + 图表 ──
+    aplus_total = len(aplus_active) + len(aplus_pending) + len(aplus_invalidated)
+    if aplus_total > 0:
+        msg2 = f"🌟🌟 **A+ 极品动态 ({aplus_total}只)**\n"
+        
+        if aplus_active:
+            msg2 += f"\n🎯 **已入场 ({len(aplus_active)}只):**\n"
+            for s in aplus_active:
+                dist_tp = f"距止盈 {s['dist_tp']:.0f}%" if s['dist_tp'] > 0 else "已达止盈区"
+                msg2 += f"  {s['name']} | 现价{s['current']:.2f} | 浮盈{s['pnl_pct']:+.1f}% | {dist_tp}\n"
+        
+        if aplus_pending:
+            msg2 += f"\n⏳ **等待入场 ({len(aplus_pending)}只):**\n"
+            for s in aplus_pending:
+                msg2 += f"  {s['name']} | {_format_entry_distance(s['dist_entry_pct'])} → 入场{s['entry']:.2f}\n"
+        
+        if aplus_invalidated:
+            names = " / ".join([s['name'] for s in aplus_invalidated])
+            msg2 += f"\n💀 **已失效:** {names}\n"
+        
+        try:
+            send_discord_message(msg2)
+        except Exception as e:
+            logger.warning(f"Discord A+推送失败: {e}")
+        
+        # A+ 个股图表推送 (只推 ACTIVE 和 PENDING 的, 失效的不推)
+        chart_targets = aplus_active + aplus_pending
+        chart_buffers = []
+        for s in chart_targets:
+            try:
+                buf = generate_chart_bytes(
+                    code=s['code'], stock_name=s['name'],
+                    strategy_type=s.get('strategy', 'STRUCTURAL_GAP'),
+                    sl_price=s['sl'], tp1=s['tp'],
+                    ev_rating=s.get('ev_rating', '')
+                )
+                if buf:
+                    chart_buffers.append(buf)
+            except Exception:
+                pass
+        
+        if chart_buffers:
+            from tools.notifier import stitch_images
+            stitched = stitch_images(chart_buffers)
+            if stitched:
+                try:
+                    send_discord_image(stitched, filename="aplus_charts.png")
+                    logger.info(f"📤 A+ 图表 ({len(chart_buffers)}张) 已推送")
+                except Exception as e:
+                    logger.warning(f"A+ 图表推送失败: {e}")
     
-    msg += f"\n📈 本月: 胜{wins} 负{losses_count} | 胜率{wr:.0f}% | {avg_r:+.2f}R"
+    # ── 消息 3: 其他入场汇总 ──
+    if other_active:
+        msg3 = f"🎯 **其他入场 ({len(other_active)}只)**\n"
+        profit_ones = [s for s in other_active if s['pnl_pct'] >= 0]
+        loss_ones = sorted([s for s in other_active if s['pnl_pct'] < 0], key=lambda x: x['pnl_pct'])
+        
+        if profit_ones:
+            top = profit_ones[:5]
+            msg3 += "浮盈: " + " | ".join([f"{s['name']}{s['pnl_pct']:+.0f}%" for s in top])
+            if len(profit_ones) > 5:
+                msg3 += f" +{len(profit_ones)-5}只"
+            msg3 += "\n"
+        if loss_ones:
+            bot = loss_ones[:3]
+            msg3 += "浮亏: " + " | ".join([f"{s['name']}{s['pnl_pct']:+.0f}%" for s in bot]) + "\n"
+        
+        try:
+            send_discord_message(msg3)
+        except Exception as e:
+            logger.warning(f"Discord 入场推送失败: {e}")
     
-    # 安全截断 (Discord 限制 2000 字符)
-    if len(msg) > 1950:
-        msg = msg[:1940] + "\n... (已截断)"
-    
-    return msg
-
+    logger.info("✅ 仪表盘已推送 Discord (多条)")
