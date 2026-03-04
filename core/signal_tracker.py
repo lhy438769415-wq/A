@@ -199,11 +199,9 @@ def _track_single(sig: dict) -> dict:
     tp = sig['tp_price']
     
     # 获取信号日期之后的行情数据
+    # 始终用日线数据追踪 — 周线 bar 要等周五收盘才出现, 周中追踪会完全看不到价格变动
     try:
-        if tf == 'weekly':
-            df = dp.get_stock_data_weekly(code)
-        else:
-            df = dp.get_stock_data(code, limit=200)
+        df = dp.get_stock_data(code, limit=200)
         
         if df is None or df.empty:
             return None
@@ -629,7 +627,6 @@ def run_tracker_dashboard():
             ).fetchall()
             
             # 本月已结算统计
-            from datetime import datetime, timedelta
             month_start = datetime.now().replace(day=1).strftime('%Y-%m-%d')
             resolved_rows = conn.execute(
                 "SELECT status, entry_price, sl_price, exit_price FROM signal_archive "
