@@ -23,7 +23,7 @@ import baostock as bs
 from core.calculator import add_indicators
 from core.strategies.three_k_strategy import ThreeKStrategy
 import core.data_provider as dp
-from tools.notifier import generate_chart_bytes, stitch_images, send_discord_image, send_discord_message
+from tools.notifier import generate_chart_bytes, stitch_images, send_discord_image, send_discord_message, send_discord_images
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -243,29 +243,22 @@ def main():
                 except Exception as e:
                     logger.warning(f"绘图失败 {s['code']}: {e}")
                     
-        # 拼接并发送
+        # 推送到 Discord
         if chart_buffers:
-            stitched = stitch_images(chart_buffers)
-            if stitched:
-                # 微信正文摘要
-                msg = "🔔 【周线 3K 雷达扫描完成】\n"
-                msg += f"时间: {pd.Timestamp.now().strftime('%Y-%m-%d')}\n"
-                msg += f"池子: 全市场 {len(all_codes)} 只个股\n"
-                msg += f"----------------------\n"
-                msg += f"🎯 缺口确认 (待设Buy Stop): {len(sig_gt)} 只\n"
-                msg += f"🔭 新出3K雏形 (重点观察): {len(sig_3k)} 只\n"
-                msg += f"详细标的名单及交易策略，请在电脑端查看本地分析报告。\n"
-                msg += f"本次推送 Top {len(chart_buffers)} 的图形参考。"
-                
-                send_discord_message(msg)
-                send_discord_image(stitched)
-                print("✅ 微信图文推送成功！")
-            else:
-                print("⚠️ 图片拼接失败，未能推送图形。")
+            msg = "🔔 【周线 3K 雷达扫描完成】\n"
+            msg += f"时间: {pd.Timestamp.now().strftime('%Y-%m-%d')}\n"
+            msg += f"池子: 全市场 {len(all_codes)} 只个股\n"
+            msg += f"----------------------\n"
+            msg += f"🎯 缺口确认 (待设Buy Stop): {len(sig_gt)} 只\n"
+            msg += f"🔭 新出3K雏形 (重点观察): {len(sig_3k)} 只\n"
+            
+            filenames = [f"weekly_3k_{i}.png" for i in range(len(chart_buffers))]
+            send_discord_images(chart_buffers, filenames, content=msg)
+            print("✅ Discord 图文推送成功！")
         else:
             if not sig_gt and not sig_3k:
                 send_discord_message("🔔 **【周线 3K 雷达】**\n本周无任何符合条件的标的。好好休息！")
-                print("✅ 微信空结果推送成功！")
+                print("✅ Discord 空结果推送成功！")
             else:
                 print("⚠️ 没有成功生成任何图表。")
         

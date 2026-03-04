@@ -884,11 +884,27 @@ def _push_resolved_alert(sig, status):
         send_discord_message(msg)
         
         # 生成并推送K线图
+        # 周线信号需要用周线数据, 否则 generate_chart_bytes 默认走日线
+        df_override = None
+        timeframe = sig.get('timeframe', 'daily')
+        if timeframe == 'weekly':
+            try:
+                df_w = dp.get_stock_data_weekly(code, limit=300)
+                if df_w is not None and not df_w.empty:
+                    from core.calculator import add_indicators
+                    from core.strategies.structural_gap_strategy import StructuralGapStrategy
+                    df_w = add_indicators(df_w)
+                    df_w = StructuralGapStrategy().calculate_signals(df_w)
+                    df_override = df_w
+            except Exception as e:
+                logger.warning(f"周线数据获取失败, 回退日线: {e}")
+        
         chart_buf = generate_chart_bytes(
             code=code, stock_name=name,
             strategy_type=sig.get('strategy', 'STRUCTURAL_GAP'),
             sl_price=sl, tp1=tp,
-            ev_rating=sig.get('ev_rating', '')
+            ev_rating=sig.get('ev_rating', ''),
+            df_override=df_override
         )
         if chart_buf:
             send_discord_image(chart_buf, filename=f"{code}_{status}.png")
