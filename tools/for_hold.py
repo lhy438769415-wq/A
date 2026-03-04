@@ -68,8 +68,67 @@ def load_holdings_with_cost() -> List[Dict[str, any]]:
         return []
 
 
+def _get_trade_thesis(code: str) -> dict:
+    """从 signal_archive 查询该持仓的交易论据 (Trade Thesis)
+    
+    查找该代码最近一条 ACTIVE/PENDING 状态的信号记录,
+    提取入场价、止损、目标等关键参数作为 AI 分析的上下文。
+    """
+    try:
+        from core.database import get_db_connection
+        import core.data_provider as dp_check
+        
+        with get_db_connection() as conn:
+            row = conn.execute("""
+                SELECT strategy, signal_date, entry_price, sl_price, tp_price, 
+                       ev_rating, status, timeframe
+                FROM signal_archive 
+                WHERE code = ? AND status IN ('PENDING', 'ACTIVE')
+                ORDER BY created_at DESC LIMIT 1
+            """, (code,)).fetchone()
+            
+            if not row:
+                return {}
+            
+            thesis = {
+                'strategy': row[0] or '未知',
+                'signal_date': row[1] or '未知',
+                'entry_price': row[2] or 0,
+                'sl_price': row[3] or 0,
+                'tp_price': row[4] or 0,
+                'ev_rating': row[5] or 'N/A',
+                'status': row[6] or 'UNKNOWN',
+                'timeframe': row[7] or 'daily',
+            }
+            
+            # 检查缺口是否仍然开放 (仅对 structural_gap 策略)
+            if 'STRUCTURAL_GAP' in thesis['strategy'].upper():
+                try:
+                    tf = thesis['timeframe']
+                    if tf == 'weekly':
+                        df_check = dp_check.get_stock_data_weekly(code, limit=10)
+                    else:
+                        df_check = dp_check.get_stock_data(code, limit=10)
+                    
+                    if df_check is not None and not df_check.empty:
+                        latest_low = df_check['low'].iloc[-1]
+                        gap_floor = thesis['sl_price']
+                        thesis['gap_status'] = '开放 ✅' if latest_low > gap_floor else '已击穿 ❌'
+                    else:
+                        thesis['gap_status'] = '数据不足'
+                except:
+                    thesis['gap_status'] = '检查失败'
+            else:
+                thesis['gap_status'] = 'N/A'
+            
+            return thesis
+    except Exception as e:
+        logger.warning(f"查询交易论据失败 ({code}): {e}")
+        return {}
+
+
 def analyze_single_stock_micro(holding_item: Dict[str, any]) -> Optional[bool]:
-    """分析单只持仓股票 (纯日线模式)
+    """分析单只持仓股票 (PA 日线诊断 + 交易论据上下文)
 
     Args:
         holding_item: 包含股票代码和成本的字典
@@ -80,12 +139,11 @@ def analyze_single_stock_micro(holding_item: Dict[str, any]) -> Optional[bool]:
     code = holding_item['code']
     cost = holding_item['cost']
     name = fetch_stock_name(code)
-    logger.info(f"\n🔬 [{name}|{code}] 正在进行持仓诊断 (日线)...")
+    logger.info(f"\n🔬 [{name}|{code}] 正在进行持仓诊断...")
 
     # -------------------------------------------------
-    # 1. 准备数据 (仅日线)
+    # 1. 准备数据 (日线 PA)
     # -------------------------------------------------
-    # 获取最近 150 天日线 (确保 EMA60/ATR 等指标计算有效)
     df_daily = data_provider.get_stock_data(code, limit=150)
 
     if df_daily is None or df_daily.empty:
@@ -99,18 +157,26 @@ def analyze_single_stock_micro(holding_item: Dict[str, any]) -> Optional[bool]:
         return False
 
     # -------------------------------------------------
-    # 2. 调用 Formatter 生成 Guardian Prompt
+    # 2. 查询交易论据 (Trade Thesis)
     # -------------------------------------------------
-    # 构造持仓上下文
+    trade_thesis = _get_trade_thesis(code)
+    if trade_thesis:
+        logger.info(f"  📋 交易论据: {trade_thesis['strategy']} | SL={trade_thesis['sl_price']:.2f} | TP={trade_thesis['tp_price']:.2f} | 缺口={trade_thesis.get('gap_status', 'N/A')}")
+    else:
+        logger.info(f"  ⚠️ 无归档信号记录, 使用基础分析模式")
+
+    # -------------------------------------------------
+    # 3. 调用 Formatter 生成 Guardian Prompt (带交易论据)
+    # -------------------------------------------------
     holding_ctx = {
         'code': code, 
         'cost': cost,
         'df': df_daily,
-        'type': 'HOLDING_CHECK' 
+        'type': 'HOLDING_CHECK',
+        'trade_thesis': trade_thesis,
     }
     
     try:
-        # 使用 Guardian 专用 Prompt
         from core.formatter import format_guardian_prompt
         prompt = format_guardian_prompt(holding_ctx)
     except Exception as e:
@@ -130,39 +196,65 @@ def analyze_single_stock_micro(holding_item: Dict[str, any]) -> Optional[bool]:
     advice = parsed.get('position_adjust', 'Keep Position')
     reason = parsed.get('reason', '无具体理由')
 
-    # 4. 组装最终消息 (Guardian 风格)
+    # 4. 组装最终消息 (用户体验优先)
     current_price = df_daily.iloc[-1]['close']
     pnl_val = current_price - cost
     pnl_pct = (pnl_val / cost * 100) if cost > 0 else 0.0
     pnl_emoji = "🔴" if pnl_pct >= 0 else "🟢"  # A股：红涨绿跌
     
-    # 状态图标
-    status_icon = "🛡️"
-    if "EXIT" in status.upper(): status_icon = "🛑"
-    elif "TRIM" in status.upper(): status_icon = "✂️"
+    # 状态图标 + 颜色
+    status_upper = status.upper()
+    if "EXIT" in status_upper:
+        status_icon, status_cn = "🛑", "建议离场"
+    elif "TRIM" in status_upper:
+        status_icon, status_cn = "✂️", "建议减仓"
+    else:
+        status_icon, status_cn = "🛡️", "继续持有"
     
-    warning_str = ""
+    # AI 一句话摘要 (优先用 discord_msg, 比完整 reason 更简洁)
+    one_liner = parsed.get('discord_msg') or reason
+    if len(one_liner) > 80:
+        one_liner = one_liner[:77] + "..."
+    
+    # 预警信息
+    warning_line = ""
     if warning and warning.upper() != "NONE":
-         warning_str = f"\n⚠️ **预警**: {warning}"
+        warning_line = f"⚠️ 预警: {warning}\n"
     
+    # 构建消息: 用户最关心的信息在最前面
     final_content = (
-        f"{status_icon} **Guardian 持仓日报**\n"
-        f"🔍 **{name}（{code}）**\n"
-        f"💰 **现价**: {current_price:.2f} (成本: {cost:.2f})\n"
-        f"{pnl_emoji} **浮盈**: {pnl_pct:+.2f}%\n"
-        f"---------------\n"
-        f"📅 **状态**: {status}\n"
-        f"🛑 **止损建议**: {new_stop}{warning_str}\n"
-        f"📝 **策略**: {advice}\n"
-        f"💡 **理由**: {reason}\n"
+        f"{status_icon} **{name}** ({code}) — **{status_cn}**\n"
+        f"{pnl_emoji} 现价 {current_price:.2f} | 成本 {cost:.2f} | 浮盈 **{pnl_pct:+.1f}%**\n"
+        f"{warning_line}"
+        f"🎯 止损 → {new_stop} | 目标 {trade_thesis.get('tp_price', 0):.2f}\n"
+        f"💡 {one_liner}\n"
     )
 
-    # 发送
+    # 发送文字 + 图表
     try:
         send_discord_message(final_content)
-        # 记录日志 (SOP Step 16)
+        
+        # 推送 K 线图 (带 SL/TP 标线, 让用户可视化评估)
+        try:
+            from tools.notifier import generate_chart_bytes, send_discord_image
+            sl_for_chart = trade_thesis.get('sl_price', 0)
+            tp_for_chart = trade_thesis.get('tp_price', 0)
+            strategy_type = trade_thesis.get('strategy', 'STRUCTURAL_GAP')
+            
+            chart_buf = generate_chart_bytes(
+                code=code, stock_name=name,
+                strategy_type=strategy_type,
+                sl_price=sl_for_chart, tp1=tp_for_chart,
+                ev_rating=trade_thesis.get('ev_rating', ''),
+            )
+            if chart_buf:
+                send_discord_image(chart_buf, filename=f"guardian_{code}.png")
+        except Exception as e:
+            logger.warning(f"图表生成/推送失败: {e}")
+        
+        # 记录日志
         log_guardian_decision(code, {'verdict': status, 'reason': reason, 'raw': response_text})
-        logger.info(f"✅ {name} 诊断完成 ({status})")
+        logger.info(f"✅ {name} 诊断完成 ({status_cn})")
         return True
     except Exception as e:
         logger.error(f"❌ 发送消息/记录日志失败: {e}")

@@ -128,39 +128,101 @@ def format_hunter_prompt(candidate_data):
 
 def format_guardian_prompt(holding_data):
     """
-    [Guardian Mode Prompt: Persona + CSV + Template]
-    用户指定: "我是一个基于 Al Brooks 价格行为学的交易员... 持仓成本XX"
+    [Guardian Mode Prompt V2: Trade Thesis + PA Daily Diagnosis]
+    核心理念: 不是让 AI 重新分析周线, 而是把交易论据作为事实传给 AI,
+    让 AI 基于日线 PA 判断论据是否仍然成立。
     """
     code = holding_data['code']
     cost = holding_data.get('cost', 0)
     df = holding_data['df']
     
+    # 交易论据上下文 (从 signal_archive 查询)
+    thesis = holding_data.get('trade_thesis', {})
+    entry_price = thesis.get('entry_price', cost)
+    sl_price = thesis.get('sl_price', 0)
+    tp_price = thesis.get('tp_price', 0)
+    strategy = thesis.get('strategy', '未知')
+    ev_rating = thesis.get('ev_rating', 'N/A')
+    gap_status = thesis.get('gap_status', '未知')
+    signal_date = thesis.get('signal_date', '未知')
+    
     ctx = _get_common_context(df, window_size=60)
     sop_content = load_sop_rules()
+    
+    # 构建交易论据描述
+    if 'STRUCTURAL_GAP' in strategy.upper():
+        thesis_desc = (
+            f"该持仓基于「结构性突破缺口」策略入场。"
+            f"在 {signal_date} 发现价格突破了长期盘整的高点形成 Breakout Gap, "
+            f"并在回调中确认缺口底部(Gap Floor)未被击穿。\n"
+            f"  - 战略止损 (Gap Floor): {sl_price:.2f}\n"
+            f"  - 对称测量目标 (MM): {tp_price:.2f}\n"
+            f"  - 缺口状态: {gap_status}\n"
+            f"  - 系统评级: {ev_rating}"
+        )
+    elif '3K' in strategy.upper():
+        thesis_desc = (
+            f"该持仓基于「3K 动能突破」策略入场。"
+            f"在 {signal_date} 出现连续三根强势 K 线突破, 形成缺口测试确认。\n"
+            f"  - 战略止损: {sl_price:.2f}\n"
+            f"  - 目标: {tp_price:.2f}"
+        )
+    elif 'MTR' in strategy.upper():
+        thesis_desc = (
+            f"该持仓基于「MTR 主要趋势反转」策略入场。"
+            f"在 {signal_date} 确认 Higher Low 反转信号。\n"
+            f"  - 战略止损: {sl_price:.2f}\n"
+            f"  - 目标: {tp_price:.2f}"
+        )
+    else:
+        thesis_desc = (
+            f"持仓成本: {cost:.2f}\n"
+            f"  - 止损参考: {sl_price:.2f}\n"
+            f"  - 目标参考: {tp_price:.2f}"
+        )
     
     prompt = f"""
 {sop_content}
 ---
-# 👤 ROLE: AI BROOKS TRADER
-我是一个基于 AI Brooks 价格行为学的交易员。请根据以下 OHLC 数据，像 Al Brooks 一样分析这只股票 ({code}) 的市场情绪。
-我当前的持仓成本是 {cost:.2f} 元。
-重点告诉我：
-1. 当前走势是否出现高潮 (Climax) 也就是潜在反转信号？
-2. 我应该如何移动止损或减仓？ (Guardian Focus)
+# 👤 ROLE: AI BROOKS GUARDIAN (持仓管家)
 
-# 🔬 MARKET DATA (Last 60 Days)
+你正在管理一笔基于 Al Brooks Price Action 的摆动交易 (Swing Trade)。
+
+## 📋 交易论据 (Trade Thesis)
+{thesis_desc}
+
+## 💰 当前持仓
+- 股票代码: {code}
+- 持仓成本: {cost:.2f}
+- 当前价格: {ctx['last_price']:.2f}
+
+## 🔬 日线 K 线数据 (最近 60 个交易日)
 {ctx['csv_str']}
 
-# 📝 PLAN TEMPLATE (持仓计划模版)
-并按照我的模版输出持仓计划，以下是我的持仓计划模版：
+## ❓ 请基于 PA 回答以下问题
+
+1. **交易论据是否仍然成立？**
+   - 日线 PA 是否出现了任何破坏交易前提 (Premise) 的信号？
+   - 如果战略止损位 {sl_price:.2f} 尚未被跌破, 但日线已出现 Climax/反转, 请评估风险。
+
+2. **战术止损如何调整？**
+   - 在战略止损 {sl_price:.2f} 之上, 日线是否有更紧凑的 PA 止损位？
+   - 是否已有条件将止损移至盈亏平衡 (Breakeven)？
+   (参考 SOP Step 15: Breakeven Trigger = 利润达到目标的约一半)
+
+3. **是否需要减仓或离场？**
+   - 是否出现买入高潮 (Buy Climax) 或穷尽性缺口 (Exhaustion Gap)？
+   - 当前价格距目标 {tp_price:.2f} 的位置, 是否已经达到或接近？
+
+## 📝 输出模版 (严格按此格式)
 
 <STATUS>HOLD / TRIM / EXIT</STATUS>
-<WARNING>Climax / Resistance / None</WARNING>
-<NEW_STOP>Price</NEW_STOP>
-<POSITION_ADJUST>Note on scaling</POSITION_ADJUST>
+<WARNING>Climax / Exhaustion / Premise Weakening / None</WARNING>
+<NEW_STOP>建议的新止损价格 (必须 >= 战略止损 {sl_price:.2f})</NEW_STOP>
+<POSITION_ADJUST>仓位调整建议</POSITION_ADJUST>
 <VERDICT>PASS / NO TRADE</VERDICT>
-<DISCORD>一句话核心逻辑和买卖点定论</DISCORD>
-<REASON>Reasoning</REASON>
+<DISCORD>一句话核心逻辑: 当前 PA 状态 + 持仓建议</DISCORD>
+<REASON>详细推理过程, 引用具体的 K 线日期和价格行为特征</REASON>
 """
     return prompt
 
