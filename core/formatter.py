@@ -129,14 +129,13 @@ def format_hunter_prompt(candidate_data):
 def format_guardian_prompt(holding_data):
     """
     [Guardian Mode Prompt V2: Trade Thesis + PA Daily Diagnosis]
-    核心理念: 不是让 AI 重新分析周线, 而是把交易论据作为事实传给 AI,
-    让 AI 基于日线 PA 判断论据是否仍然成立。
+    Token 优化版: 不加载完整 SOP (33KB), 只内联持仓管理相关的 PA 规则。
     """
     code = holding_data['code']
     cost = holding_data.get('cost', 0)
     df = holding_data['df']
     
-    # 交易论据上下文 (从 signal_archive 查询)
+    # 交易论据上下文
     thesis = holding_data.get('trade_thesis', {})
     entry_price = thesis.get('entry_price', cost)
     sl_price = thesis.get('sl_price', 0)
@@ -146,93 +145,74 @@ def format_guardian_prompt(holding_data):
     gap_status = thesis.get('gap_status', '未知')
     signal_date = thesis.get('signal_date', '未知')
     
-    ctx = _get_common_context(df, window_size=60)
-    sop_content = load_sop_rules()
+    # 仅取 30 天日线 (持仓管理不需要 60 天)
+    ctx = _get_common_context(df, window_size=30)
     
-    # 构建交易论据描述
+    # 构建交易论据描述 (简洁)
     if 'STRUCTURAL_GAP' in strategy.upper():
         thesis_desc = (
-            f"该持仓基于「结构性突破缺口」策略入场。"
-            f"在 {signal_date} 发现价格突破了长期盘整的高点形成 Breakout Gap, "
-            f"并在回调中确认缺口底部(Gap Floor)未被击穿。\n"
-            f"  - 战略止损 (Gap Floor): {sl_price:.2f}\n"
-            f"  - 对称测量目标 (MM): {tp_price:.2f}\n"
-            f"  - 缺口状态: {gap_status}\n"
-            f"  - 系统评级: {ev_rating}"
+            f"策略: 结构性突破缺口 | 信号日: {signal_date} | 评级: {ev_rating}\n"
+            f"SL(Gap Floor): {sl_price:.2f} | TP(MM): {tp_price:.2f} | 缺口: {gap_status}"
         )
     elif '3K' in strategy.upper():
-        thesis_desc = (
-            f"该持仓基于「3K 动能突破」策略入场。"
-            f"在 {signal_date} 出现连续三根强势 K 线突破, 形成缺口测试确认。\n"
-            f"  - 战略止损: {sl_price:.2f}\n"
-            f"  - 目标: {tp_price:.2f}"
-        )
+        thesis_desc = f"策略: 3K动能突破 | 信号日: {signal_date} | SL: {sl_price:.2f} | TP: {tp_price:.2f}"
     elif 'MTR' in strategy.upper():
-        thesis_desc = (
-            f"该持仓基于「MTR 主要趋势反转」策略入场。"
-            f"在 {signal_date} 确认 Higher Low 反转信号。\n"
-            f"  - 战略止损: {sl_price:.2f}\n"
-            f"  - 目标: {tp_price:.2f}"
-        )
+        thesis_desc = f"策略: MTR反转 | 信号日: {signal_date} | SL: {sl_price:.2f} | TP: {tp_price:.2f}"
     else:
-        thesis_desc = (
-            f"持仓成本: {cost:.2f}\n"
-            f"  - 止损参考: {sl_price:.2f}\n"
-            f"  - 目标参考: {tp_price:.2f}"
-        )
+        thesis_desc = f"成本: {cost:.2f} | SL: {sl_price:.2f} | TP: {tp_price:.2f}"
     
-    prompt = f"""
-{sop_content}
+    prompt = f"""# ROLE: Al Brooks PA 持仓管家
+
+## PA 规则 (仅持仓管理相关)
+
+**市场状态判断 (Step 1)**:
+- 强趋势: 连续 >=3 根同向 K 线, Body > Avg, Price > EMA20
+- 弱通道: 回调深度 > 50% 前一波段, 收盘穿越 EMA20
+- 震荡区间: K 线重叠度 > 50%, 实体 < 20% 范围
+
+**高潮/陷阱识别 (Step 8)**:
+- 买入高潮: 趋势持续 20+ 根后出现最大趋势 K 线, 60% 概率是穷尽性结束
+- 穷尽性缺口: 趋势后期缺口, 随后无跟进, 应立即止盈
+
+**加仓 (Step 14)**:
+- 顺势加仓 (Pyramiding): 趋势强劲(Always In Long) + 回调出现新信号 K 线时加仓
+- 条件: 回调幅度合理 (未跌破前一 Higher Low), 入场用 Stop Order
+- 加仓后综合止损必须移至新的盈亏平衡点
+
+**移动止损 (Step 15)**:
+- Breakeven 触发: 利润 >= 目标距离一半时移至成本价
+- 趋势追踪: 新 Higher Low 形成后, 止损移至其下方 1 tick
+- 加速追踪: 趋势加速时逐 K 线追踪 (前一根低点下方)
+
+**止盈 (Step 16)**:
+- MM 目标处平仓 50%, 剩余持有至反转信号
+- 出现高潮 K 线时在收盘价全部平仓
+- 最小修正预期: 10 根 K 线 + 两段走势 (TBTL)
+
 ---
-# 👤 ROLE: AI BROOKS GUARDIAN (持仓管家)
 
-你正在管理一笔基于 Al Brooks Price Action 的摆动交易 (Swing Trade)。
-
-## 📋 交易论据 (Trade Thesis)
+## 持仓信息
 {thesis_desc}
+现价: {ctx['last_price']:.2f} | 成本: {cost:.2f} | 代码: {code}
 
-## 💰 当前持仓
-- 股票代码: {code}
-- 持仓成本: {cost:.2f}
-- 当前价格: {ctx['last_price']:.2f}
-
-## 🔬 日线 K 线数据 (最近 60 个交易日)
+## 日线数据 (近30天)
 {ctx['csv_str']}
 
-## ❓ 请基于 PA 回答以下问题
+## 请回答 (基于上述 PA 规则)
+1. 论据是否成立? (Premise 未破坏?)
+2. 止损调整? (Higher Low / Breakeven / 逐K追踪?)
+3. 加仓机会? (回调企稳 + 信号 K 线? 加仓价位?)
+4. 部分止盈? (距 TP {tp_price:.2f} 多远? 高潮信号?)
+5. 全部离场? (SL {sl_price:.2f} 已破/即将失守?)
 
-1. **交易论据是否仍然成立？** (Premise Check)
-   - 日线 PA 是否出现了任何破坏交易前提的信号？
-   - 价格结构是否仍在突破后的正常回调范围内？
-
-2. **止损管理** (SOP Step 15: Trailing Logic)
-   - 在战略止损 {sl_price:.2f} 之上, 日线是否形成了可识别的更高低点 (Higher Low) 作为新的 PA 止损位?
-   - 是否已满足 Breakeven 条件 (利润 >= 目标距离的一半)?
-   - 如果趋势加速, 是否应使用逐 K 线追踪止损 (Bar-by-Bar Trailing)?
-
-3. **是否存在加仓机会？** (SOP Step 14: Scaling Into Winners)
-   - 当前是否正处于回调企稳阶段, 且出现了新的信号 K 线 (Signal Bar)?
-   - 如果加仓, 建议的加仓价格和加仓后的综合止损在哪?
-   - 注意: 仅在趋势仍然强劲 (Always In Long) 且回调幅度合理时才建议加仓。
-
-4. **是否需要部分止盈？** (SOP Step 16: Profit Taking)
-   - 当前价格距目标 {tp_price:.2f} 有多远? 是否已达到或接近?
-   - 是否出现买入高潮 (Buy Climax)、穷尽性缺口 (Exhaustion Gap) 或趋势后期最大 K 线?
-   - Brooks 建议: 在 MM 目标处获取 50% 利润, 剩余持有至反转信号。
-
-5. **是否需要全部离场？** (Premise Failure)
-   - 战略止损 {sl_price:.2f} 是否已被跌破或即将失守?
-   - 日线是否出现 Always-In 方向翻转 (e.g. 连续 3 根反向趋势 K 线)?
-
-## 📝 输出模版 (严格按此格式)
-
+## 输出格式
 <STATUS>HOLD / ADD / TRIM / EXIT</STATUS>
 <WARNING>Climax / Exhaustion / Premise Weakening / None</WARNING>
-<NEW_STOP>建议的新止损价格 (必须 >= 战略止损 {sl_price:.2f}, 若无调整则填当前止损)</NEW_STOP>
-<POSITION_ADJUST>仓位调整建议: 加仓价位/减仓比例/不动, 附简要 PA 依据</POSITION_ADJUST>
+<NEW_STOP>新止损价 (>= {sl_price:.2f})</NEW_STOP>
+<POSITION_ADJUST>加仓价位/减仓比例/不动 + PA依据</POSITION_ADJUST>
 <VERDICT>PASS / NO TRADE</VERDICT>
-<DISCORD>一句话核心定论: 当前 PA 状态 + 具体操作建议 (含价格)</DISCORD>
-<REASON>详细推理过程, 引用具体的 K 线日期和价格行为特征</REASON>
+<DISCORD>一句话: PA状态 + 操作建议 (含价格)</DISCORD>
+<REASON>推理过程, 引用 K 线日期和特征</REASON>
 """
     return prompt
 
