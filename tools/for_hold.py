@@ -208,6 +208,8 @@ def analyze_single_stock_micro(holding_item: Dict[str, any]) -> Optional[bool]:
         status_icon, status_cn = "🛑", "建议离场"
     elif "TRIM" in status_upper:
         status_icon, status_cn = "✂️", "建议减仓"
+    elif "ADD" in status_upper:
+        status_icon, status_cn = "📈", "建议加仓"
     else:
         status_icon, status_cn = "🛡️", "继续持有"
     

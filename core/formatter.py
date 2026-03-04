@@ -201,27 +201,37 @@ def format_guardian_prompt(holding_data):
 
 ## ❓ 请基于 PA 回答以下问题
 
-1. **交易论据是否仍然成立？**
-   - 日线 PA 是否出现了任何破坏交易前提 (Premise) 的信号？
-   - 如果战略止损位 {sl_price:.2f} 尚未被跌破, 但日线已出现 Climax/反转, 请评估风险。
+1. **交易论据是否仍然成立？** (Premise Check)
+   - 日线 PA 是否出现了任何破坏交易前提的信号？
+   - 价格结构是否仍在突破后的正常回调范围内？
 
-2. **战术止损如何调整？**
-   - 在战略止损 {sl_price:.2f} 之上, 日线是否有更紧凑的 PA 止损位？
-   - 是否已有条件将止损移至盈亏平衡 (Breakeven)？
-   (参考 SOP Step 15: Breakeven Trigger = 利润达到目标的约一半)
+2. **止损管理** (SOP Step 15: Trailing Logic)
+   - 在战略止损 {sl_price:.2f} 之上, 日线是否形成了可识别的更高低点 (Higher Low) 作为新的 PA 止损位?
+   - 是否已满足 Breakeven 条件 (利润 >= 目标距离的一半)?
+   - 如果趋势加速, 是否应使用逐 K 线追踪止损 (Bar-by-Bar Trailing)?
 
-3. **是否需要减仓或离场？**
-   - 是否出现买入高潮 (Buy Climax) 或穷尽性缺口 (Exhaustion Gap)？
-   - 当前价格距目标 {tp_price:.2f} 的位置, 是否已经达到或接近？
+3. **是否存在加仓机会？** (SOP Step 14: Scaling Into Winners)
+   - 当前是否正处于回调企稳阶段, 且出现了新的信号 K 线 (Signal Bar)?
+   - 如果加仓, 建议的加仓价格和加仓后的综合止损在哪?
+   - 注意: 仅在趋势仍然强劲 (Always In Long) 且回调幅度合理时才建议加仓。
+
+4. **是否需要部分止盈？** (SOP Step 16: Profit Taking)
+   - 当前价格距目标 {tp_price:.2f} 有多远? 是否已达到或接近?
+   - 是否出现买入高潮 (Buy Climax)、穷尽性缺口 (Exhaustion Gap) 或趋势后期最大 K 线?
+   - Brooks 建议: 在 MM 目标处获取 50% 利润, 剩余持有至反转信号。
+
+5. **是否需要全部离场？** (Premise Failure)
+   - 战略止损 {sl_price:.2f} 是否已被跌破或即将失守?
+   - 日线是否出现 Always-In 方向翻转 (e.g. 连续 3 根反向趋势 K 线)?
 
 ## 📝 输出模版 (严格按此格式)
 
-<STATUS>HOLD / TRIM / EXIT</STATUS>
+<STATUS>HOLD / ADD / TRIM / EXIT</STATUS>
 <WARNING>Climax / Exhaustion / Premise Weakening / None</WARNING>
-<NEW_STOP>建议的新止损价格 (必须 >= 战略止损 {sl_price:.2f})</NEW_STOP>
-<POSITION_ADJUST>仓位调整建议</POSITION_ADJUST>
+<NEW_STOP>建议的新止损价格 (必须 >= 战略止损 {sl_price:.2f}, 若无调整则填当前止损)</NEW_STOP>
+<POSITION_ADJUST>仓位调整建议: 加仓价位/减仓比例/不动, 附简要 PA 依据</POSITION_ADJUST>
 <VERDICT>PASS / NO TRADE</VERDICT>
-<DISCORD>一句话核心逻辑: 当前 PA 状态 + 持仓建议</DISCORD>
+<DISCORD>一句话核心定论: 当前 PA 状态 + 具体操作建议 (含价格)</DISCORD>
 <REASON>详细推理过程, 引用具体的 K 线日期和价格行为特征</REASON>
 """
     return prompt
