@@ -598,3 +598,57 @@ def send_discord_image(img_buffer, filename="chart.png", content=""):
                 logger.error(f"❌ 发送图片异常: {e}")
     except Exception as e:
         logger.error(f"❌ 图片处理失败: {e}")
+
+
+def send_discord_images(img_buffers, filenames=None, content=""):
+    """
+    一条消息发送多张图片 (Discord 自动排列网格)
+    
+    Args:
+        img_buffers: list of BytesIO objects
+        filenames: list of filenames (optional, auto-generated if None)
+        content: 消息文字内容
+    
+    Note: Discord API 限制单条消息最多 10 个附件
+    """
+    if not DISCORD_BOT_TOKEN or not DISCORD_CHANNEL_ID or not img_buffers:
+        return
+    
+    if filenames is None:
+        filenames = [f"chart_{i}.png" for i in range(len(img_buffers))]
+    
+    # Discord 限制: 最多 10 个附件/消息
+    MAX_PER_MSG = 10
+    
+    for batch_start in range(0, len(img_buffers), MAX_PER_MSG):
+        batch_bufs = img_buffers[batch_start:batch_start + MAX_PER_MSG]
+        batch_names = filenames[batch_start:batch_start + MAX_PER_MSG]
+        
+        url = f"https://discord.com/api/v10/channels/{DISCORD_CHANNEL_ID}/messages"
+        headers = {"Authorization": f"Bot {DISCORD_BOT_TOKEN}"}
+        proxies = {"http": None, "https": None}
+        
+        files = {}
+        for i, (buf, fname) in enumerate(zip(batch_bufs, batch_names)):
+            buf.seek(0)
+            files[f"file{i}"] = (fname, buf.read(), "image/png")
+        
+        data = {}
+        # 只在第一批附消息文字
+        if batch_start == 0 and content:
+            data["content"] = content
+        
+        try:
+            resp = requests.post(url, headers=headers, files=files, data=data,
+                                proxies=proxies, timeout=60)
+            if resp.status_code == 200:
+                logger.info(f"✅ 多图推送成功 ({len(batch_bufs)} 张)")
+            else:
+                logger.error(f"❌ 多图推送失败: [{resp.status_code}] {resp.text[:200]}")
+        except Exception as e:
+            logger.error(f"❌ 多图推送异常: {e}")
+        
+        # 批次间间隔避免 rate limit
+        if batch_start + MAX_PER_MSG < len(img_buffers):
+            import time
+            time.sleep(1)

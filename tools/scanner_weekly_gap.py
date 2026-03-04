@@ -23,7 +23,7 @@ import baostock as bs
 from core.calculator import add_indicators
 from core.strategies.structural_gap_strategy import StructuralGapStrategy
 import core.data_provider as dp
-from tools.notifier import generate_chart_bytes, stitch_images, send_discord_image, send_discord_message
+from tools.notifier import generate_chart_bytes, stitch_images, send_discord_image, send_discord_message, send_discord_images
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -339,21 +339,29 @@ def _format_and_push_results(results, total_stocks=0):
     if not sig_gap:
         msg += "\n本周无任何符合条件的缺口买点出现。耐心等待战机！"
     else:
-        msg += f"\n详细标的名单及交易策略，请在电脑端查看本地分析报告。\n正在按评级最高优先进行全量图形推送..."
+        # B/C/D 只在文字消息里列名
+        bc_names = [f"{s['name']}({s['code']})" for s in sig_gap 
+                    if 'A' not in s.get('ev_rating', '')]
+        if bc_names:
+            msg += f"\n📋 B/C 级 ({len(bc_names)}只): "
+            msg += " / ".join(bc_names[:15])
+            if len(bc_names) > 15:
+                msg += f" +{len(bc_names)-15}只"
+        msg += f"\n\n🌟 A+/A 级图表即将推送..."
     send_discord_message(msg)
     
     if not sig_gap:
         print("✅ Discord 空结果推送成功！")
     else:
-        BATCH_SIZE = 10
-        total_batches = (len(sig_gap) + BATCH_SIZE - 1) // BATCH_SIZE
+        # 只为 A+/A 生成图表
+        top_sigs = [s for s in sig_gap if 'A' in s.get('ev_rating', '')]
         
-        for batch_idx in range(total_batches):
-            batch_sigs = sig_gap[batch_idx * BATCH_SIZE : (batch_idx + 1) * BATCH_SIZE]
-            chart_buffers = []
-            print(f"  正在生成并推送第 {batch_idx+1}/{total_batches} 批图表 (本批包含 {len(batch_sigs)} 只标的)...")
+        if top_sigs:
+            print(f"\n🎨 为 {len(top_sigs)} 只 A+/A 级标的生成图表...")
+            chart_bufs = []
+            chart_names = []
             
-            for s in batch_sigs:
+            for s in top_sigs:
                 try:
                     df = fetch_weekly_data(s['code'], weeks=300)
                     if df is not None:
@@ -366,19 +374,22 @@ def _format_and_push_results(results, total_stocks=0):
                             reason=f"周线大底确认 | {s['ev_rating']}", df_override=df,
                             ev_rating=s['ev_rating'], sig_quality=s['sig_quality'], bears=s['bears']
                         )
-                        if buf: chart_buffers.append(buf)
+                        if buf:
+                            chart_bufs.append(buf)
+                            chart_names.append(f"{s['code']}.png")
+                            print(f"  ✅ {s['code']} {s['name']} [{s['ev_rating'][:10]}]")
                 except Exception as e:
                     logger.warning(f"绘图失败 {s['code']}: {e}")
-                    
-            if chart_buffers:
-                stitched = stitch_images(chart_buffers)
-                if stitched:
-                    send_discord_image(stitched, filename=f"batch_{batch_idx+1}.png")
-                    print(f"✅ 第 {batch_idx+1}/{total_batches} 批 ({len(chart_buffers)} 张长图) 推送成功！")
-                else:
-                    print(f"⚠️ 第 {batch_idx+1}/{total_batches} 批 图片拼接失败。")
-            else:
-                print(f"⚠️ 第 {batch_idx+1}/{total_batches} 批 没有成功生成任何图表。")
+            
+            # 多图推送 (Discord 自动排列网格, 每条消息最多10张)
+            if chart_bufs:
+                send_discord_images(
+                    chart_bufs, chart_names,
+                    content=f"🌟 **A+/A 级 K线图** ({len(chart_bufs)} 张)"
+                )
+                print(f"✅ {len(chart_bufs)} 张 A+/A 级图表推送完成！")
+        else:
+            print("  本周无 A+/A 级标的")
 
 
 def main():
