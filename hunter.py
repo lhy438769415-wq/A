@@ -658,13 +658,9 @@ def _check_data_freshness():
         msgs.append("⚠️ 日线数据库读取失败")
     
     try:
-        import sqlite3, os
-        from config import settings
-        wb_path = os.path.join(os.path.dirname(settings.DB_PATH), 'baostock_weekly.db')
-        if os.path.exists(wb_path):
-            wconn = sqlite3.connect(wb_path)
-            wr = wconn.execute('SELECT MAX(trade_date) FROM weekly_bars').fetchone()
-            wconn.close()
+        from core.database import get_db_connection as _gdc
+        with _gdc() as conn:
+            wr = conn.execute('SELECT MAX(trade_date) FROM weekly_bars').fetchone()
             if wr and wr[0]:
                 msgs.append(f"  周线数据最新: {wr[0]}")
     except Exception:

@@ -3905,19 +3905,6 @@
             "is_pending": true
         },
         {
-            "code": "sh.600877",
-            "name": "电科芯片",
-            "date": "697",
-            "entry": 19.76,
-            "sl": 18.13,
-            "tp": 25.71999999999999,
-            "rr": 3.7,
-            "sig_quality": 0,
-            "bears": 3,
-            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
-            "is_pending": true
-        },
-        {
             "code": "sh.600879",
             "name": "航天电子",
             "date": "741",
@@ -3927,6 +3914,19 @@
             "rr": 2.2,
             "sig_quality": 0,
             "bears": 4,
+            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
+            "is_pending": true
+        },
+        {
+            "code": "sh.600877",
+            "name": "电科芯片",
+            "date": "697",
+            "entry": 19.76,
+            "sl": 18.13,
+            "tp": 25.71999999999999,
+            "rr": 3.7,
+            "sig_quality": 0,
+            "bears": 3,
             "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
             "is_pending": true
         },
@@ -4841,19 +4841,6 @@
             "is_pending": true
         },
         {
-            "code": "sh.603980",
-            "name": "吉华集团",
-            "date": "442",
-            "entry": 8.879999999999999,
-            "sl": 6.72,
-            "tp": 10.35930078,
-            "rr": 0.7,
-            "sig_quality": 0,
-            "bears": 0,
-            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
-            "is_pending": true
-        },
-        {
             "code": "sh.603979",
             "name": "金诚信",
             "date": "520",
@@ -4863,6 +4850,19 @@
             "rr": 0.2,
             "sig_quality": 0,
             "bears": 13,
+            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
+            "is_pending": true
+        },
+        {
+            "code": "sh.603980",
+            "name": "吉华集团",
+            "date": "442",
+            "entry": 8.879999999999999,
+            "sl": 6.72,
+            "tp": 10.35930078,
+            "rr": 0.7,
+            "sig_quality": 0,
+            "bears": 0,
             "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
             "is_pending": true
         },
@@ -4971,19 +4971,6 @@
             "is_pending": true
         },
         {
-            "code": "sh.605099",
-            "name": "共创草坪",
-            "date": "240",
-            "entry": 47.03,
-            "sl": 24.94919499,
-            "tp": 38.45548839,
-            "rr": -0.4,
-            "sig_quality": 0,
-            "bears": 12,
-            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
-            "is_pending": true
-        },
-        {
             "code": "sh.605100",
             "name": "华丰股份",
             "date": "270",
@@ -4993,6 +4980,19 @@
             "rr": 3.4,
             "sig_quality": 0,
             "bears": 5,
+            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
+            "is_pending": true
+        },
+        {
+            "code": "sh.605099",
+            "name": "共创草坪",
+            "date": "240",
+            "entry": 47.03,
+            "sl": 24.94919499,
+            "tp": 38.45548839,
+            "rr": -0.4,
+            "sig_quality": 0,
+            "bears": 12,
             "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
             "is_pending": true
         },
@@ -5062,19 +5062,6 @@
             "is_pending": true
         },
         {
-            "code": "sh.605288",
-            "name": "凯迪股份",
-            "date": "270",
-            "entry": 135.45999999999998,
-            "sl": 78.91,
-            "tp": 129.87338664,
-            "rr": -0.1,
-            "sig_quality": 0,
-            "bears": 13,
-            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
-            "is_pending": true
-        },
-        {
             "code": "sh.605289",
             "name": "罗曼股份",
             "date": "246",
@@ -5084,6 +5071,19 @@
             "rr": 0.6,
             "sig_quality": 0,
             "bears": 0,
+            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
+            "is_pending": true
+        },
+        {
+            "code": "sh.605288",
+            "name": "凯迪股份",
+            "date": "270",
+            "entry": 135.45999999999998,
+            "sl": 78.91,
+            "tp": 129.87338664,
+            "rr": -0.1,
+            "sig_quality": 0,
+            "bears": 13,
             "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
             "is_pending": true
         },
