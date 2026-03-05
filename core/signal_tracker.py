@@ -961,14 +961,13 @@ def _push_dashboard_discord(enriched, aplus_active, aplus_pending, aplus_invalid
                 pass
         
         if chart_buffers:
-            from tools.notifier import stitch_images
-            stitched = stitch_images(chart_buffers)
-            if stitched:
-                try:
-                    send_discord_image(stitched, filename="aplus_charts.png")
-                    logger.info(f"📤 A+ 图表 ({len(chart_buffers)}张) 已推送")
-                except Exception as e:
-                    logger.warning(f"A+ 图表推送失败: {e}")
+            from tools.notifier import send_discord_images
+            filenames = [f"aplus_{s['code']}.png" for s in chart_targets[:len(chart_buffers)]]
+            try:
+                send_discord_images(chart_buffers, filenames)
+                logger.info(f"📤 A+ 图表 ({len(chart_buffers)}张) 已推送")
+            except Exception as e:
+                logger.warning(f"A+ 图表推送失败: {e}")
     
     # ── 消息 3: 其他入场汇总 ──
     if other_active:
