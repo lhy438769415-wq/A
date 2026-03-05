@@ -82,7 +82,7 @@ def _scan_single_code(code: str, recent_weeks: int = 4) -> list:
                     results.append({
                         'code': code,
                         'name': name,
-                        'date': bo_row['date'] if 'date' in bo_row else str(bo_row.name),
+                        'date': bo_row['trade_date'] if 'trade_date' in bo_row else (bo_row['date'] if 'date' in bo_row else str(bo_row.name)),
                         'entry': df['high'].iloc[-1] + 0.01,
                         'sl': temp_sl,
                         'tp': temp_tp,
@@ -163,7 +163,7 @@ def _scan_single_code(code: str, recent_weeks: int = 4) -> list:
             results.append({
                 'code': code,
                 'name': name,
-                'date': row['date'] if 'date' in row else str(row.name),
+                'date': row['trade_date'] if 'trade_date' in row else (row['date'] if 'date' in row else str(row.name)),
                 'entry': entry,
                 'sl': sl,
                 'tp': tp,

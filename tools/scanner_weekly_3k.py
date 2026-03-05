@@ -73,7 +73,7 @@ def scan_weekly_3k(all_codes: list, recent_weeks: int = 4) -> dict:
                 results_3k.append({
                     'code': code,
                     'name': dp.get_stock_name(code),
-                    'date': row['date'],
+                    'date': row['trade_date'] if 'trade_date' in row else (row['date'] if 'date' in row else str(row.name)),
                     'close': row['close'],
                     'sl': row.get('sl_3k', np.nan),
                 })
@@ -91,7 +91,7 @@ def scan_weekly_3k(all_codes: list, recent_weeks: int = 4) -> dict:
                 results_gt.append({
                     'code': code,
                     'name': dp.get_stock_name(code),
-                    'date': row['date'],
+                    'date': row['trade_date'] if 'trade_date' in row else (row['date'] if 'date' in row else str(row.name)),
                     'entry': entry,
                     'sl': sl,
                     'tp': tp,
