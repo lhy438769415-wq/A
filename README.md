@@ -93,6 +93,7 @@ python hunter.py --track --report            # 追踪 + 报表
 
 | 版本 | 日期 | 主要变更 |
 |:---:|:---:|:---|
+| V9.2 | 2026-03-05 | 修复 signal_date 关键 Bug (trade_date vs date)；数据同步集成主菜单；Discord 多图推送；A+ 三级分层仪表盘 |
 | V9.1 | 2026-03-02 | Signal Tracker 信号追踪器；交互式三选主菜单；个股仪表盘 |
 | V9.0 | 2026-03-01 | 周线 Structural Gap 四因子积分评级 (经 4988 样本鲁棒性验证) |
 | V8.8 | 2026-02-28 | Hunter 日线/周线统一入口；系统文件整理 |
