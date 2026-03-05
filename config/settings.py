@@ -29,7 +29,7 @@ WECHAT_WEBHOOK_KEY = os.getenv("WECHAT_WEBHOOK_KEY")
 # Discord 推送配置
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 DISCORD_SERVER_ID = os.getenv("DISCORD_SERVER_ID")
-DISCORD_CHANNEL_ID = os.getenv("DISCORD_CHANNEL_ID")
+DISCORD_CHANNEL_ID = os.getenv("DISCORD_CHANNEL_ID", "1478561953038336093")
 
 # ================= 数据源配置 =================
 # 🟢 V8.13: Baostock Only (不再使用 Tushare/AkShare)
