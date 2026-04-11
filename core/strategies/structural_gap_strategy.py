@@ -47,6 +47,18 @@ class StructuralGapStrategy(BaseStrategy):
         # 3. 必须回调的最小周期（避免单根K线上窜下跳，给予真正的回调空间）
         self.MIN_PULLBACK_WINDOW = 2
 
+        # 4. [Evolution] 自动优化的策略硬阈值 (自演进系统写入)
+        import os, json
+        self.optimized_rules = {}
+        rules_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'config', 'gap_optimized_rules.json')
+        if os.path.exists(rules_path):
+            try:
+                with open(rules_path, 'r', encoding='utf-8') as f:
+                    self.optimized_rules = json.load(f)
+                logger.info(f"Loaded {len(self.optimized_rules)} optimized rules for Structural Gap Strategy.")
+            except Exception as e:
+                logger.error(f"Failed to load optimized rules: {e}")
+
     def calculate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         if len(df) < self.LOOKBACK_WINDOW + 5:
             df['signal_struct_gap_confirm'] = False
@@ -140,7 +152,25 @@ class StructuralGapStrategy(BaseStrategy):
         _mm_not_reached = (_group_max_high < _target_uncond) | _target_uncond.isna()
         _mm_not_reached = _mm_not_reached.fillna(True)
 
-        _signal_raw = _reversal_confirm_raw & _mm_not_reached
+        # [V9.5 Evolution Filter] 应用系统进化的过滤阈值拦截低胜率形态
+        _rules_filter = pd.Series(True, index=df.index)
+        if self.optimized_rules:
+            if 'min_sig_quality' in self.optimized_rules:
+                _rules_filter &= (df['sig_bar_quality'] >= self.optimized_rules['min_sig_quality'])
+            
+            if 'min_gap_size_atr' in self.optimized_rules:
+                # 缺口宽度 (ATR 倍数)
+                _gap_top = _group_min_low.shift(1)
+                _gap_size_atr = (_gap_top - _gap_floor) / df['atr'].replace(0, np.nan)
+                _rules_filter &= (_gap_size_atr >= self.optimized_rules['min_gap_size_atr'])
+                
+            if 'max_retracement_depth' in self.optimized_rules:
+                # 信号前一K线的最高点距离缺口下沿的深度比例 (越小越贴近底部)
+                _gap_top = _group_min_low.shift(1)
+                _depth = (df['high'] - _gap_floor) / (_gap_top - _gap_floor).replace(0, np.nan)
+                _rules_filter &= (_depth <= self.optimized_rules['max_retracement_depth'])
+
+        _signal_raw = _reversal_confirm_raw & _mm_not_reached & _rules_filter
 
         # 去重：每次结构性突破，只认首次发生的反转点为最佳入场点，之后的均放弃
         _already_confirmed = _signal_raw.groupby(_bars_since_breakout).cumsum().shift(1).fillna(0) > 0

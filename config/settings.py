@@ -41,7 +41,7 @@ DATA_SOURCE_PRIORITY = ["baostock"]  # Single Source
 # 扫描并发进程数
 # 🟢 Multiprocessing Config: Baostock allows multi-process (separate logins).
 # 4 workers successfully reduces sync time (approx 4x speedup vs serial).
-MAX_WORKERS = int(os.getenv("MAX_WORKERS", 4))
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", 6))  # 🟢 V8.6: 提升至 6 进程 (Baostock 多连接安全)
 
 # 长图拼接数量
 MAX_IMAGES_PER_BATCH = int(os.getenv("MAX_IMAGES_PER_BATCH", 10))
@@ -66,6 +66,10 @@ K3_WICK_SHORT_PCT = 0.10
 K3_GAP_CONFIRM_WINDOW = 5  # 突破缺口确认窗口（3K后N根K线确认缺口是否保持开放）
 K3_GAP_TEST_MAX_WINDOW = 20  # 缺口测试确认最大等待窗口（3K后最多等N根K线确认买入）
 K3_SWING_LOOKBACK = 40  # 波段高低点回溯窗口（向前看N根K线找前期波段高/低点）
+
+# Structural Gap Strategy (V3.0 宏观结构突破缺口)
+STRUCT_GAP_LOOKBACK = 60  # 突破判定窗口: 过去 N 根 K 线的最高点 (日线≈3个月, 周线≈1.2年)
+STRUCT_GAP_MAX_WINDOW = 40  # 回调确认最大跟踪窗口 (突破后最多等 N 根 K 线出现反转信号)
 
 # MTR Strategy
 MTR_WICK_RATIO = 0.25 # Relaxed from 0.40 (Digital Abu Consensus)

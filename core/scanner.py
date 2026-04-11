@@ -6,7 +6,8 @@ import warnings
 # 🟢 Suppress FutureWarnings (e.g., from pandas internals)
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-from tools.data_manager import get_stock_data
+# 🟢 [Phase1] 统一数据层：直接使用 core.data_provider，不经 tools.data_manager 薄代理
+from core.data_provider import get_stock_data
 from core.calculator import add_indicators, calculate_targets
 from core.strategy_registry import StrategyRegistry
 from typing import Optional, Dict, Any

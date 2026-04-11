@@ -15,6 +15,20 @@ import matplotlib.pyplot as plt
 import textwrap
 from matplotlib.patches import Rectangle
 from PIL import Image
+import re
+
+def strip_emoji(text):
+    """移除可能导致 matplotlib 乱码的 Emoji 及部分特殊符号"""
+    if not text:
+        return text
+    text = str(text)
+    # Remove chars in supplementary multilingual plane (most emojis)
+    text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
+    # Remove some common BMP emojis and symbols
+    text = re.sub(r'[\u2600-\u27bf]', '', text)
+    # Remove variation selectors
+    text = re.sub(r'[\ufe00-\ufe0f]', '', text)
+    return text.strip()
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -49,7 +63,8 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
     """
     # 延迟导入防止循环引用
     try:
-        from tools.data_manager import get_stock_data
+        # 🟢 [Phase1] 统一数据层导入
+        from core.data_provider import get_stock_data
     except ImportError:
         logger.error("❌ 无法导入 data_manager，绘图跳过")
         return None
@@ -110,8 +125,7 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
     my_style = mpf.make_mpf_style(marketcolors=mc, gridstyle=':', y_on_right=True, rc=rc_params)
 
     apds = []
-    if 'ema20' in plot_df.columns:
-        apds.append(mpf.make_addplot(plot_df['ema20'], color='orange', width=1.0))
+    # 🟢 [Phase1 Fix] EMA20 只在下方 L151 添加一次 (width=1.5)，此处不再重复添加
     buf = io.BytesIO()
     
     # --- 标题构建逻辑 ---
@@ -131,6 +145,7 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
     
     # 标题极简：中文名（代码）
     final_title = f"{stock_name}（{code}）"
+    final_title = strip_emoji(final_title)
     
     # 1. 均线 (只保留 EMA20)
     if 'ema20' in plot_df.columns:
@@ -303,7 +318,7 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
                     signal_date = plot_df.index[-1] # 用最新一天假装成信号天
                     is_pending_track = True
                 else:
-                    raise ValueError("No Struct Gap Signal or Breakout found")
+                    raise ValueError("SILENT_SKIP")
                 signal_price = plot_df.loc[signal_date]['low']
                 floor_price = plot_df.loc[signal_date]['sl_struct_gap']
                 prior_low = plot_df.loc[signal_date]['struct_gap_prior_low']
@@ -392,7 +407,7 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
                              f"------------------\n" \
                              f"动能质量：{sig_quality:.2f}\n" \
                              f"回调连阴：{bears} 连阴\n" \
-                             f"系统评级：{ev_rating if ev_rating else 'N/A'}"
+                             f"系统评级：{strip_emoji(ev_rating) if ev_rating else 'N/A'}"
                 
                 
                 # ax.transAxes 表示相对坐标, 0,1 即左上角
@@ -435,7 +450,8 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
                                 fontsize=9, color='#D32F2F', fontweight='bold', ha='right', va='center',
                                 bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='#D32F2F', alpha=0.7))
             except Exception as e:
-                logger.warning(f"Struct Gap Annotation Failed: {e}")
+                if str(e) != "SILENT_SKIP":
+                    logger.warning(f"Struct Gap Annotation Failed: {e}")
 
         # --- 之前的左上角物理诊断、AI观点与交易日期等冗余信息已经被移除 ---
         
@@ -459,10 +475,9 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
         logger.error(f"❌ Plot Error ({code}): {e}")
         return None
 
-def format_mtr_alert(code, name, price, sl, tp1, tp2):
-    """MTR Master 极简模板"""
-    return f"""• Buy Stop: {price:.2f} | 止损: {sl:.2f}
-• 止盈: TP1 {tp1:.2f} | TP2 {tp2:.2f}"""
+def format_mtr_alert(code, name, price, sl, tp1, tp2, ev_rating="N/A"):
+    """MTR Master 极简模板 (V9.5)"""
+    return f"• 🎯 {name} ({code}) [{ev_rating}] | Buy Stop: {price:.2f} | 止损: {sl:.2f} | 目标: {tp1:.2f}"
 
 def format_3k_alert(code, name, price, sl, tp1=0):
     """3K Momentum 极简模板 (单行无图标)"""
@@ -512,44 +527,98 @@ def stitch_images(image_buffers):
         return None
 
 def send_discord_message(content):
-    """向 Discord 频道发送纯文本消息"""
+    """向 Discord 频道发送纯文本消息 (自动分段，不截断)"""
     if not DISCORD_BOT_TOKEN or not DISCORD_CHANNEL_ID: 
         logger.warning("⚠️ 未配置 Discord Bot Token 或 Channel ID，跳过发送文本")
         return
-        
+    
+    # 🟢 [Fix] 按行智能分段，确保所有内容都能推送到 Discord
+    MAX_LEN = 1950  # Discord 单条消息上限 2000，留余量
+    chunks = _split_message_by_lines(content, MAX_LEN)
+    
     url = f"https://discord.com/api/v10/channels/{DISCORD_CHANNEL_ID}/messages"
     headers = {
         "Authorization": f"Bot {DISCORD_BOT_TOKEN}",
         "Content-Type": "application/json"
     }
-    
     proxies = {"http": None, "https": None}
     
-    for attempt in range(2): 
-        try:
-            # 分段发送，Discord 文本单条上限为 2000 字符
-            if len(content) > 1950:
-                content = content[:1950] + "\n...(内容过长已截断)"
+    for idx, chunk in enumerate(chunks):
+        for attempt in range(2): 
+            try:
+                resp = requests.post(
+                    url, 
+                    json={"content": chunk}, 
+                    headers=headers,
+                    timeout=15,
+                    proxies=proxies
+                )
                 
-            resp = requests.post(
-                url, 
-                json={"content": content}, 
-                headers=headers,
-                timeout=15,
-                proxies=proxies
-            )
-            
-            if resp.status_code in [200, 201]:
-                return
-            else:
-                logger.warning(f"⚠️ 发送详情: [{resp.status_code}] {resp.text}")
-        except Exception as e:
-            if attempt == 0:
-                logger.warning(f"⚠️ 发送 Discord 文本尝试 {attempt+1} 失败，正在重试... ({e})")
-                import time
-                time.sleep(1)
-            else:
-                logger.error(f"❌ 发送文本最终失败: {e}")
+                if resp.status_code in [200, 201]:
+                    break  # 发送成功，跳出重试循环
+                elif resp.status_code == 429:
+                    # Rate limit: 等待 Discord 要求的时间
+                    retry_after = resp.json().get('retry_after', 2)
+                    logger.warning(f"⚠️ Discord 限速，等待 {retry_after}s...")
+                    import time
+                    time.sleep(retry_after)
+                else:
+                    logger.warning(f"⚠️ 发送详情: [{resp.status_code}] {resp.text}")
+            except Exception as e:
+                if attempt == 0:
+                    logger.warning(f"⚠️ 发送 Discord 文本尝试 {attempt+1} 失败，正在重试... ({e})")
+                    import time
+                    time.sleep(1)
+                else:
+                    logger.error(f"❌ 发送文本最终失败: {e}")
+        
+        # 多段消息之间加间隔，避免触发 rate limit
+        if idx < len(chunks) - 1:
+            import time
+            time.sleep(0.5)
+
+
+def _split_message_by_lines(content: str, max_len: int = 1950) -> list:
+    """将长消息按行分割为多个不超过 max_len 的片段
+    
+    保证：
+    1. 不在行中间截断
+    2. 每个片段是完整的若干行
+    3. 单行超长时强制截断该行（极端情况）
+    """
+    if len(content) <= max_len:
+        return [content]
+    
+    lines = content.split('\n')
+    chunks = []
+    current_chunk = []
+    current_len = 0
+    
+    for line in lines:
+        line_len = len(line) + 1  # +1 for '\n'
+        
+        if current_len + line_len > max_len and current_chunk:
+            # 当前块已满，保存并开始新块
+            chunks.append('\n'.join(current_chunk))
+            current_chunk = []
+            current_len = 0
+        
+        # 单行超长的极端情况 (理论上不应该发生)
+        if line_len > max_len:
+            if current_chunk:
+                chunks.append('\n'.join(current_chunk))
+                current_chunk = []
+                current_len = 0
+            chunks.append(line[:max_len])
+            continue
+        
+        current_chunk.append(line)
+        current_len += line_len
+    
+    if current_chunk:
+        chunks.append('\n'.join(current_chunk))
+    
+    return chunks if chunks else [content[:max_len]]
 
 def send_discord_image(img_buffer, filename="chart.png", content=""):
     """向 Discord 频道发送图片（可附带文字，无损画质最高支持 25MB）"""

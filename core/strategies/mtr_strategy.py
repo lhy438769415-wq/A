@@ -45,93 +45,28 @@ class MTRStrategy(BaseStrategy):
         self.structural_engine = MTRStructuralEngineV35()
 
     def _calculate_spirit_context_v29(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        [Phase1 精简] 保留 trend_depth 和 dist_ema 计算。
+        
+        - trend_depth: 被 calculate_signals() L248 用于 "Major Trend" 门槛过滤
+        - dist_ema: 被 _calculate_context() / format_prompt() 用于 AI 审计报告
+        
+        原 V29 中的 is_sell_climax_raw / bear_dominance / is_prior_bear 已被 V35 结构引擎替代，不再需要。
+        原 _detect_swing_v24 / _detect_mtr_structural_v30 / _validate_blueprint 方法已废弃并删除。
+        """
         atr = df['atr'] + 1e-9
-        df['ema20'] = df['close'].ewm(span=self.MEAN_PERIOD_20, adjust=False).mean()
+        # EMA20 已在 calculate_signals() 开头计算，此处避免重复
+        if 'ema20' not in df.columns:
+            df['ema20'] = df['close'].ewm(span=self.MEAN_PERIOD_20, adjust=False).mean()
         
-        # 1. 抛售高潮 (Sell Climax)
+        # dist_ema: 用于 AI 审计 prompt
         df['dist_ema'] = (df['ema20'] - df['low']) / atr
-        df['is_sell_climax_raw'] = df['dist_ema'] > 2.0
         
-        # 2. 物理大趋势深度 (Major Trend Depth)
-        # 🟢 【对齐典型形态图】前置落差必须显著，通常要在 120 根内有 8-10 倍 ATR 的跌幅
+        # trend_depth: 120 根内最大跌幅 (ATR 倍数)，用于判定 "Major" 门槛
         lookback_h = df['high'].rolling(120).max()
         df['trend_depth'] = (lookback_h - df['low']) / atr
         
-        # 3. 熊市背景 (强化版)
-        df['bear_dominance'] = (df['close'] < df['ema20']).rolling(60).sum() / 60.0
-        # 🟢 【A股适配】结合均线压制率与 EMA20 斜率，且要求基本深度 > 5.0 ATR (Major 定义)
-        df['is_prior_bear'] = (df['bear_dominance'] > 0.45) & \
-                               (df['ema20'].diff(10) < 0) & \
-                               (df['trend_depth'] > 5.0)
-        
         return df
-
-    def _detect_swing_v24(self, df: pd.DataFrame, strength_atr: float = 0.25) -> pd.DataFrame:
-        atr = df['atr'].rolling(10).mean().ffill().fillna(1.0)
-        window = 5
-        # 🟢 下调波段强度门槛 (0.5 -> 0.25)，以捕捉平滑趋势中的微小折返点
-        df['is_sw_h'] = (df['high'].shift(2) == df['high'].rolling(window).max()) & \
-                        ((df['high'].shift(2) - df['low'].rolling(window).min()) > strength_atr * atr)
-        df['is_sw_l'] = (df['low'].shift(2) == df['low'].rolling(window).min()) & \
-                        ((df['high'].rolling(window).max() - df['low'].shift(2)) > strength_atr * atr)
-        df['last_sw_h_val'] = df['high'].shift(2).where(df['is_sw_h']).ffill()
-        df['last_sw_l_val'] = df['low'].shift(2).where(df['is_sw_l']).ffill()
-        return df
-
-    def _detect_mtr_structural_v30(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        [Structural Layer] 物理特征挖掘：MLH、突破、HL。
-        """
-        atr = df['atr'] + 1e-9
-        
-        # 1. Climax & MLH fallback
-        # 物理逻辑：最近 3 个月的最显著支撑与阻力
-        df['climax_low_val'] = df['low'].rolling(60).min()
-        
-        # 追踪动态 MLH (Major Lower High)
-        # 如果没有波段高点，则取 EMA20 与 40 根最高点的均值作为动态阻力
-        sw_h = df['last_sw_h_val'].rolling(40).max()
-        fallback_h = df['high'].rolling(40).max() * 0.99
-        df['dynamic_mlh'] = sw_h.fillna(fallback_h)
-        
-        # 2. Breakout
-        # 物理突破：收盘价 > MLH 或 EMA20
-        df['is_break_structural'] = (df['close'] > df['dynamic_mlh']) | (df['close'] > df['ema20'])
-        df['has_break_fact'] = df['is_break_structural'].rolling(60).max().fillna(0).astype(bool)
-        
-        # 3. Higher Low (Test Stage)
-        # 物理约束：不破前低，且前置背景具备“熊市支配”特征 (基于 100 根线回溯)
-        df['is_hl_structural'] = df['has_break_fact'] & \
-                                 (df['low'] > df['climax_low_val'] - 0.1 * atr) & \
-                                 (df['is_prior_bear'].rolling(100).max() > 0)
-        
-        # 4. 动能衰竭 (Momentum Decay)
-        # 捕捉回调中的量价背离或实体收缩
-        df['body_sqz'] = df['body_pct'].rolling(3).mean() <= df['body_pct'].rolling(20).mean() * 1.8
-        
-        return df
-
-    def _validate_blueprint(self, df: pd.DataFrame) -> pd.Series:
-        """
-        [Blueprint Validator] 物理蓝图校验：执行形态与标准的 MTR 典型图对比。
-        """
-        # 1. 检测趋势压制 (Trendline Persistence)
-        # 前置阶段必须有清晰的阶梯下跌，且最近 60 根内没有破坏过 EMA20 压力
-        df['h_is_lower'] = df['last_sw_h_val'] < df['last_sw_h_val'].shift(15)
-        # 🟢 记忆背景：只要最近 60 根内有过显著熊市结构且高点下移占比 > 0.35
-        # 这样可以防止 Breakout 阶段的上涨导致背景判定失效
-        lh_ok = df['h_is_lower'].rolling(60).mean().rolling(60).max() > 0.35
-        bear_ok = df['bear_dominance'].rolling(60).max() > 0.45
-        is_lh_sequence = lh_ok & bear_ok
-        
-        # 2. 检测回调测试的物理紧凑度 (Correction Compactness)
-        # 物理定义：测试阶段阴线实体必须萎缩（缩量筑底），不应出现长阴刺穿前低。
-        bear_bodies = (df['open'] - df['close']).clip(lower=0).rolling(15).sum()
-        bull_bodies = (df['close'] - df['open']).clip(lower=0).rolling(15).sum()
-        # 🟢 回调段多头力量应逐渐占优或维持平衡 (1.3 -> 1.8 倍放宽)
-        is_correction_weak = bear_bodies < bull_bodies * 1.8
-        
-        return is_lh_sequence & is_correction_weak
 
     def _calculate_atr(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
         """Calculate Average True Range manually if missing"""

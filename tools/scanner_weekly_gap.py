@@ -51,7 +51,10 @@ def _scan_single_code(code: str, recent_weeks: int = 4) -> list:
         df = add_indicators(df)
         df = strategy.calculate_signals(df)
         
-        recent = df.tail(recent_weeks)
+        # [V9.6 Update]: 取消 4 周硬性切割限制，改为只看最近 60 周（足够覆盖一个大级别波段的生命周期）
+        # 依靠策略内部的 "缺口开放" (gap_status) & "止盈未达" (_mm_not_reached) 原则来判定存活
+        # 并且依靠下方的 EV 评分淘汰长期拖延的无效死灰
+        recent = df.tail(60)
         
         # 第一优先级：缺口确认买点
         gt_rows = recent[recent.get('signal_struct_gap_confirm', pd.Series(dtype=bool)) == True]
@@ -63,6 +66,7 @@ def _scan_single_code(code: str, recent_weeks: int = 4) -> list:
                 bo_date = recent_breakouts.index[-1]
                 idx_bo = df.index.get_loc(bo_date)
                 recent_slice = df.iloc[idx_bo:]
+                
                 if recent_slice['struct_gap_open'].all() and len(recent_slice) <= strategy.MAX_PULLBACK_WINDOW:
                     bo_row = recent_breakouts.iloc[-1]
                     
@@ -99,13 +103,25 @@ def _scan_single_code(code: str, recent_weeks: int = 4) -> list:
             sl = row.get('sl_struct_gap', np.nan)
             tp = row.get('tp_struct_gap', np.nan)
             
-            # 检查此信号之后缺口是否已被填补
+            # 检查此信号发出的时间距离当下有多远
+            idx = df.index.get_loc(sig_date)
+            bars_passed_since_signal = len(df) - 1 - idx
+            
+            # 【生命周期过滤 1】 检查此信号之后，缺口是否已被填补 (击穿 SL)
             if not np.isnan(sl):
-                idx = df.index.get_loc(sig_date)
                 if idx < len(df) - 1:
                     post_signal_min_low = df['low'].iloc[idx+1:].min()
                     if post_signal_min_low <= sl:
-                        continue
+                        continue # 缺口已死，直接无视
+            
+            # 【生命周期过滤 2】 检查此信号之后，是否已经达到了目标位 (TP)
+            if not np.isnan(tp):
+                if idx < len(df) - 1:
+                    post_signal_max_high = df['high'].iloc[idx+1:].max()
+                    if post_signal_max_high >= tp:
+                        continue # 目标已达，无需再扫
+                        
+            # 如果走到这里，说明这是一个【缺口仍然开放，且未达到止盈】的存活信号
             
             risk = entry - sl if not np.isnan(entry) and not np.isnan(sl) else 0
             reward = tp - entry if not np.isnan(tp) and not np.isnan(entry) else 0
@@ -118,7 +134,6 @@ def _scan_single_code(code: str, recent_weeks: int = 4) -> list:
             pb_consec_bear = 0
             if 'bars_since_breakout' in df.columns and not pd.isna(row.get('bars_since_breakout')):
                 pb_bars = int(row['bars_since_breakout'])
-                idx = df.index.get_loc(sig_date)
                 if pb_bars > 0 and idx >= pb_bars:
                     pb_df = df.iloc[idx - pb_bars : idx]
                     is_bear = pb_df['close'] < pb_df['open']
@@ -127,12 +142,19 @@ def _scan_single_code(code: str, recent_weeks: int = 4) -> list:
                     bear_groups = is_bear.groupby(groups).sum()
                     pb_consec_bear = int(bear_groups.max()) if not bear_groups.empty else 0
             
+            # 计算因为持有时间过长导致的衰减，如果拖了太久还没走出来，也要扣分
+            time_decay_penalty = 0
+            if bars_passed_since_signal > 10:
+                time_decay_penalty = -2
+            elif bars_passed_since_signal > 5:
+                time_decay_penalty = -1
+            
             # 🟢 [V9.0] 缺口宽度计算 (经鲁棒性验证的新因子)
             gap_top = row.get('struct_gap_top_exact', entry)
             if pd.isna(gap_top): gap_top = entry
             gap_size_pct = round((gap_top - sl) / sl * 100, 2) if sl > 0 else 0
                     
-            # 🟢 [V9.0] 四因子积分制 EV 评级 (经逐年鲁棒性验证)
+            # 🟢 [V9.0] 四因子积分制 EV 评级 (经逐年鲁棒性验证) + 引入存活时间衰减
             # 每个因子贡献独立的加/减分，最终汇总
             ev_score = 0
             # 因子1: 回调周期 (最强单因子，前后半差异仅 4pp)
@@ -146,6 +168,9 @@ def _scan_single_code(code: str, recent_weeks: int = 4) -> list:
             elif q < 0.5:       ev_score -= 1
             # 因子4: 连阴数 (与回调周期相关度 0.466，给较低权重避免重复)
             if pb_consec_bear >= 3: ev_score -= 1
+            
+            # 添加时间迟滞惩罚
+            ev_score += time_decay_penalty
             
             # 评级映射
             if ev_score >= 3:
@@ -174,7 +199,8 @@ def _scan_single_code(code: str, recent_weeks: int = 4) -> list:
                 'gap_size_pct': gap_size_pct,
                 'ev_score': ev_score,
                 'ev_rating': ev_rating,
-                'is_pending': False
+                'is_pending': False,
+                'bars_passed': bars_passed_since_signal
             })
             
     except Exception as e:
@@ -324,6 +350,7 @@ def _format_and_push_results(results, total_stocks=0):
     # === Discord 图文推送 ===
     print("\n🚀 正在生成 Discord 图文全量推送...")
     
+    # 🟢 [Fix] 按评级分组构建完整推送消息，不再截断任何标的
     msg = "🔔 **【周线 结构性缺口(Structural Gap) V9.0 雷达扫描完成】**\n"
     msg += f"时间: {pd.Timestamp.now().strftime('%Y-%m-%d')}\n"
     if total_stocks > 0:
@@ -339,15 +366,29 @@ def _format_and_push_results(results, total_stocks=0):
     if not sig_gap:
         msg += "\n本周无任何符合条件的缺口买点出现。耐心等待战机！"
     else:
-        # B/C/D 只在文字消息里列名
+        # A+/A 级：完整展示名字+评级（这些是核心关注标的）
+        a_sigs = [s for s in sig_gap if 'A' in s.get('ev_rating', '')]
+        if a_sigs:
+            msg += f"\n🌟 **A+/A 级 ({len(a_sigs)}只)**:\n"
+            for s in a_sigs:
+                msg += f"• {s['name']}({s['code']}) [{s['ev_rating']}]\n"
+        
+        # B/C/D 级：只列名字汇总（节省空间）
         bc_names = [f"{s['name']}({s['code']})" for s in sig_gap 
-                    if 'A' not in s.get('ev_rating', '')]
+                    if 'A' not in s.get('ev_rating', '') and not s.get('is_pending')]
         if bc_names:
             msg += f"\n📋 B/C 级 ({len(bc_names)}只): "
-            msg += " / ".join(bc_names[:15])
-            if len(bc_names) > 15:
-                msg += f" +{len(bc_names)-15}只"
+            msg += " / ".join(bc_names)
+        
+        # Pending 追踪
+        if sg_pend:
+            msg += f"\n\n🔎 潜在追踪 ({len(sg_pend)}只): "
+            pend_names = [f"{s['name']}({s['code']})" for s in sg_pend]
+            msg += " / ".join(pend_names)
+        
         msg += f"\n\n🌟 A+/A 级图表即将推送..."
+    
+    # send_discord_message 已支持自动分段，不会截断
     send_discord_message(msg)
     
     if not sig_gap:

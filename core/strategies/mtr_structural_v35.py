@@ -304,7 +304,8 @@ class MTRStructuralEngineV35:
     
     def _check_trendline_break(self, df: pd.DataFrame, h0: MTRPoint, l1: MTRPoint, h1: MTRPoint) -> bool:
         """
-        [V35.1] 检测趋势线突破 — Al Brooks 原文第②要素
+        [DEPRECATED — V37 备用] 趋势线突破检测。当前 match_mtr_pattern() 未调用此方法，
+        改用 EMA Gap Bar 作为突破替代指标。保留供后续版本可能启用。
         "所有的主要趋势反转都以趋势线突破为开端"
         
         利用 GeometricTrendlineEngine 在 H0→L1 区间画出下降趋势线，

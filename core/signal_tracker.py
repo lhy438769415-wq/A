@@ -138,6 +138,8 @@ def track_signals(timeframe=None):
     """
     检查所有 PENDING/ACTIVE 信号的最新价格, 推进状态机。
     
+    🟢 V9.3: 不再逐个推送结算通知, 改为收集事件列表, 由仪表盘统一按状态分组推送。
+    
     Returns:
         dict: {'updated': N, 'activated': N, 'wins': N, 'losses': N, 'expired': N}
     """
@@ -147,10 +149,12 @@ def track_signals(timeframe=None):
     try:
         with get_db_connection() as conn:
             where = "WHERE status IN ('PENDING', 'ACTIVE')"
+            params = []
             if timeframe:
-                where += f" AND timeframe = '{timeframe}'"
+                where += " AND timeframe = ?"
+                params.append(timeframe)
             
-            rows = conn.execute(f"SELECT * FROM signal_archive {where}").fetchall()
+            rows = conn.execute(f"SELECT * FROM signal_archive {where}", params).fetchall()
             col_names = [desc[0] for desc in conn.execute(f"SELECT * FROM signal_archive LIMIT 0").description]
             
             signals = [dict(zip(col_names, row)) for row in rows]
@@ -167,13 +171,11 @@ def track_signals(timeframe=None):
                         stats['activated'] += 1
                     elif new_status == 'WIN':
                         stats['wins'] += 1
-                        _push_resolved_alert(sig, new_status)
+                        # 🟢 V9.3: 不再逐个推送, 由仪表盘统一推送
                     elif new_status == 'LOSS':
                         stats['losses'] += 1
-                        _push_resolved_alert(sig, new_status)
                     elif new_status == 'INVALIDATED':
                         stats['expired'] += 1
-                        _push_resolved_alert(sig, new_status)
                     elif new_status == 'EXPIRED':
                         stats['expired'] += 1
             
@@ -237,37 +239,59 @@ def _track_single(sig: dict) -> dict:
     return None
 
 
+def _get_bar_date(df, iloc_idx):
+    """[Phase2 辅助] 从 DataFrame 行中提取日期字符串"""
+    row = df.iloc[iloc_idx]
+    if 'date' in df.columns:
+        return str(row['date'])
+    elif 'trade_date' in df.columns:
+        return str(row['trade_date'])
+    return datetime.now().strftime('%Y-%m-%d')
+
+
 def _track_pending(sig, post_df, updates):
-    """追踪 PENDING 状态: 逐 bar 检查是否触发入场 / 过期 / 失效"""
+    """[Phase2 向量化] 追踪 PENDING 状态: 入场优先于失效"""
     entry = sig['entry_price']
     sl = sig['sl_price']
     tf = sig['timeframe']
     expiry_bars = PENDING_EXPIRY.get(tf, 20)
-    
     bars_elapsed = len(post_df)
     
-    # 逐 bar 时间顺序检查 — 入场优先于失效
-    # (如果某根 bar 触发了 Buy Stop, 即使后续 SL 被击穿, 也应该是 ACTIVE→LOSS, 不是 INVALIDATED)
-    for _, bar in post_df.iterrows():
-        # 先检查入场触发 (Buy Stop: high >= entry)
-        if entry and entry > 0 and bar['high'] >= entry:
-            bar_date = str(bar.get('date', bar.get('trade_date', datetime.now().strftime('%Y-%m-%d'))))
-            updates['status'] = 'ACTIVE'
-            updates['activated_date'] = bar_date
-            updates['max_favorable'] = entry
-            updates['max_adverse'] = entry
-            logger.info(f"🎯 {sig['name']}({sig['code']}) 入场触发！入场价 {entry:.2f}")
-            return updates
-        
-        # 再检查缺口回补 (low <= SL)
-        if sl and sl > 0 and bar['low'] <= sl:
-            bar_date = str(bar.get('date', bar.get('trade_date', datetime.now().strftime('%Y-%m-%d'))))
-            updates['status'] = 'INVALIDATED'
-            updates['resolved_date'] = bar_date
-            updates['exit_price'] = bar['low']
-            updates['bars_to_resolve'] = bars_elapsed
-            logger.info(f"💀 {sig['name']}({sig['code']}) 信号失效 (缺口被回补)")
-            return updates
+    if post_df.empty:
+        return None
+    
+    # 🟢 向量化查找第一个满足条件的 bar 位置
+    first_entry_pos = None
+    first_sl_pos = None
+    
+    if entry and entry > 0:
+        entry_mask = post_df['high'] >= entry
+        if entry_mask.any():
+            first_entry_pos = entry_mask.values.argmax()  # 第一个 True 的位置
+    
+    if sl and sl > 0:
+        sl_mask = post_df['low'] <= sl
+        if sl_mask.any():
+            first_sl_pos = sl_mask.values.argmax()
+    
+    # 入场优先于失效（如果同一根K线同时触发，以入场为准）
+    if first_entry_pos is not None and (first_sl_pos is None or first_entry_pos <= first_sl_pos):
+        bar_date = _get_bar_date(post_df, first_entry_pos)
+        updates['status'] = 'ACTIVE'
+        updates['activated_date'] = bar_date
+        updates['max_favorable'] = entry
+        updates['max_adverse'] = entry
+        logger.info(f"🎯 {sig['name']}({sig['code']}) 入场触发！入场价 {entry:.2f}")
+        return updates
+    
+    if first_sl_pos is not None:
+        bar_date = _get_bar_date(post_df, first_sl_pos)
+        updates['status'] = 'INVALIDATED'
+        updates['resolved_date'] = bar_date
+        updates['exit_price'] = post_df.iloc[first_sl_pos]['low']
+        updates['bars_to_resolve'] = bars_elapsed
+        logger.info(f"💀 {sig['name']}({sig['code']}) 信号失效 (缺口被回补)")
+        return updates
     
     # 检查是否过期
     if bars_elapsed >= expiry_bars:
@@ -309,25 +333,36 @@ def _track_active(sig, post_df, updates):
     updates['max_favorable'] = max(max_high, prev_mfe) if prev_mfe else max_high
     updates['max_adverse'] = min(min_low, prev_mae) if prev_mae else min_low
     
-    # 逐 bar 检查 — 判断 SL 和 TP 谁先触达
-    for _, bar in active_df.iterrows():
-        # 先检查止损 (保守原则: 同一根K线先看最低买)
-        if sl and sl > 0 and bar['low'] <= sl:
-            updates['status'] = 'LOSS'
-            updates['exit_price'] = sl
-            updates['resolved_date'] = str(bar.get('date', bar.get('trade_date', datetime.now().strftime('%Y-%m-%d'))))
-            updates['bars_to_resolve'] = bars_elapsed
-            logger.info(f"🔴 {sig['name']}({sig['code']}) 止损 @ {sl:.2f}")
-            return updates
-        
-        # 再检查止盈
-        if tp and tp > 0 and bar['high'] >= tp:
-            updates['status'] = 'WIN'
-            updates['exit_price'] = tp
-            updates['resolved_date'] = str(bar.get('date', bar.get('trade_date', datetime.now().strftime('%Y-%m-%d'))))
-            updates['bars_to_resolve'] = bars_elapsed
-            logger.info(f"🟢 {sig['name']}({sig['code']}) 止盈 @ {tp:.2f} ✨")
-            return updates
+    # 🟢 [Phase2 向量化] 判断 SL 和 TP 谁先触达（止损优先于止盈 — 保守原则）
+    first_sl_pos = None
+    first_tp_pos = None
+    
+    if sl and sl > 0:
+        sl_mask = active_df['low'] <= sl
+        if sl_mask.any():
+            first_sl_pos = sl_mask.values.argmax()
+    
+    if tp and tp > 0:
+        tp_mask = active_df['high'] >= tp
+        if tp_mask.any():
+            first_tp_pos = tp_mask.values.argmax()
+    
+    # 止损优先（同一根K线同时触发，以止损为准）
+    if first_sl_pos is not None and (first_tp_pos is None or first_sl_pos <= first_tp_pos):
+        updates['status'] = 'LOSS'
+        updates['exit_price'] = sl
+        updates['resolved_date'] = _get_bar_date(active_df, first_sl_pos)
+        updates['bars_to_resolve'] = bars_elapsed
+        logger.info(f"🔴 {sig['name']}({sig['code']}) 止损 @ {sl:.2f}")
+        return updates
+    
+    if first_tp_pos is not None:
+        updates['status'] = 'WIN'
+        updates['exit_price'] = tp
+        updates['resolved_date'] = _get_bar_date(active_df, first_tp_pos)
+        updates['bars_to_resolve'] = bars_elapsed
+        logger.info(f"🟢 {sig['name']}({sig['code']}) 止盈 @ {tp:.2f} ✨")
+        return updates
     
     # 检查持仓过期
     if bars_elapsed >= expiry_bars:
@@ -618,9 +653,18 @@ def run_tracker_dashboard():
     try:
         with get_db_connection() as conn:
             col_names = [desc[0] for desc in conn.execute("SELECT * FROM signal_archive LIMIT 0").description]
+            # 过滤逻辑 (V9.8):
+            # 1. 活跃的持仓 (ACTIVE) 始终显示
+            # 2. 等待入场 (PENDING) 始终显示 (因为周线Gap属于结构性机会，有效性不依附于单根K线时间，而是根据空间有效性即Gap是否被回补)
+            # 3. 结算信号 (WIN/LOSS/INVALIDATED) 仅显示今天刚结算的
+            today_dt = datetime.now()
+            today_str = today_dt.strftime('%Y-%m-%d')
             
             all_rows = conn.execute(
-                "SELECT * FROM signal_archive ORDER BY ev_score DESC"
+                "SELECT * FROM signal_archive "
+                "WHERE status IN ('PENDING', 'ACTIVE') "
+                "   OR (status IN ('WIN', 'LOSS', 'INVALIDATED') AND resolved_date >= ?) "
+                "ORDER BY ev_score DESC", (today_str,)
             ).fetchall()
             
             # 本月已结算统计
@@ -652,6 +696,7 @@ def run_tracker_dashboard():
             'entry': entry, 'sl': sl, 'tp': tp,
             'current': current_price or 0,
             'ev_rating': sig.get('ev_rating', ''),
+            'ev_score': sig.get('ev_score', 0),
             'strategy': sig.get('strategy', ''),
         }
         
@@ -668,6 +713,31 @@ def run_tracker_dashboard():
             item['dist_sl'] = 0
         
         enriched.append(item)
+    
+    # 状态优先级映射 (数字越小优先级越高，绝对保护真实持仓不被 PENDING 覆盖)
+    priority_map = {
+        'ACTIVE': 1,
+        'PENDING': 2,
+        'WIN': 3,
+        'LOSS': 3,
+        'INVALIDATED': 4
+    }
+    
+    # 根据优先级 + ev_score(降序) 对整合列表进行排序
+    enriched.sort(key=lambda x: (
+        priority_map.get(x['status'], 99), 
+        -x.get('ev_score', 0)
+    ))
+    
+    # 去重逻辑: 此时排名第一的肯定是优先级最高(如 ACTIVE)且分数最高的记录
+    seen_codes = set()
+    dedup_enriched = []
+    for s in enriched:
+        if s['code'] not in seen_codes:
+            dedup_enriched.append(s)
+            seen_codes.add(s['code'])
+            
+    enriched = dedup_enriched
     
     # 按维度分组
     active_all = [s for s in enriched if s['status'] == 'ACTIVE']
@@ -783,12 +853,15 @@ def run_tracker_dashboard():
     print(f"{'═' * 58}\n")
     
     # =====================================================================
-    # Step 5: Discord 多条推送
+    # Step 5: Discord 按状态分类推送 (V9.3 重构)
     # =====================================================================
     _push_dashboard_discord(
-        enriched, aplus_active, aplus_pending, aplus_invalidated,
-        other_active, pending_all, invalidated_all,
-        wins_count, losses_count, wr, avg_r, today_str, weekday
+        enriched=enriched,
+        win_all=win_all, loss_all=loss_all,
+        invalidated_all=invalidated_all,
+        active_all=active_all, pending_all=pending_all,
+        wins_count=wins_count, losses_count=losses_count,
+        wr=wr, avg_r=avg_r, today_str=today_str, weekday=weekday
     )
 
 
@@ -845,35 +918,11 @@ def _push_resolved_alert(sig, status):
         msg += f"状态: **{title}**\n"
         msg += f"{detail}\n"
         
-        from tools.notifier import send_discord_message, generate_chart_bytes, send_discord_image
+        from tools.notifier import send_discord_message
         send_discord_message(msg)
         
-        # 生成并推送K线图
-        # 周线信号需要用周线数据, 否则 generate_chart_bytes 默认走日线
-        df_override = None
-        timeframe = sig.get('timeframe', 'daily')
-        if timeframe == 'weekly':
-            try:
-                df_w = dp.get_stock_data_weekly(code, limit=300)
-                if df_w is not None and not df_w.empty:
-                    from core.calculator import add_indicators
-                    from core.strategies.structural_gap_strategy import StructuralGapStrategy
-                    df_w = add_indicators(df_w)
-                    df_w = StructuralGapStrategy().calculate_signals(df_w)
-                    df_override = df_w
-            except Exception as e:
-                logger.warning(f"周线数据获取失败, 回退日线: {e}")
+        logger.info(f"📤 {name}({code}) [{status}] 文字战报已推送 Discord (无图模式)")
         
-        chart_buf = generate_chart_bytes(
-            code=code, stock_name=name,
-            strategy_type=sig.get('strategy', 'STRUCTURAL_GAP'),
-            sl_price=sl, tp1=tp,
-            ev_rating=sig.get('ev_rating', ''),
-            df_override=df_override
-        )
-        if chart_buf:
-            send_discord_image(chart_buf, filename=f"{code}_{status}.png")
-            logger.info(f"📤 {name}({code}) [{status}] 图表已推送 Discord")
     except Exception as e:
         logger.warning(f"推送结算通知失败: {e}")
 
@@ -895,23 +944,230 @@ def _make_progress_bar(progress, width=10):
     return '█' * filled + '░' * (width - filled)
 
 
-def _push_dashboard_discord(enriched, aplus_active, aplus_pending, aplus_invalidated,
-                             other_active, pending_all, invalidated_all,
+def _push_dashboard_discord(enriched, win_all, loss_all, invalidated_all,
+                             active_all, pending_all,
                              wins_count, losses_count, wr, avg_r, today_str, weekday):
-    """Discord 多条推送 (分类消息 + A+ 个股图表)"""
+    """
+    [V9.6] Discord 纯文本·异动高亮推送
+    
+    推送顺序: 概览 → 🟢 止盈 → 🔴 止损 → 💀 失效 → 🎯 持仓(异动置顶) → ⏳ 等待(异动置顶)
+    核心逻辑: 彻底放弃图表推送, 改为抓取距离关键阈值极近的核心标的进行异动追踪。
+    """
     try:
-        from tools.notifier import send_discord_message, generate_chart_bytes, send_discord_image
+        from tools.notifier import send_discord_message
     except ImportError:
         logger.warning("Discord notifier 不可用")
         return
     
-    # ── 消息 1: 概览 ──
-    msg1 = f"📊 **周线信号追踪 | {today_str} ({weekday})**\n"
+    import time as _time
+    
+    # ── Helper: 分组纯文字异动排序推送 ──
+    def _push_status_group(signals, status_icon, status_title):
+        """为一个状态组生成文字战报"""
+        if not signals:
+            return
+            
+        if status_title == '持仓中':
+            # 对于持仓中，分为浮盈和浮亏两组
+            profit_items = []
+            loss_items = []
+            
+            for s in signals:
+                name = s['name']
+                rating = s.get('rating', '?')
+                code = s['code']
+                pnl = s.get('pnl_pct', 0)
+                dist_tp = s.get('dist_tp', 999)
+                dist_sl = s.get('dist_sl', 999)
+                
+                # 确定详情文字 (区分异动和普通)
+                if dist_tp > 0 and dist_tp < 5:
+                    detail = f"现价{s['current']:.2f} | 浮盈{pnl:+.1f}% | 🎯 **逼近止盈 (相距 {dist_tp:.1f}%)**"
+                elif dist_sl > 0 and dist_sl < 5:
+                    detail = f"现价{s['current']:.2f} | 浮亏{pnl:+.1f}% | ⚠️ **逼近止损 (相距 {dist_sl:.1f}%)**"
+                else:
+                    detail = f"现价{s['current']:.2f} | 浮动 {pnl:+.1f}%"
+                    
+                line = f"  [{rating}] {name}({code}) | {detail}"
+                
+                if pnl >= 0:
+                    profit_items.append((s, line))
+                else:
+                    loss_items.append((s, line))
+                    
+            # 排序：浮盈按盈利率降序 (越赚越靠前)
+            profit_items.sort(key=lambda x: x[0].get('pnl_pct', 0), reverse=True)
+            # 排序：浮亏按亏损率升序 (负数越小，绝对值越大，越亏越靠前)
+            loss_items.sort(key=lambda x: x[0].get('pnl_pct', 0))
+            
+            profit_msgs = [item[1] for item in profit_items]
+            loss_msgs = [item[1] for item in loss_items]
+            
+            # 智能折叠 (合并 profit 和 loss 进行折叠计算)
+            msg_lines_header = [f"{status_icon} **{status_title} ({len(signals)}只)**"]
+            
+            if profit_msgs:
+                msg_lines_header.append("\n  >>> **📈 浮盈榜** <<<")
+                
+            ellipsis_str = "  ... [内容过长，部分浮动居中的标的已折叠] ..."
+            
+            # 将内容组合以计算总长度
+            # 注意：我们将 profit_msgs (前面是最高盈) 和 loss_msgs_with_header (后面是最大亏) 拼在一起
+            loss_header = "\n  >>> **📉 浮亏榜** <<<"
+            all_content_lines = msg_lines_header + profit_msgs
+            if loss_msgs:
+                all_content_lines.append(loss_header)
+                all_content_lines.extend(loss_msgs)
+                
+            test_content = "\n".join(all_content_lines)
+            
+            if len(test_content) > 1850:
+                base_len = len("\n".join(msg_lines_header)) + (len(loss_header) if loss_msgs else 0) + len(ellipsis_str) + 2
+                allowed_chars = 1850 - base_len
+                
+                final_profit_msgs = []
+                final_loss_msgs = []
+                current_len = 0
+                
+                # 双指针：left 从浮盈最大开始取，right 从浮亏最大(loss_msgs[0])开始取
+                p_idx, l_idx = 0, 0
+                
+                while p_idx < len(profit_msgs) or l_idx < len(loss_msgs):
+                    added_something = False
+                    
+                    if p_idx < len(profit_msgs):
+                        len_p = len(profit_msgs[p_idx]) + 1
+                        if current_len + len_p <= allowed_chars:
+                            final_profit_msgs.append(profit_msgs[p_idx])
+                            current_len += len_p
+                            p_idx += 1
+                            added_something = True
+                            
+                    if l_idx < len(loss_msgs):
+                        len_l = len(loss_msgs[l_idx]) + 1
+                        if current_len + len_l <= allowed_chars:
+                            final_loss_msgs.append(loss_msgs[l_idx])
+                            current_len += len_l
+                            l_idx += 1
+                            added_something = True
+                            
+                    if not added_something:
+                        break  # 容量耗尽
+                
+                msg_lines_header.extend(final_profit_msgs)
+                if p_idx < len(profit_msgs) or l_idx < len(loss_msgs):
+                     msg_lines_header.append(ellipsis_str)
+                if loss_msgs:
+                    msg_lines_header.append(loss_header)
+                    msg_lines_header.extend(final_loss_msgs)
+            else:
+                msg_lines_header.extend(profit_msgs)
+                if loss_msgs:
+                    msg_lines_header.append(loss_header)
+                    msg_lines_header.extend(loss_msgs)
+                    
+            msg = "\n".join(msg_lines_header) + "\n"
+                
+        else:
+            # 原有的非持仓状态逻辑 (等待入场, 止盈, 止损, 失效) 保持异动分类
+            urgent_msgs = []
+            normal_msgs = []
+            
+            for s in signals:
+                name = s['name']
+                rating = s.get('rating', '?')
+                code = s['code']
+                
+                is_urgent = False
+                detail = ""
+                
+                if status_title == '止盈达成':
+                    detail = f"入场{s['entry']:.2f} ➔ **止盈{s['tp']:.2f}**"
+                elif status_title == '触发止损':
+                    detail = f"入场{s['entry']:.2f} ➔ **止损{s['sl']:.2f}**"
+                elif status_title == '缺口失效':
+                    detail = f"SL **{s['sl']:.2f}** 已击穿"
+                elif status_title == '等待入场':
+                    dist_entry = s.get('dist_entry_pct', 999)
+                    if dist_entry > 0 and dist_entry < 3:
+                        is_urgent = True
+                        detail = f"距离入场只差 **{dist_entry:.1f}%** ➔ 入场位 {s['entry']:.2f} 🔥"
+                    else:
+                        detail = f"{_format_entry_distance(dist_entry)} ➔ 入场位 {s['entry']:.2f}"
+                
+                line = f"  [{rating}] {name}({code}) | {detail}"
+                
+                if is_urgent:
+                    urgent_msgs.append(line)
+                else:
+                    normal_msgs.append(line)
+            
+            # 拼装头部报文 (异动永远置于最上方)
+            msg_lines_header = [f"{status_icon} **{status_title} ({len(signals)}只)**"]
+            
+            if urgent_msgs:
+                msg_lines_header.append("\n  >>> **🔥 异动追踪区** <<<")
+                msg_lines_header.extend(urgent_msgs)
+                msg_lines_header.append("  ------------------------")
+                
+            if normal_msgs:
+                # 智能折叠中间的内容以防止 Discord 截断
+                ellipsis_str = "  ... [内容过长，部分浮动居中的标的已折叠] ..."
+                test_content = "\n".join(msg_lines_header + normal_msgs)
+                
+                if len(test_content) > 1850:
+                    allowed_chars = 1850 - len("\n".join(msg_lines_header)) - len(ellipsis_str) - 2
+                    if allowed_chars < 50:
+                        normal_msgs = [ellipsis_str]
+                    else:
+                        head_msgs = []
+                        tail_msgs = []
+                        current_len = 0
+                        left, right = 0, len(normal_msgs) - 1
+                        
+                        while left <= right:
+                            len_l = len(normal_msgs[left]) + 1
+                            if current_len + len_l > allowed_chars:
+                                break
+                            head_msgs.append(normal_msgs[left])
+                            current_len += len_l
+                            left += 1
+                            
+                            if left > right: break
+                                
+                            len_r = len(normal_msgs[right]) + 1
+                            if current_len + len_r > allowed_chars:
+                                break
+                            tail_msgs.insert(0, normal_msgs[right])
+                            current_len += len_r
+                            right -= 1
+                            
+                        normal_msgs = head_msgs + [ellipsis_str] + tail_msgs
+                        
+                msg_lines_header.extend(normal_msgs)
+                
+            msg = "\n".join(msg_lines_header) + "\n"
+        
+        try:
+            send_discord_message(msg)
+        except Exception as e:
+            logger.warning(f"Discord {status_title} 文字推送失败: {e}")
+            return
+        
+        _time.sleep(1)
+    
+    # ══════════════════════════════════════════════════════
+    # 消息 1: 📊 概览
+    # ══════════════════════════════════════════════════════
+    msg1 = f"📊 **信号追踪 | {today_str} ({weekday})**\n"
     msg1 += f"━━━━━━━━━━━━━━━━\n"
-    msg1 += f"追踪 {len(enriched)} | 入场 {len([s for s in enriched if s['status']=='ACTIVE'])} | "
-    msg1 += f"等待 {len(pending_all)} | 失效 {len(invalidated_all)}\n"
+    msg1 += f"追踪 {len(enriched)}"
+    msg1 += f" | 🎯入场 {len(active_all)}"
+    msg1 += f" | ⏳等待 {len(pending_all)}"
+    msg1 += f" | 💀失效 {len(invalidated_all)}\n"
     if wins_count + losses_count > 0:
-        msg1 += f"📈 本月: 胜{wins_count} 负{losses_count} | 胜率{wr:.0f}% | {avg_r:+.2f}R\n"
+        msg1 += f"📈 本月: 🟢胜{wins_count} 🔴负{losses_count} | 胜率{wr:.0f}% | {avg_r:+.2f}R\n"
+    msg1 += f"🟢止盈 {len(win_all)}只 | 🔴止损 {len(loss_all)}只\n"
     
     try:
         send_discord_message(msg1)
@@ -919,75 +1175,13 @@ def _push_dashboard_discord(enriched, aplus_active, aplus_pending, aplus_invalid
         logger.warning(f"Discord 概览推送失败: {e}")
         return
     
-    # ── 消息 2: A+ 极品动态 + 图表 ──
-    aplus_total = len(aplus_active) + len(aplus_pending) + len(aplus_invalidated)
-    if aplus_total > 0:
-        msg2 = f"🌟🌟 **A+ 极品动态 ({aplus_total}只)**\n"
-        
-        if aplus_active:
-            msg2 += f"\n🎯 **已入场 ({len(aplus_active)}只):**\n"
-            for s in aplus_active:
-                dist_tp = f"距止盈 {s['dist_tp']:.0f}%" if s['dist_tp'] > 0 else "已达止盈区"
-                msg2 += f"  {s['name']} | 现价{s['current']:.2f} | 浮盈{s['pnl_pct']:+.1f}% | {dist_tp}\n"
-        
-        if aplus_pending:
-            msg2 += f"\n⏳ **等待入场 ({len(aplus_pending)}只):**\n"
-            for s in aplus_pending:
-                msg2 += f"  {s['name']} | {_format_entry_distance(s['dist_entry_pct'])} → 入场{s['entry']:.2f}\n"
-        
-        if aplus_invalidated:
-            names = " / ".join([s['name'] for s in aplus_invalidated])
-            msg2 += f"\n💀 **已失效:** {names}\n"
-        
-        try:
-            send_discord_message(msg2)
-        except Exception as e:
-            logger.warning(f"Discord A+推送失败: {e}")
-        
-        # A+ 个股图表推送 (只推 ACTIVE 和 PENDING 的, 失效的不推)
-        chart_targets = aplus_active + aplus_pending
-        chart_buffers = []
-        for s in chart_targets:
-            try:
-                buf = generate_chart_bytes(
-                    code=s['code'], stock_name=s['name'],
-                    strategy_type=s.get('strategy', 'STRUCTURAL_GAP'),
-                    sl_price=s['sl'], tp1=s['tp'],
-                    ev_rating=s.get('ev_rating', '')
-                )
-                if buf:
-                    chart_buffers.append(buf)
-            except Exception:
-                pass
-        
-        if chart_buffers:
-            from tools.notifier import send_discord_images
-            filenames = [f"aplus_{s['code']}.png" for s in chart_targets[:len(chart_buffers)]]
-            try:
-                send_discord_images(chart_buffers, filenames)
-                logger.info(f"📤 A+ 图表 ({len(chart_buffers)}张) 已推送")
-            except Exception as e:
-                logger.warning(f"A+ 图表推送失败: {e}")
+    # ══════════════════════════════════════════════════════
+    # 按状态分组纯文本推送 (置顶异动)
+    # ══════════════════════════════════════════════════════
+    _push_status_group(pending_all,      '⏳', '等待入场')
+    _push_status_group(win_all,          '🟢', '止盈达成')
+    _push_status_group(loss_all,         '🔴', '触发止损')
+    _push_status_group(active_all,       '🎯', '持仓中')
+    _push_status_group(invalidated_all,  '💀', '缺口失效')
     
-    # ── 消息 3: 其他入场汇总 ──
-    if other_active:
-        msg3 = f"🎯 **其他入场 ({len(other_active)}只)**\n"
-        profit_ones = [s for s in other_active if s['pnl_pct'] >= 0]
-        loss_ones = sorted([s for s in other_active if s['pnl_pct'] < 0], key=lambda x: x['pnl_pct'])
-        
-        if profit_ones:
-            top = profit_ones[:5]
-            msg3 += "浮盈: " + " | ".join([f"{s['name']}{s['pnl_pct']:+.0f}%" for s in top])
-            if len(profit_ones) > 5:
-                msg3 += f" +{len(profit_ones)-5}只"
-            msg3 += "\n"
-        if loss_ones:
-            bot = loss_ones[:3]
-            msg3 += "浮亏: " + " | ".join([f"{s['name']}{s['pnl_pct']:+.0f}%" for s in bot]) + "\n"
-        
-        try:
-            send_discord_message(msg3)
-        except Exception as e:
-            logger.warning(f"Discord 入场推送失败: {e}")
-    
-    logger.info("✅ 仪表盘已推送 Discord (多条)")
+    logger.info("✅ 仪表盘已推送 Discord (V9.6 查无图·聚焦异动模式)")

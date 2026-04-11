@@ -42,7 +42,7 @@ DEBUG_MODE = False
 
 
 def process_ai_daily(scanner_result: Dict[str, any]) -> Tuple[bool, str]:
-    """[Phase 3] AI 日线级别筛选 (process_ai_daily)
+    """[DeepSeek] 策略深度审计 (辅助决策)
     
     Args:
         scanner_result: 包含股票代码和数据的字典
@@ -99,7 +99,7 @@ def process_ai_daily(scanner_result: Dict[str, any]) -> Tuple[bool, str]:
 
 
 def prepare_daily_chart(stage1_item: Dict[str, any], passed: bool = True, reason: str = "") -> Tuple[Optional[Dict[str, any]], Optional[bytes], str]:
-    """[Phase 4] 准备日线图表 (支持通过和拒绝两种状态)
+    """准备结果图表 (渲染 PA 标注与交易参数)
     
     Args:
         stage1_item: 包含初步筛选结果的字典
@@ -236,44 +236,19 @@ def get_market_status():
     if current_minutes > 905: return 'CLOSED'
     return 'CLOSED'
 
-def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set = None) -> set:
-    if strategies is None:
-        from core.strategy_registry import StrategyRegistry
-        strategies = StrategyRegistry.list_strategies()
+
+def _scan_market(all_codes, strategies, seen_signals):
+    """
+    [Phase2 重构] 阶段 1: 全市场扫描 + Signal Tracker 归档
     
-    if seen_signals is None: seen_signals = set()
+    Returns:
+        tuple: (all_hits, new_signals)
+    """
     new_signals = set()
     
     logger.info("\n" + "="*50)
-    logger.info("🚀 阶段 1/4: 全市场行情快照 (Snapshot)")
+    logger.info(f"🔭 全市场技术面扫描 (Scanning {len(all_codes)} 标的)")
     logger.info("="*50)
-
-    now = datetime.now()
-    current_minutes = now.hour * 60 + now.minute
-    
-    if data_provider.is_trading_day() and 570 <= current_minutes < 930:
-        logger.warning("\n⚠️ 【严重警告】时空错位提醒 (Time-Space Paradox)")
-        logger.warning("   当前运行在盘中/尾盘时段，但 Baostock 仅提供昨日收盘数据 (T-1)。")
-        logger.warning("   👉 您现在分析的是【昨天】的K线形态！")
-        logger.warning("   ⛔ 此结果仅可用于【复盘验证】或【制定明日计划】，严禁直接用于今日尾盘交易！")
-        logger.warning("   (程序将在 3秒 后继续...)")
-        time.sleep(3)
-    
-    analysis_queue = queue.Queue(maxsize=5000)
-    result_queue = queue.Queue()
-    stop_event = threading.Event()
-    
-    num_ai_workers = 6
-    ai_threads = []
-    for i in range(num_ai_workers):
-        t = threading.Thread(target=ai_worker, args=(i, analysis_queue, result_queue, stop_event))
-        t.start()
-        ai_threads.append(t)
-        
-    logger.info("\n" + "="*50)
-    logger.info(f"🔭 阶段 2/4: 技术面扫描 (Scanning {len(all_codes)} 标的)")
-    logger.info("="*50)
-    logger.info(f"🤖 已启动 {num_ai_workers} 个 AI 分析进程 (Stage 3 准备就绪)")
 
     scan_count = 0
     hit_count = 0
@@ -317,8 +292,17 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
                 continue
                 
     print(f"\n✅ 扫描结束. 初步命中: {hit_count}")
+    return all_hits, new_signals
 
-    # 阶段 2.5: Watchlist 生命周期管理
+
+def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_threads):
+    """
+    [Phase2 重构] 阶段 2: Watchlist 生命周期 + 策略分流 + AI 审计
+    
+    Returns:
+        tuple: (direct_picks, final_picks, rejected_list, watchlist, status_changes)
+    """
+    # 🟢 阶段 2.5: Watchlist 生命周期管理 (同步更新)
     from tools.watchlist import WatchlistManager
     watchlist = WatchlistManager()
     
@@ -339,7 +323,7 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
             if new_status != old_status and new_status in ['TRIGGERED', 'INVALIDATED']:
                 status_changes.append((code, new_status, data))
 
-    # 2. 从 Scanner 结果过滤出“新”信号 (🆕 NEW)
+    # 2. 从 Scanner 结果过滤出"新"信号 (🆕 NEW)
     new_hits = []
     for res in all_hits:
         code = res['code']
@@ -353,36 +337,40 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
         if code in watchlist.data:
             sig_data = watchlist.data[code]
             if sig_data['status'] in ['TRIGGERED', 'INVALIDATED', 'EXPIRED']:
-                # 之前已失效，但现在又有新信号，视情况作为新信号处理 (sb_idx 不同)
                 if sb_idx != -1 and sb_idx != sig_data['signal_bar_idx']:
                     watchlist.add_signal(code, entry, sl, score, sb_idx, date_val)
                     new_hits.append(res)
             else:
-                # 正在 WATCHING / NEW 中，检查是否更新了内部 K 线
                 if sb_idx != -1 and sb_idx != sig_data['signal_bar_idx']:
                     watchlist.update_signal_bar(code, sb_idx, entry)
-                    new_hits.append(res) # 内部信号更新也推一遍
+                    new_hits.append(res)
         else:
-            # 完全新的
             watchlist.add_signal(code, entry, sl, score, sb_idx, date_val)
             new_hits.append(res)
             
     logger.info(f"📌 Watchlist 过滤后，新增/更新信号: {len(new_hits)}")
 
-    # ==========================
     # 覆盖 all_hits，后续只让 AI 分析新信号
-    # ==========================
     all_hits = new_hits
 
-    # 🟢 [V2.1/V3.0] 策略分流: 3K/Struct Gap 不走 AI, MTR 走 AI
+    # 🟢 [V9.5] 策略分流: MTR/3K/Struct Gap 均不再强制走 AI
     ai_candidates_raw = []
-    direct_picks = []  # 存放无需 AI 审计直接上图的技术面干信号
-    
+    direct_picks = []
+
     for res in all_hits:
         strat_type = res.get('type', '').upper()
-        if '3K' in strat_type or 'STRUCTURAL_GAP' in strat_type:
-            # 3K & Struct Gap: 直接生成图表, 跳过 AI
-            reason_txt = "[V3.0] 结构突破信号" if 'STRUCTURAL' in strat_type else "[3K] 技术面信号"
+        if '3K' in strat_type or 'STRUCTURAL_GAP' in strat_type or 'MTR' in strat_type:
+            if 'MTR' in strat_type:
+                score = res.get('info', {}).get('score', 0)
+                if score >= 80: ev_rating = '🌟🌟 极品 (A+)'
+                elif score >= 65: ev_rating = '🌟 高预期 (A)'
+                elif score >= 50: ev_rating = '👍 常态 (B)'
+                else: ev_rating = '⚠️ 低预期 (C)'
+                res['info']['ev_rating'] = ev_rating
+                reason_txt = f"MTR 结构确认 | {ev_rating}"
+            else:
+                reason_txt = "[V3.0] 结构突破信号" if 'STRUCTURAL' in strat_type else "[3K] 技术面信号"
+
             res_item, chart_buf, _ = prepare_daily_chart(res, passed=True, reason=reason_txt)
             if chart_buf:
                 res_item['chart_buf'] = chart_buf
@@ -395,35 +383,30 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
     if direct_picks:
         logger.info(f"⚡ 快速通道: {len(direct_picks)} 个结构/动能信号直接入池 (跳过 AI)")
 
-    # MTR 信号: Token Saver 排序取 Top 10
-    ai_candidates_raw.sort(key=lambda x: x.get('info', {}).get('score', 0), reverse=True)
     ai_candidates = ai_candidates_raw[:10]
     skipped_candidates = ai_candidates_raw[10:]
     
-    if len(ai_candidates_raw) > 10:
-        logger.info(f"💰 Token 保护: MTR {len(ai_candidates_raw)} 个信号取前 10 审计")
+    if ai_candidates_raw:
+        logger.info(f"🧠 AI 审计候补: {len(ai_candidates_raw)} 个信号 (非 MTR/3K/SG 策略)")
     
-    # 将 MTR 放入 AI 队列
     for res in ai_candidates:
         try:
             analysis_queue.put(res, timeout=1.0)
         except queue.Full:
             break
 
-    # 阶段 3: AI 分析 (仅 MTR)
-    logger.info("\n" + "="*50)
+    # 等待 AI 队列处理完毕
     mtr_count = len(ai_candidates)
-    logger.info(f"🧠 阶段 3/4: DeepSeek 深度分析 (MTR: {mtr_count} | 技术面专线: 已跳过)")
-    logger.info("="*50)
+    if mtr_count > 0:
+        logger.info(f"🧠 AI 候补队列审计: {mtr_count} 项待处理...")
+        analysis_queue.join()
     
-    analysis_queue.join()
     stop_event.set()
     for t in ai_threads: t.join()
     
     final_picks = []
     rejected_list = []
     
-    # 处理被跳过的 MTR 候选者
     for res in skipped_candidates:
         res['ai_parsed'] = {'verdict': 'SKIP', 'reason': '分数较低，已节省 Token 跳过审计'}
         res['ai_daily_view'] = "SKIP"
@@ -431,7 +414,6 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
         if chart_buf: res_item['chart_buf'] = chart_buf
         final_picks.append(res_item)
     
-    # 处理 AI 工人产生的结果
     while not result_queue.empty():
         type_, data = result_queue.get()
         if type_ == 'PASS':
@@ -446,8 +428,15 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
             else:
                 item, reason = data
                 rejected_list.append((item, reason))
-            
-    # 1. Top 3 优先选取 AI 通过的信号 (精准狙击原则)
+    
+    return direct_picks, final_picks, rejected_list, watchlist, status_changes
+
+
+def _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_changes):
+    """
+    [Phase2 重构] 阶段 3: 拼装 Discord 文本消息并推送
+    """
+    # Top 3 优先选取
     passed_candidates = []
     for p in final_picks:
         p['ai_verdict'] = True
@@ -462,9 +451,8 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
     if not passed_candidates and not rejected_with_reason and not direct_picks:
         logger.info("💤 本轮无新信号 (Scanner 0 命中)")
         send_discord_message("💤 今日全市场扫描结束，未发现符合技术面雏形的信号。")
-        return new_signals
+        return
 
-    # 🎯 MTR: AI 通过的优先排序取 Top 3
     passed_candidates.sort(key=lambda x: x.get('info', {}).get('score', 0), reverse=True)
     top_mtr = passed_candidates[:3]
     
@@ -472,47 +460,40 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
         rejected_with_reason.sort(key=lambda x: x.get('info', {}).get('score', 0), reverse=True)
         top_mtr = rejected_with_reason[:1]
 
-    # 技术面信号: 全量推送 (按评分排序)
     direct_picks.sort(key=lambda x: x.get('info', {}).get('score', 0), reverse=True)
 
     logger.info("\n" + "="*50)
-    logger.info(f"📨 阶段 4/4: 结果推送 (MTR Top 3 + 结构战法 全量)")
+    logger.info(f"📨 阶段 3/3: 信号归档与结果推送 (Dispatch)")
     logger.info("="*50)
 
-    # ==============================================================
-    # 4. 推送: MTR 新信号 | 3K 全量 | 观察中 | 状态变更
-    # ==============================================================
     msg_lines = ["🚀 **Brooks-AI 猎手报告**\n"]
     from tools.notifier import format_mtr_alert, format_3k_alert
     
-    # Block 1: 🆕 MTR 新信号 (Top 3)
-    if top_mtr:
-        msg_lines.append("【🎯 MTR 新信号 Top 3】")
-        for p in top_mtr:
+    # Block 1: 🆕 MTR 新信号
+    mtr_picks = [p for p in direct_picks if 'MTR' in p.get('type', '').upper()]
+    if mtr_picks:
+        msg_lines.append("【🎯 MTR 结构反转信号】")
+        for p in mtr_picks:
             code, name = p['code'], (p.get('name_cn') or fetch_stock_name(p['code']))
             info = p.get('info', {})
-            status_icon = "✅" if p['ai_verdict'] else "❌"
-            header = f"{status_icon} {name} ({code})"
-            msg_lines.append(header)
-            msg_lines.append(format_mtr_alert(code, name, info.get('entry', info.get('price',0)), info.get('sl',0), info.get('tp1',0), info.get('tp2',0)))
-            if not p['ai_verdict']:
-                clean_reason = p.get('ai_reject_reason', '').replace("日线拒绝: ", "").strip()
-                short_reason = clean_reason[:30] + ("..." if len(clean_reason) > 30 else "")
-                msg_lines.append(f"> AI 警告: {short_reason}")
+            ev_rating = info.get('ev_rating', 'N/A')
+            msg_lines.append(f"✅ {name} ({code}) [{ev_rating}]")
+            msg_lines.append(format_mtr_alert(
+                code, name, info.get('entry', info.get('price',0)), 
+                info.get('sl',0), info.get('tp1',0), info.get('tp2',0),
+                ev_rating=ev_rating
+            ))
             msg_lines.append("")
     
     # Block 2: ⚡ 技术面直通信号 (3K / Structural Gap)
-    if direct_picks:
+    other_direct_picks = [p for p in direct_picks if 'MTR' not in p.get('type', '').upper()]
+    if other_direct_picks:
         from tools.notifier import format_structural_alert
-        msg_lines.append(f"【⚡ 技术面确认信号 ({len(direct_picks)} 只)】")
+        msg_lines.append(f"【⚡ 结构/动能波段信号 ({len(other_direct_picks)} 只)】")
         
-        # Separate structural gaps for EV grouping
-        sg_best = []
-        sg_good = []
-        sg_warn = []
-        others = []
+        sg_best, sg_good, sg_warn, others = [], [], [], []
         
-        for p in direct_picks:
+        for p in other_direct_picks:
             strat_type = p.get('type', '').upper()
             if 'STRUCTURAL' in strat_type:
                 ev_rating = p.get('info', {}).get('ev_rating', '')
@@ -522,8 +503,7 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
                 else: others.append(p)
             else:
                 others.append(p)
-                
-        # Helper to format Struct Gap
+        
         def _add_sg_lines(group_list, title):
             if group_list:
                 msg_lines.append(f"  {title} ({len(group_list)}只):")
@@ -556,7 +536,7 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
     if not top_mtr and not direct_picks:
         msg_lines.append("  (无新增信号)\n")
 
-    # Block 2: 📌 观察中 (仍在 Watchlist 里的未触发股票)
+    # Block 3: 📌 观察中
     watching_now = watchlist.get_watching()
     watching_count = len(watching_now) if watching_now else 0
     
@@ -568,7 +548,7 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
             msg_lines.append(f"• 挂单有效 {name} ({watch_code}) | Buy Stop: {entry:.2f}")
         msg_lines.append("")
 
-    # Block 3: 🚫 状态变更 (Triggered 或 Invalidated)
+    # Block 4: 🚫 状态变更
     if status_changes:
         msg_lines.append("【🔔 信号状态变更】")
         for st_code, st_status, st_data in status_changes:
@@ -584,20 +564,25 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
 
     msg_lines.append("-------------------")
     
-    # 底部精简看板 (猎手看板)
     rejected_count = len(rejected_list) if rejected_list else 0
     msg_lines.append(f"📊 猎手看板: 伏击圈内在观望 {watching_count} 只 | AI 今日挡下 {rejected_count} 只次优形态")
 
     summary_text = "\n".join(msg_lines)
     send_discord_message(summary_text)
 
-    # 5. 图表推送 (全量 - 5张一拼长图)
-    from tools.notifier import generate_chart_bytes
+
+def _dispatch_charts(direct_picks, final_picks):
+    """
+    [Phase2 重构] 阶段 4: 图表生成 + Discord 分批推送
+    """
+    from tools.notifier import generate_chart_bytes, send_discord_images
     
     # 合并所有需要推送图表的信号
+    # top_mtr 从 final_picks 中取前 3
+    final_picks_sorted = sorted(final_picks, key=lambda x: x.get('info', {}).get('score', 0), reverse=True)
+    top_mtr = final_picks_sorted[:3]
     all_chart_candidates = list(top_mtr) + list(direct_picks)
     
-    # 对缺少图表的信号尝试主线程重绘
     chart_pool = []
     for p in all_chart_candidates:
         if 'chart_buf' not in p or not p['chart_buf']:
@@ -624,14 +609,71 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
             chart_pool.append(p['chart_buf'])
 
     if chart_pool:
-        BATCH_SIZE = getattr(settings, 'MAX_IMAGES_PER_BATCH', 5)
-        logger.info(f"🎨 全量图表推送: {len(chart_pool)} 张 ({BATCH_SIZE} 张/批)")
+        BATCH_SIZE = 10 
+        logger.info(f"🎨 Discord 多图推送: {len(chart_pool)} 张 ({BATCH_SIZE} 张/批)")
+        
         for batch_start in range(0, len(chart_pool), BATCH_SIZE):
             batch = chart_pool[batch_start:batch_start + BATCH_SIZE]
-            merged = stitch_images(batch)
-            if merged:
-                send_discord_image(merged, filename=f"hunter_batch_{batch_start}.png")
+            send_discord_images(
+                batch, 
+                content=f"📈 信号图表回顾 ({batch_start+1}-{batch_start+len(batch)})"
+            )
 
+
+def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set = None) -> set:
+    """
+    [Phase2 重构] 主流水线协调器 (原 412 行 → 精简为 ~40 行控制流)
+    
+    Pipeline: scan → classify → report → dispatch
+    """
+    if strategies is None:
+        from core.strategy_registry import StrategyRegistry
+        strategies = StrategyRegistry.list_strategies()
+    
+    if seen_signals is None: seen_signals = set()
+    
+    logger.info("\n" + "="*50)
+    logger.info("🚀 阶段 1/3: 全行情快照与市场分析 (Snapshot)")
+    logger.info("="*50)
+
+    now = datetime.now()
+    current_minutes = now.hour * 60 + now.minute
+    
+    if data_provider.is_trading_day() and 570 <= current_minutes < 930:
+        logger.warning("\n⚠️ 【严重警告】时空错位提醒 (Time-Space Paradox)")
+        logger.warning("   当前运行在盘中/尾盘时段，但 Baostock 仅提供昨日收盘数据 (T-1)。")
+        logger.warning("   👉 您现在分析的是【昨天】的K线形态！")
+        logger.warning("   ⛔ 此结果仅可用于【复盘验证】或【制定明日计划】，严禁直接用于今日尾盘交易！")
+        logger.warning("   (程序将在 3秒 后继续...)")
+        time.sleep(3)
+    
+    # AI Worker 线程池 (供 _classify_signals 使用)
+    analysis_queue = queue.Queue(maxsize=5000)
+    result_queue = queue.Queue()
+    stop_event = threading.Event()
+    
+    num_ai_workers = 6
+    ai_threads = []
+    for i in range(num_ai_workers):
+        t = threading.Thread(target=ai_worker, args=(i, analysis_queue, result_queue, stop_event))
+        t.start()
+        ai_threads.append(t)
+    logger.info(f"🤖 已启动核心扫描进程 (技术面直通专线已就绪)")
+
+    # 阶段 1: 扫描
+    all_hits, new_signals = _scan_market(all_codes, strategies, seen_signals)
+    
+    # 阶段 2: 分类 + AI 审计
+    direct_picks, final_picks, rejected_list, watchlist, status_changes = _classify_signals(
+        all_hits, analysis_queue, result_queue, stop_event, ai_threads
+    )
+    
+    # 阶段 3: 报告
+    _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_changes)
+    
+    # 阶段 4: 图表
+    _dispatch_charts(direct_picks, final_picks)
+    
     return new_signals
 
 
@@ -725,14 +767,17 @@ def main():
     # 追踪模式: python hunter.py --track [--report]
     # ============================================================
     if args.track or args.report:
-        from core.signal_tracker import init_signal_archive, track_signals, generate_report, format_tracker_discord_msg
+        from core.signal_tracker import init_signal_archive, track_signals, generate_report, format_tracker_discord_msg, run_tracker_dashboard
         init_signal_archive()
         if args.track:
-            track_signals(timeframe=args.timeframe)
-        report = generate_report(timeframe=args.timeframe)
-        if report and report.get('total_resolved', 0) > 0:
-            from tools.notifier import send_discord_message
-            send_discord_message(format_tracker_discord_msg(report))
+            # 🟢 V9.3: 统一走仪表盘路径 (内含追踪 + 按状态分组推送 + 报表)
+            run_tracker_dashboard()
+        if args.report:
+            # 仅生成统计报表 (不重复追踪)
+            report = generate_report(timeframe=args.timeframe)
+            if report and report.get('total_resolved', 0) > 0:
+                from tools.notifier import send_discord_message
+                send_discord_message(format_tracker_discord_msg(report))
         return
     
     # ============================================================
@@ -759,6 +804,7 @@ def main():
         print("  2. 📊 信号追踪 (日常管理)")
         print("  3. 🛡️ 持仓管家 (Guardian)")
         print("  4. 🔄 数据同步")
+        print("  5. 📝 复盘录入 (Review Bridge)")
         print("═"*40)
         try:
             mode_choice = input("请选择 (默认 1): ").strip()
@@ -788,6 +834,12 @@ def main():
             _run_data_sync()
             return
         
+        # 路径 5: 复盘录入
+        if mode_choice == '5':
+            from core.review_bridge import run_review_cli
+            run_review_cli()
+            return
+        
         # 路径 1: 扫描 → 选时间周期
         print("\n  选择扫描周期:")
         print("  1. 日线 (Daily)")
@@ -798,7 +850,7 @@ def main():
             tf_choice = '1'
         
         if tf_choice == '2':
-            print(f"\n🌙 周线模式启动 (检查最近 {args.weeks} 周)")
+            print(f"\n🌙 周线模式启动 (扫描有效缺口结构)")
             from tools.scanner_weekly_gap import scan_weekly_gap, _format_and_push_results
             all_codes = data_provider.get_stock_list()
             if not all_codes: print("❌ 获取股票列表失败"); return

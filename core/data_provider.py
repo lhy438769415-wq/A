@@ -189,6 +189,9 @@ class DatabaseWriter(threading.Thread):
             # Enable WAL mode explicitly for concurrency
             self.conn.execute("PRAGMA journal_mode=WAL;")
             self.conn.execute("PRAGMA synchronous=NORMAL;")
+            # 🟢 V8.6: 增大 WAL cache 减少 fsync
+            self.conn.execute("PRAGMA cache_size=-64000;")  # 64MB cache
+            self.conn.execute("PRAGMA wal_autocheckpoint=2000;")  # 延迟 checkpoint
             
             # Prepare SQL statement
             sql_insert = """
@@ -197,15 +200,30 @@ class DatabaseWriter(threading.Thread):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """
             
-            logger.info("💾 [DB Writer] Engine started (Direct Batch Mode)...")
+            logger.info("💾 [DB Writer] Engine started (Batched Commit Mode)...")
+            
+            # 🟢 V8.6: 批量 commit 优化 — 积攒 N 条后统一 commit
+            BATCH_COMMIT_SIZE = 50  # 每 50 只股票 commit 一次
+            pending_count = 0
+            last_commit_time = time.time()
+            COMMIT_INTERVAL = 3.0  # 最多 3 秒强制 commit 一次
             
             while self.running or not self.data_queue.empty():
                 try:
                     item = self.data_queue.get(timeout=1)
                 except queue.Empty:
+                    # 超时时检查是否有待 commit 的数据
+                    if pending_count > 0 and time.time() - last_commit_time > COMMIT_INTERVAL:
+                        self.conn.commit()
+                        pending_count = 0
+                        last_commit_time = time.time()
                     continue
 
-                if item is None: break # Poison pill
+                if item is None:
+                    # Poison pill — commit 残余数据后退出
+                    if pending_count > 0:
+                        self.conn.commit()
+                    break
 
                 symbol, df = item
                 
@@ -216,8 +234,6 @@ class DatabaseWriter(threading.Thread):
                     continue
                     
                 try:
-                    required_cols = ['trade_date', 'open', 'high', 'low', 'close', 'volume', 'adjust']
-                    
                     if 'symbol' not in df.columns:
                         df['symbol'] = symbol
                     if 'adjust' not in df.columns:
@@ -226,15 +242,24 @@ class DatabaseWriter(threading.Thread):
                     df_to_write = df[['symbol', 'trade_date', 'open', 'high', 'low', 'close', 'volume', 'adjust']]
                     records = df_to_write.to_records(index=False).tolist()
                     
-                    # Transactional Batch Write
-                    with self.conn: 
-                        self.conn.executemany(sql_insert, records)
-                    
+                    # 🟢 V8.6: 不再逐条 commit，而是积攒后批量提交
+                    self.conn.executemany(sql_insert, records)
+                    pending_count += 1
                     self.stats['success'] += 1
+                    
+                    # 达到批量阈值或超时则 commit
+                    if pending_count >= BATCH_COMMIT_SIZE or time.time() - last_commit_time > COMMIT_INTERVAL:
+                        self.conn.commit()
+                        pending_count = 0
+                        last_commit_time = time.time()
                     
                 except Exception as e:
                     self.stats['failed'] += 1
                     logger.error(f"❌ [DB Error] {symbol} Write failed: {e}")
+                    try:
+                        self.conn.rollback()
+                        pending_count = 0
+                    except: pass
                 finally:
                     self.data_queue.task_done()
                         
@@ -404,26 +429,15 @@ def get_stock_data(full_code: str, limit: int = None, timeframe: str = 'daily') 
 
     try:
         with get_db_connection() as conn:
+            # 🟢 [Phase1] 移除 abu_indicators LEFT JOIN (该表从未写入，JOIN 列始终为 NULL)
             query = """
             SELECT 
-                t1.symbol, 
-                t1.trade_date as date, 
-                t1.open, 
-                t1.high, 
-                t1.low, 
-                t1.close, 
-                t1.volume,
-                t2.gap_down_count,
-                t2.relative_vol,
-                t2.linreg_res,
-                t2.ema_20,
-                t2.atr,
-                t2.trend_slope,
-                t2.wick_pct
-            FROM daily_bars t1
-            LEFT JOIN abu_indicators t2 ON t1.symbol = t2.symbol AND t1.trade_date = t2.trade_date
-            WHERE t1.symbol=? 
-            ORDER BY t1.trade_date ASC
+                symbol, 
+                trade_date as date, 
+                open, high, low, close, volume
+            FROM daily_bars
+            WHERE symbol=? 
+            ORDER BY trade_date ASC
             """
             df_hist = _read_sql_safe(query, conn, params=(symbol,))
 
@@ -709,7 +723,8 @@ def update_daily_data_batch(max_workers=settings.MAX_WORKERS):
             except Exception as e:
                 logger.error(f"Task failed: {e}")
 
-            if i % 50 == 0:
+            # 🟢 V8.6: 降低打印频率，减少主线程 I/O 竞争
+            if i % 200 == 0:
                 q_size = data_queue.qsize()
                 if q_size > 800:
                     logger.warning(f"⚠️ Write Queue congestion: {q_size}/1000")
@@ -801,7 +816,7 @@ def _fast_local_weekly_aggregation(symbols_to_agg: List[str]):
                     'adjust': 'last'
                 }).reset_index()
                 
-                weekly['trade_date'] = weekly['trade_date'].dt.strftime('%Y-%m-%d')
+                weekly['trade_date'] = pd.to_datetime(weekly['trade_date']).dt.strftime('%Y-%m-%d')
                 
                 # 转为记录存入数据库
                 records = weekly[['symbol', 'trade_date', 'open', 'high', 'low', 'close', 'volume', 'adjust']].to_records(index=False).tolist()

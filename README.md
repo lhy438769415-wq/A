@@ -1,4 +1,4 @@
-# Brooks-AI Quant System V9.0
+# Brooks-AI Quant System V9.8
 
 > 基于 Al Brooks 价格行为理论的 A 股全自动量化扫描系统。
 > 支持日线/周线双周期扫描、多策略信号检测、AI 二次筛选、Discord 实时推送。
@@ -10,9 +10,11 @@
 ```
 hunter.py (主入口)
     │
-    ├── [日线模式] → core/scanner.py → 策略信号 → AI 筛选 → Discord 推送
+    ├── [日线扫描] → core/scanner.py → 基础策略筛选 → Discord 推送
     │
-    └── [周线模式] → tools/scanner_weekly_gap.py → V9.0 四因子评级 → Discord 推送
+    └── [周线扫描与验证] → 高胜率插件化形态库 (High Win-Rate Pattern Library)
+                              ├── Weekly Bull Flag (周线牛旗三推)
+                              └── Weekly Gap IOI (突破缺口+内外内收敛)
 ```
 
 ## 目录结构
@@ -30,10 +32,14 @@ hunter.py (主入口)
 │   ├── database.py          数据库管理
 │   ├── scanner.py           日线扫描器
 │   ├── strategy_registry.py 策略注册表
-│   └── strategies/          策略实现
-│       ├── mtr_strategy.py          MTR 主趋势反转
-│       ├── three_k_strategy.py      3K 动量突破
-│       └── structural_gap_strategy.py  结构性测量缺口
+│   ├── strategies/          遗留策略实现
+│   │   ├── mtr_strategy.py          MTR 主趋势反转
+│   │   ├── three_k_strategy.py      3K 动量突破
+│   │   └── structural_gap_strategy.py  结构性测量缺口
+│   └── patterns/            高胜率形态库 (Gap Strategy 演进版)
+│       ├── base.py                 Registry 与 Base 接口
+│       ├── weekly_bull_flag.py     周线牛旗三推形态 (58% Win Rate, +0.06 EV)
+│       └── weekly_ioi.py           周线缺口+IOI形态 (75% Win Rate, 极致爆发)
 │
 ├── config/                  ← 配置
 │   ├── settings.py          全局设置 (DB路径/字体/参数)
@@ -54,6 +60,7 @@ hunter.py (主入口)
 │   └── *.json               观察名单/验证报告
 │
 ├── docs/                    ← 策略文档
+│   ├── gap_evolution_plan.md  Gap Strategy 最新的演进规划
 │   ├── MTR_V35_0_STRATEGY.md  当前版本策略说明
 │   └── archive/             历史版本文档
 │
@@ -85,7 +92,8 @@ python hunter.py --track --report            # 追踪 + 报表
 
 | 策略 | 周期 | 简述 |
 |:---|:---:|:---|
-| **MTR** (Major Trend Reversal) | 日线 | 主趋势反转信号，AI 二次筛选 |
+| **Gap Pattern Library** | 周线 | (NEW) 高胜率插件化形态库 (牛旗三推, IOI, etc.)，内置大样本回测框架与 EV 评测 |
+| **MTR** (Major Trend Reversal) | 日线 | 主趋势反转信号，作为储备选项 |
 | **3K** (Three-K Momentum) | 日线 | 三K动量突破 + 缺口测试确认 |
 | **Structural Gap** | 周线 | 结构性测量缺口，V9.0 四因子积分评级 |
 
@@ -93,6 +101,12 @@ python hunter.py --track --report            # 追踪 + 报表
 
 | 版本 | 日期 | 主要变更 |
 |:---:|:---:|:---|
+| V9.9 | 2026-04-11 | **Discord 推送与生命周期修复**：重构 `notifier.py` 突破 2000 字符推送截断限制（按行智能分段）；移除由于时间拖延导致的 D 级人为丢弃限制，恢复 "只要缺口开放即持续观察" 规则。 |
+| V9.8 | 2026-04-04 | **Gap 策略全量回测闭环**：完成 LB=60 vs 100 对比回测 (确认 60 为最优)；Gap 演进计划全阶段闭环；配置显式化；清理临时文件；补全测试文档 |
+| V9.7 | 2026-03-27 | **Phase2 架构重构**：拆分 `hunter.py` God Function 为 4 子函数；Signal Tracker `iterrows` 向量化；新增 15 个 `calculator` 单元测试 |
+| V9.6 | 2026-03-27 | **Phase1 代码审计优化**：修复 EMA20 双重绘制；清理 MTR V29/V30 死代码(-65行)；移除 abu_indicators 僵尸表 JOIN；统一数据层导入；SQL 参数化查询；新增 8 个回归测试 |
+| V9.5 | 2026-03-09 | MTR 全面升维至 **Gap Strategy**；建立 `core/patterns` 插件化形态库；新增周线牛旗三推、周线IOI收敛高胜率核武器；集成动能+无时限 EV 回测框架 |
+| V9.3 | 2026-03-05 | 日线同步性能优化（MAX_WORKERS 4→6、DB 批量 commit、SQLite cache）；信号追踪按状态分类推送（止盈→止损→失效→持仓→等待），10 图连发 |
 | V9.2 | 2026-03-05 | 修复 signal_date 关键 Bug (trade_date vs date)；数据同步集成主菜单；Discord 多图推送；A+ 三级分层仪表盘 |
 | V9.1 | 2026-03-02 | Signal Tracker 信号追踪器；交互式三选主菜单；个股仪表盘 |
 | V9.0 | 2026-03-01 | 周线 Structural Gap 四因子积分评级 (经 4988 样本鲁棒性验证) |
