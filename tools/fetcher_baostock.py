@@ -32,7 +32,6 @@ import sys
 
 _bs_lock = threading.Lock()
 _bs_logged_in = False
-_bs_circuit_breaker = False # 🔴 全局熔断标志
 
 def _ensure_login(force=False):
     """
@@ -41,12 +40,7 @@ def _ensure_login(force=False):
     Args:
         force: 是否强制重连
     """
-    global _bs_logged_in, _bs_circuit_breaker
-    
-    # ⚡ 熔断检查
-    if _bs_circuit_breaker:
-        raise RuntimeError("Baostock Circuit Breaker Active")
-    
+    global _bs_logged_in
     if force and _bs_logged_in:
         logger.info("强制重置 Baostock 连接...")
         bs_logout()
@@ -57,10 +51,7 @@ def _ensure_login(force=False):
             msg = f"Baostock 登录失败: {lg.error_msg}"
             logger.error(msg)
             print(f"❌ {msg}")
-            
-            # 🔴 触发熔断
-            _bs_circuit_breaker = True
-            sys.exit(1)
+            raise ConnectionError(msg)
             
         _bs_logged_in = True
         logger.info("✅ Baostock 登录成功")
@@ -79,44 +70,27 @@ def bs_logout():
 # =========================================================================
 # 错误处理装饰器（此名称保留以兼容现有代码，但行为已更改）
 # =========================================================================
-def retry_on_failure(max_retries=None, delay=None):
+def retry_on_failure(max_retries=3, delay=1.0):
     """
     防御性编程装饰器：
-    ❌ 原始逻辑：重试
-    ✅ 当前逻辑：捕获异常 -> 记录日志 -> 提示用户 -> 退出程序
-    (应用户要求，遇到网络/解码错误不重试，直接终止以避免脏数据或死循环)
+    遇到错误重试指定次数，失败则返回 None，不再强制退出程序，保证多进程安全。
     """
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            global _bs_circuit_breaker
-            
-            # ⚡ 快速失败：如果熔断器已触发，直接抛出或返回
-            if _bs_circuit_breaker:
-                # logger.debug("Circuit breaker active, skipping request.")
-                return None
-                
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                # 严重错误处理逻辑
-                _bs_circuit_breaker = True # 🔴 立即触发熔断，通知所有线程停止
-                
-                error_msg = f"❌ {func.__name__} 执行遇到严重错误: {e}"
-                logger.critical(error_msg)
-                print(f"\n{error_msg}")
-                print("⚠️  检测到数据源或网络异常，根据安全策略，程序将立即停止。")
-                print("⚠️  请检查网络连接 (VPN) 或稍后再试。")
-                
-                # 尝试安全登出
+            import time
+            # 兼容带有默认 max_retries 的旧代码调用，如 @retry_on_failure(max_retries=1)
+            # 在外层已经绑定了，所以这里闭包内直接使用 max_retries
+            for attempt in range(1, max_retries + 1):
                 try:
-                    bs_logout()
-                except:
-                    pass
-                
-                # 强制退出程序
-                import os
-                os._exit(1) # 🔴 使用 os._exit(1) 强制杀掉整个进程，而不仅仅是线程
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    logger.warning(f"⚠️ {func.__name__} 失败 (尝试 {attempt}/{max_retries}): {e}")
+                    if attempt < max_retries:
+                        time.sleep(delay)
+                    else:
+                        logger.error(f"❌ {func.__name__} 达到最大重试次数，放弃执行。")
+                        return None
         return wrapper
     return decorator
 

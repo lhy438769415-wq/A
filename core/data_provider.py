@@ -707,28 +707,33 @@ def update_daily_data_batch(max_workers=settings.MAX_WORKERS):
     
     logger.info(f"🚀 Starting ProcessPool with {mp_workers} workers...")
     
+    import concurrent.futures
     with ProcessPoolExecutor(max_workers=mp_workers) as executor:
         futures = []
         for code in to_update:
             # Pass only picklable args. data_queue is NOT passed.
             futures.append(executor.submit(_fetch_worker, code, target_date, db_status_map))
 
-        for i, future in enumerate(as_completed(futures)):
-            try:
-                result = future.result()
-                if result:
-                    symbol, df = result
-                    data_queue.put((symbol, df))
-                    download_count += 1
-            except Exception as e:
-                logger.error(f"Task failed: {e}")
+        try:
+            for i, future in enumerate(as_completed(futures, timeout=30)):
+                try:
+                    result = future.result()
+                    if result:
+                        symbol, df = result
+                        data_queue.put((symbol, df))
+                        download_count += 1
+                except Exception as e:
+                    logger.error(f"Task failed: {e}")
 
-            # 🟢 V8.6: 降低打印频率，减少主线程 I/O 竞争
-            if i % 200 == 0:
-                q_size = data_queue.qsize()
-                if q_size > 800:
-                    logger.warning(f"⚠️ Write Queue congestion: {q_size}/1000")
-                logger.info(f"Progress: {i}/{len(to_update)} | New: {download_count} | Queue: {q_size}")
+                # 🟢 V8.6: 降低打印频率，减少主线程 I/O 竞争
+                if i % 200 == 0:
+                    q_size = data_queue.qsize()
+                    if q_size > 800:
+                        logger.warning(f"⚠️ Write Queue congestion: {q_size}/1000")
+                    logger.info(f"Progress: {i}/{len(to_update)} | New: {download_count} | Queue: {q_size}")
+        except concurrent.futures.TimeoutError:
+            logger.error("❌ 网络超时保护触发: 超过 30 秒无任何数据返回，Baostock 连接可能已挂起，将强行终止本次同步。")
+            executor.shutdown(wait=False, cancel_futures=True)
 
     # ==========================================
     # Phase 3: Snapshot Sync (Removed)
