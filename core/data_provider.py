@@ -714,26 +714,28 @@ def update_daily_data_batch(max_workers=settings.MAX_WORKERS):
             # Pass only picklable args. data_queue is NOT passed.
             futures.append(executor.submit(_fetch_worker, code, target_date, db_status_map))
 
-        try:
-            for i, future in enumerate(as_completed(futures, timeout=30)):
-                try:
-                    result = future.result()
-                    if result:
-                        symbol, df = result
-                        data_queue.put((symbol, df))
-                        download_count += 1
-                except Exception as e:
-                    logger.error(f"Task failed: {e}")
+        # 🟢 [V9.13 Fix] as_completed(timeout=N) 是全局超时，不是单任务间隔超时。
+        # 30 秒全局超时导致只能下载约 400 只股票就被强制终止。
+        # 修复：移除全局超时，改为对每个 future.result() 设置单任务超时 (60s)。
+        SINGLE_TASK_TIMEOUT = 60  # 单任务最大等待秒数
+        for i, future in enumerate(as_completed(futures)):
+            try:
+                result = future.result(timeout=SINGLE_TASK_TIMEOUT)
+                if result:
+                    symbol, df = result
+                    data_queue.put((symbol, df))
+                    download_count += 1
+            except concurrent.futures.TimeoutError:
+                logger.warning(f"⚠️ 单任务超时 ({SINGLE_TASK_TIMEOUT}s)，跳过")
+            except Exception as e:
+                logger.error(f"Task failed: {e}")
 
-                # 🟢 V8.6: 降低打印频率，减少主线程 I/O 竞争
-                if i % 200 == 0:
-                    q_size = data_queue.qsize()
-                    if q_size > 800:
-                        logger.warning(f"⚠️ Write Queue congestion: {q_size}/1000")
-                    logger.info(f"Progress: {i}/{len(to_update)} | New: {download_count} | Queue: {q_size}")
-        except concurrent.futures.TimeoutError:
-            logger.error("❌ 网络超时保护触发: 超过 30 秒无任何数据返回，Baostock 连接可能已挂起，将强行终止本次同步。")
-            executor.shutdown(wait=False, cancel_futures=True)
+            # 🟢 V8.6: 降低打印频率，减少主线程 I/O 竞争
+            if i % 200 == 0:
+                q_size = data_queue.qsize()
+                if q_size > 800:
+                    logger.warning(f"⚠️ Write Queue congestion: {q_size}/1000")
+                logger.info(f"Progress: {i}/{len(to_update)} | New: {download_count} | Queue: {q_size}")
 
     # ==========================================
     # Phase 3: Snapshot Sync (Removed)

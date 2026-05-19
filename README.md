@@ -47,8 +47,10 @@ hunter.py (主入口)
 │
 ├── tools/                   ← 工具集
 │   ├── notifier.py          Discord 推送 + K线图绘制
-│   ├── scanner_weekly_gap.py  周线缺口扫描器 (V9.0 四因子评级)
-│   ├── watchlist.py         信号生命周期管理
+│   ├── scanner_weekly_gap.py    周线缺口扫描器 (V9.0 四因子评级)
+│   ├── scan_gap_pinbar_weekly.py  周线 Gap+Pinbar 实战机会扫描器
+│   ├── research_gap_pinbar_ev.py  Gap+Pinbar 组合形态 EV 研究
+│   ├── watchlist.py             信号生命周期管理
 │   ├── journal.py           AI 决策日志
 │   ├── fetcher_baostock.py  Baostock 数据同步
 │   ├── update_weekly_db.py  周线数据更新
@@ -101,6 +103,9 @@ python hunter.py --track --report            # 追踪 + 报表
 
 | 版本 | 日期 | 主要变更 |
 |:---:|:---:|:---|
+| V9.13 | 2026-05-19 | **数据同步双重 Bug 修复**：(1) 定位 `as_completed(timeout=30)` 是全局超时而非单任务间隔超时，30 秒一到即强制终止整个迭代器，导致每次只能同步约 400 只股票。修复为 `future.result(timeout=60)` 单任务超时。(2) 修复 `bs_fetch_stock_list()` 缺少 `type==1` 过滤，将指数(上证红利/上证B股等 ~229 个 type=2)误判为深市主板股票，每次"发现"~400只伪新股并浪费下载时间。 |
+| V9.12 | 2026-05-15 | **Gap + Pinbar (缺口测试) 形态全市场 EV 研究**：独立构建 `tools/research_gap_pinbar_ev.py` 研究脚本进行日线/周线双盲扫。在核心识别逻辑中植入原汁原味的 Al Brooks 价格行为理论（强制要求 Pinbar 低点探入或接近缺口上沿并在 EMA20 附近开放），并得出极其强烈的统计学结论——周线级别“突破缺口 + 缺口测试 Pinbar + 缺口下沿止损” 具备 **+0.456R** 的极高单笔数学期望，且优于基于波段低点的宽止损策略。 |
+| V9.11 | 2026-05-15 | **Discord 多图推送高可用修复**：修复大批量高分辨率信号图推送时引起的 `Read timed out` 与断连问题。为发送接口加入 3 次容错重试机制、将网络超时放宽至 150 秒，并下调 K 线图输出分辨率 (DPI) 以压降大体积负载，恢复原设定的 10 图连发机制，确保每日推送完整连贯。 |
 | V9.10 | 2026-05-09 | **Baostock 数据源网络死锁修复**：修复由于 Baostock 官方在 2026-04-22 升级底层 API 及服务器节点导致的 `bs.login()` 无限挂起死锁问题，升级依赖环境 `baostock` 至 `0.9.1` 最新版本，恢复历史数据同步功能的正常运行。 |
 | V9.9 | 2026-04-11 | **Discord 推送与生命周期修复**：重构 `notifier.py` 突破 2000 字符推送截断限制（按行智能分段）；移除由于时间拖延导致的 D 级人为丢弃限制，恢复 "只要缺口开放即持续观察" 规则。 |
 | V9.8 | 2026-04-04 | **Gap 策略全量回测闭环**：完成 LB=60 vs 100 对比回测 (确认 60 为最优)；Gap 演进计划全阶段闭环；配置显式化；清理临时文件；补全测试文档 |

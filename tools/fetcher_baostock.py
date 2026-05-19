@@ -130,6 +130,14 @@ def bs_fetch_stock_list() -> List[str]:
         code = row['code']  # sh.600000 格式
         name = row.get('code_name', '')
         
+        # 🟢 [V9.13 Fix] 排除指数(type=2)、基金等非股票证券
+        # Baostock type: 1=股票, 2=指数, 3=其他
+        # 之前缺失此过滤，导致 000xxx 开头的指数（如上证红利、上证B股）
+        # 被误判为深市主板股票，每次"发现"~400只伪新股
+        stock_type = row.get('type', '')
+        if str(stock_type) != '1':
+            continue
+        
         # 提取纯代码
         pure_code = code.split('.')[-1]
         
