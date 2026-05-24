@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🦅 Brooks-AI 结构性测量缺口 (Gap) 策略量化规格与计算器</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- MathJax Configuration -->
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']],
+                processEscapes: true
+            },
+            options: {
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #0b0c15;
+            --card-bg: rgba(20, 22, 41, 0.55);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --primary-glow: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(0, 0, 0, 0) 70%);
+            --accent-glow: radial-gradient(circle, rgba(192, 132, 252, 0.12) 0%, rgba(0, 0, 0, 0) 70%);
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --accent-purple: #a78bfa;
+            --accent-indigo: #818cf8;
+            --accent-pink: #f472b6;
+            --accent-green: #34d399;
+            --accent-red: #f87171;
+            --accent-yellow: #fbbf24;
+            --shadow-btn: 0 4px 20px rgba(99, 102, 241, 0.3);
+            --font-outfit: 'Outfit', 'Inter', -apple-system, sans-serif;
+        }
+
+        /* Base Resets & Layout */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(at 10% 20%, rgba(31, 28, 64, 0.3) 0px, transparent 50%),
+                radial-gradient(at 90% 80%, rgba(17, 34, 64, 0.25) 0px, transparent 50%);
+            background-attachment: fixed;
+            color: var(--text-main);
+            font-family: var(--font-outfit);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+            padding-bottom: 80px;
+        }
+
+        /* Container & Navigation */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px 24px;
+            position: relative;
+        }
+
+        /* Top Navbar */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            margin-bottom: 40px;
+        }
+        .logo-area {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .logo-icon {
+            font-size: 2rem;
+        }
+        .logo-text {
+            font-weight: 800;
+            font-size: 1.4rem;
+            letter-spacing: -0.5px;
+            background: linear-gradient(90deg, #818cf8, #c084fc, #f472b6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .nav-buttons {
+            display: flex;
+            gap: 12px;
+        }
+        .btn {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-main);
+            padding: 10px 18px;
+            border-radius: 12px;
+            font-weight: 500;
+            font-size: 0.9rem;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            text-decoration: none;
+            backdrop-filter: blur(8px);
+        }
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--accent-indigo);
+            transform: translateY(-2px);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+            border: none;
+            box-shadow: var(--shadow-btn);
+        }
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #4f46e5 0%, #9333ea 100%);
+            box-shadow: 0 6px 24px rgba(99, 102, 241, 0.5);
+        }
+
+        /* Hero Section */
+        .hero {
+            text-align: center;
+            margin-bottom: 50px;
+            position: relative;
+        }
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -100px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 600px;
+            height: 300px;
+            background: var(--primary-glow);
+            filter: blur(80px);
+            z-index: -1;
+            pointer-events: none;
+        }
+        .badge {
+            background: rgba(99, 102, 241, 0.15);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            color: var(--accent-indigo);
+            padding: 6px 14px;
+            border-radius: 30px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            display: inline-block;
+            margin-bottom: 16px;
+        }
+        .hero h1 {
+            font-size: 2.8rem;
+            font-weight: 800;
+            letter-spacing: -1px;
+            margin-bottom: 16px;
+            line-height: 1.2;
+        }
+        .hero p {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            max-width: 650px;
+            margin: 0 auto;
+        }
+
+        /* Main Section Grid */
+        .grid-layout {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        @media(min-width: 992px) {
+            .grid-layout {
+                grid-template-columns: 7fr 5fr;
+            }
+        }
+
+        /* Card Styles (Glassmorphism) */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 30px;
+            backdrop-filter: blur(16px);
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            transition: border-color 0.3s ease;
+        }
+        .card:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+        .card-header {
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .card-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .card-title-icon {
+            color: var(--accent-purple);
+        }
+
+        /* Typography inside Cards */
+        h3.section-heading {
+            font-size: 1.1rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--accent-purple);
+            margin: 24px 0 12px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 6px;
+        }
+        h3.section-heading:first-of-type {
+            margin-top: 0;
+        }
+        p.desc {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            margin-bottom: 20px;
+        }
+        
+        ol, ul {
+            padding-left: 20px;
+            margin-bottom: 20px;
+        }
+        li {
+            margin-bottom: 10px;
+            font-size: 0.95rem;
+        }
+        li strong {
+            color: var(--accent-indigo);
+        }
+
+        /* Formula Blocks and Tables */
+        .formula-inline {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            padding: 2px 6px;
+            font-family: monospace;
+            color: var(--accent-pink);
+            font-size: 0.9rem;
+        }
+        .formula-box {
+            background: rgba(0, 0, 0, 0.2);
+            border-left: 3px solid var(--accent-indigo);
+            padding: 12px 16px;
+            border-radius: 0 10px 10px 0;
+            margin: 10px 0;
+            font-family: monospace;
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 0.9rem;
+            text-align: left;
+        }
+        th, td {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        th {
+            background: rgba(255, 255, 255, 0.03);
+            font-weight: 600;
+            color: var(--accent-purple);
+        }
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.01);
+        }
+
+        /* Form Controls for Calculator */
+        .factor-group {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 18px;
+            transition: all 0.3s ease;
+        }
+        .factor-group:hover {
+            background: rgba(255, 255, 255, 0.03);
+            border-color: rgba(99, 102, 241, 0.2);
+        }
+        .factor-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            color: var(--text-main);
+        }
+        .factor-title span {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            font-weight: normal;
+        }
+        .option-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            margin-bottom: 6px;
+            font-size: 0.9rem;
+        }
+        .option-label:hover {
+            background: rgba(255, 255, 255, 0.04);
+        }
+        .option-label input[type="radio"] {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            outline: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        .option-label input[type="radio"]:checked {
+            border-color: var(--accent-indigo);
+            background-color: var(--accent-indigo);
+            box-shadow: 0 0 8px var(--accent-indigo);
+        }
+        .option-label input[type="radio"]:checked::after {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background-color: #fff;
+            border-radius: 50%;
+            display: block;
+        }
+        .score-val {
+            font-weight: bold;
+            color: var(--accent-pink);
+        }
+
+        /* Result Panel Styling */
+        .result-panel {
+            background: linear-gradient(135deg, rgba(30, 27, 75, 0.7) 0%, rgba(24, 24, 37, 0.7) 100%);
+            border: 2px solid rgba(99, 102, 241, 0.3);
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            position: sticky;
+            top: 24px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(20px);
+        }
+        .score-display {
+            font-family: 'Outfit', sans-serif;
+            font-size: 4rem;
+            font-weight: 800;
+            margin: 10px 0;
+            color: #fff;
+            text-shadow: 0 0 15px rgba(99, 102, 241, 0.6);
+            line-height: 1;
+        }
+        .rating-badge {
+            font-size: 1.5rem;
+            font-weight: 700;
+            padding: 8px 20px;
+            border-radius: 30px;
+            display: inline-block;
+            margin-bottom: 16px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+        }
+        .rating-badge.aplus {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+        }
+        .rating-badge.a {
+            background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+            box-shadow: 0 0 10px rgba(52, 211, 153, 0.3);
+        }
+        .rating-badge.b {
+            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+        }
+        .rating-badge.c {
+            background: linear-gradient(135deg, #fb8c00 0%, #f57c00 100%);
+            box-shadow: 0 0 10px rgba(251, 140, 0, 0.3);
+        }
+        .rating-badge.d {
+            background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+        }
+        .strategy-recommendation {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        /* Tips Alert Box */
+        .tip-box {
+            background: rgba(16, 185, 129, 0.08);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 24px;
+            display: flex;
+            gap: 12px;
+        }
+        .tip-icon {
+            font-size: 1.2rem;
+            color: var(--accent-green);
+        }
+        .tip-content p {
+            font-size: 0.88rem;
+            color: #cbd5e1;
+        }
+
+        /* Print Media Styles (Optimized for PDF exports) */
+        @media print {
+            body {
+                background: white !important;
+                color: black !important;
+                padding-bottom: 0;
+            }
+            .container {
+                max-width: 100%;
+                padding: 0;
+            }
+            header, .nav-buttons, .hero::before, .result-panel, .btn {
+                display: none !important;
+            }
+            .grid-layout {
+                grid-template-columns: 1fr !important;
+            }
+            .card {
+                background: none !important;
+                border: none !important;
+                box-shadow: none !important;
+                padding: 0 !important;
+                margin-bottom: 40px;
+                page-break-inside: avoid;
+            }
+            th {
+                background: #f3f4f6 !important;
+                color: black !important;
+            }
+            th, td {
+                border-bottom: 1px solid #d1d5db !important;
+            }
+            .formula-inline {
+                background: #f3f4f6 !important;
+                color: #b91c1c !important;
+                border: 1px solid #e5e7eb !important;
+            }
+            .formula-box {
+                background: #f9fafb !important;
+                border-left: 3px solid #4b5563 !important;
+                color: black !important;
+            }
+            h3.section-heading {
+                color: black !important;
+                border-bottom: 2px solid black !important;
+            }
+            li strong {
+                color: black !important;
+            }
+        }
+    </style>
+</head>
+<body class="tex2jax_ignore">
+
+<div class="container">
+    <!-- Header -->
+    <header>
+        <div class="logo-area">
+            <span class="logo-icon">🦅</span>
+            <div class="logo-text">Brooks-AI Spec V9.0</div>
+        </div>
+        <div class="nav-buttons">
+            <button class="btn" onclick="window.print()"><span class="btn-icon">🖨️</span> 打印 / 存为 PDF</button>
+            <button class="btn btn-primary" onclick="scrollToCalculator()"><span class="btn-icon">⚡</span> 信号积分计算器</button>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="badge">Price Action Quant System</div>
+        <h1>结构性测量缺口 (Gap) 策略量化清单</h1>
+        <p>基于 Al Brooks 价格行为理论与 Brooks-AI 回测，固化之高期望值 (EV) 量化策略规范，精美公式渲染分享页面。</p>
+    </section>
+
+    <!-- Main Content Grid -->
+    <div class="grid-layout">
+        
+        <!-- Left Column: Specs -->
+        <div class="card tex2jax_process">
+            <div class="card-header">
+                <h2 class="card-title">📖 量化条件与交易规格</h2>
+            </div>
+
+            <!-- Block 1: Definition -->
+            <h3 class="section-heading">1. 突破缺口的量化判定 (Breakout Gap)</h3>
+            <p class="desc">识别高权重“结构性突破缺口”的入场底线：</p>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 25%">参数/条件</th>
+                        <th style="width: 45%">量化数学公式</th>
+                        <th style="width: 30%">PA 物理逻辑</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>回溯窗口 ($N$)</strong></td>
+                        <td>周线: $N = 60$ 周，日线: $N = 60$ 天</td>
+                        <td>确立一个足够有宏观权重的阻力区间。</td>
+                    </tr>
+                    <tr>
+                        <td><strong>微观价格抬升</strong></td>
+                        <td>$high_t > high_{t-1} \text{ 且 } low_t > low_{t-1}$</td>
+                        <td>保证当根突破K线具有极强的向上物理动能。</td>
+                    </tr>
+                    <tr>
+                        <td><strong>宏观防守线</strong></td>
+                        <td>$Gap\_Floor = \max(high_{t-N} \dots high_{t-2})$</td>
+                        <td>过去 $N$ 根K线的绝对最高价，作为“阻力转支撑”的底线。</td>
+                    </tr>
+                    <tr>
+                        <td><strong>物理缺口确立</strong></td>
+                        <td>$low_t > Gap\_Floor - 0.001$</td>
+                        <td><strong>防击穿铁律</strong>：突破日最低点也必须完全悬空于防守线之上。</td>
+                    </tr>
+                    <tr>
+                        <td><strong>起涨波段大底</strong></td>
+                        <td>$Prior\_Swing\_Low = \min(low_{t-N} \dots low_{t-2})$</td>
+                        <td>本轮攻势发起前的“深渊底”，作为镜像测距的起点。</td>
+                    </tr>
+                    <tr>
+                        <td><strong>初始缺口上沿</strong></td>
+                        <td>$Breakout\_Low = low_t$</td>
+                        <td>突破日 K 线的最低价，标志着初始缺口的物理上沿。</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- Block 2: Modes -->
+            <h3 class="section-heading">2. 核心买入触发模式</h3>
+            
+            <h4>模式 A：宏观结构缺口与回调反转 (Structural Gap Reversal)</h4>
+            <p class="desc">寻找强势突破后，深度回踩但不破防线，且重新止跌启动的二波趋势机会。</p>
+            <ol>
+                <li><strong>回调时间窗限制</strong>：突破后回调持续时间必须满足： $2 \le \text{回调根数} \le 40$。</li>
+                <li><strong>缺口存活监控 (Surviving)</strong>：自突破以来的最低价满足： $Min\_Low_t > Gap\_Floor - 0.001$。</li>
+                <li><strong>止跌与反转信号确认</strong>：
+                    <ul>
+                        <li><strong>下行停滞（H1 止跌）</strong>：$low_t \ge low_{t-1}$（Lower Low 终结）。</li>
+                        <li><strong>多头重新接管</strong>：收阳线，且收盘创前日新高：<br>
+                            $high_t > high_{t-1} \text{ 且 } close_t > open_t \text{ 且 } close_t > close_{t-1}$
+                        </li>
+                    </ul>
+                </li>
+                <li><strong>高潮规避限制 (MM Not Reached)</strong>：自突破以来的最高点，不得已经打满翻倍测距目标 $TP$，防止追高强弩之末的走势。</li>
+            </ol>
+
+            <br>
+            <h4>模式 B：突破缺口 + Pinbar 极限测试 (Gap + Pinbar Test)</h4>
+            <p class="desc">主力通过一根长下影线（Pinbar）精准下探测试缺口，测试完毕后被多头迅速拉回，是胜率极高的“特种兵”形态。</p>
+            <ol>
+                <li><strong>回调时间窗限制</strong>：同样必须在突破后的 $2 \le \text{回调根数} \le 40$ 之内。</li>
+                <li><strong>EMA均线贴合度</strong>：Pinbar 的收盘价距离 $EMA_{20}$ 必须在 $1.5$ 倍 $ATR$ 以内，保证处于密集交易区：<br>
+                    $|close_t - EMA_{20, t}| \le 1.5 \times ATR_t$
+                </li>
+                <li><strong>Pinbar 经典形态判定</strong>：
+                    <ul>
+                        <li><strong>下影线比例</strong>：$\text{下影线占比} = \frac{\min(open_t, close_t) - low_t}{high_t - low_t} \ge 0.40$</li>
+                        <li><strong>收盘位置</strong>：$\frac{close_t - low_t}{high_t - low_t} \ge 0.50$ （收盘在 K 线的中位偏上方）</li>
+                    </ul>
+                </li>
+                <li><strong>缺口极限测试判定</strong>：Pinbar 的下影线必须向下探测缺口空间。满足以下之一：
+                    <ul>
+                        <li><strong>条件 a (探入)</strong>：Pinbar 最低点探入此前回调期间的最低点下方： $low_t \le Min\_Low_{t-1}$。</li>
+                        <li><strong>条件 b (接近)</strong>：最低点与缺口下沿的间距不大于 $2$ 倍 ATR： $low_t - Gap\_Floor \le 2.0 \times ATR_t$。</li>
+                    </ul>
+                </li>
+                <li><strong>缺口未穿透校验</strong>：收盘价必须在 $Gap\_Floor$ 之上，且最低点 $low_t$ 同样不能击穿 $Gap\_Floor - 0.001$。</li>
+            </ol>
+
+            <!-- Block 3: Management -->
+            <h3 class="section-heading">3. 交易设置与生命周期过滤</h3>
+            <p class="desc">执行挂单与生命周期的强力风控机制：</p>
+            <ul>
+                <li><strong>买入入场价 (Entry)</strong>：触发信号当天 K 线的最高价 $high_{sig}$（次周期以 <strong>Buy Stop 限价单</strong> 挂单）。</li>
+                <li><strong>止损设置 (Stop Loss)</strong>：
+                    <ul>
+                        <li><strong>方案 A（精细止损）</strong>：$SL = Gap\_Floor$ （挂在突破下沿支撑，盈亏比极佳）</li>
+                        <li><strong>方案 B（宽幅止损）</strong>：$SL = Prior\_Swing\_Low$ （挂在起涨波段底，防爆仓率高）</li>
+                    </ul>
+                </li>
+                <li><strong>非对称测距止盈 (Take Profit - Measured Move)</strong>：
+                    <ul>
+                        <li>寻找回调期间的有效缺口上沿 $Gap\_Top$（为信号前整个回调期砸出的最低低点）。</li>
+                        <li>计算缺口中心轴：$Gap\_Mid = \frac{Gap\_Floor + Gap\_Top}{2}$。</li>
+                        <li>计算测距目标：$TP = 2 \times Gap\_Mid - Prior\_Swing\_Low$。</li>
+                    </ul>
+                </li>
+                <li><strong>存活生命周期过滤规则 (Life Cycle Rule)</strong>：
+                    <ul>
+                        <li><strong>防守端（被回补死亡）</strong>：若未被触发，一旦有任何一根 K 线的最低点跌破了 $Gap\_Floor$（包含信号K线本身），立即撤单失效。</li>
+                        <li><strong>收益端（止盈先达）</strong>：若价格未突破 Entry，但先打到了 $TP$ 目标，交易计划直接作废。</li>
+                        <li><strong>时限端（超时失效）</strong>：信号发出后超过 <strong>30</strong> 根 K 线仍未触发，判定为横盘僵尸股，强制抛弃。</li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Right Column: Interactive Calculator -->
+        <div id="calculator-section" class="card">
+            <div class="card-header">
+                <h2 class="card-title">⚡ V9.0 因子积分实时计算器</h2>
+            </div>
+            
+            <div class="tip-box">
+                <div class="tip-icon">💡</div>
+                <div class="tip-content">
+                    <p>通过勾选下方的实时因子特征，自动计算策略的 <strong>EV Score (积分)</strong>，并快速评估当前 Gap 突破机会的交易预期与决策建议。</p>
+                </div>
+            </div>
+
+            <!-- Factor 1 -->
+            <div class="factor-group">
+                <div class="factor-title">
+                    <span>因子 1：回调周期 (pb_bars)</span>
+                    <span class="score-val" id="score-f1">+0 分</span>
+                </div>
+                <label class="option-label">
+                    <input type="radio" name="f1" value="2" onclick="calculateScore()">
+                    快速回踩（≤ 4 根K线，极强多头）
+                </label>
+                <label class="option-label">
+                    <input type="radio" name="f1" value="0" checked onclick="calculateScore()">
+                    标准回调（5 至 7 根K线，常态）
+                </label>
+                <label class="option-label">
+                    <input type="radio" name="f1" value="-2" onclick="calculateScore()">
+                    拖延回调（> 7 根K线，动能严重衰减）
+                </label>
+            </div>
+
+            <!-- Factor 2 -->
+            <div class="factor-group">
+                <div class="factor-title">
+                    <span>因子 2：缺口宽度百分比 (gap_size_pct)</span>
+                    <span class="score-val" id="score-f2">+0 分</span>
+                </div>
+                <label class="option-label">
+                    <input type="radio" name="f2" value="2" onclick="calculateScore()">
+                    宽幅缺口（宽度 > 7%，安全垫深厚）
+                </label>
+                <label class="option-label">
+                    <input type="radio" name="f2" value="0" checked onclick="calculateScore()">
+                    常规缺口（宽度 3% ~ 7%）
+                </label>
+                <label class="option-label">
+                    <input type="radio" name="f2" value="-1" onclick="calculateScore()">
+                    窄幅缺口（宽度 < 3%，阻力薄弱）
+                </label>
+            </div>
+
+            <!-- Factor 3 -->
+            <div class="factor-group">
+                <div class="factor-title">
+                    <span>因子 3：信号K线收盘质量 (sig_quality)</span>
+                    <span class="score-val" id="score-f3">+0 分</span>
+                </div>
+                <label class="option-label">
+                    <input type="radio" name="f3" value="1" onclick="calculateScore()">
+                    强势收盘（收盘价位于极上方 > 0.8）
+                </label>
+                <label class="option-label">
+                    <input type="radio" name="f3" value="0" checked onclick="calculateScore()">
+                    正常收盘（收盘质量介于 0.5 到 0.8）
+                </label>
+                <label class="option-label">
+                    <input type="radio" name="f3" value="-1" onclick="calculateScore()">
+                    软弱/十字星收盘（收盘质量 < 0.5）
+                </label>
+            </div>
+
+            <!-- Factor 4 -->
+            <div class="factor-group">
+                <div class="factor-title">
+                    <span>因子 4：回调连阴数 (pb_consec_bear)</span>
+                    <span class="score-val" id="score-f4">+0 分</span>
+                </div>
+                <label class="option-label">
+                    <input type="radio" name="f4" value="0" checked onclick="calculateScore()">
+                    连阴较少（连续阴线 < 3 根）
+                </label>
+                <label class="option-label">
+                    <input type="radio" name="f4" value="-1" onclick="calculateScore()">
+                    严重连阴（连续阴线 ≥ 3 根，空头压制强）
+                </label>
+            </div>
+
+            <!-- Factor 5: Penalty -->
+            <div class="factor-group">
+                <div class="factor-title">
+                    <span>横盘惩罚：触发后僵尸横盘 (bars_passed)</span>
+                    <span class="score-val" id="score-f5">+0 分</span>
+                </div>
+                <label class="option-label">
+                    <input type="radio" name="f5" value="0" checked onclick="calculateScore()">
+                    快速爆发或未触发（横盘等待 < 5 根K线）
+                </label>
+                <label class="option-label">
+                    <input type="radio" name="f5" value="-1" onclick="calculateScore()">
+                    轻度横盘（已等待 5 ~ 10 根K线）
+                </label>
+                <label class="option-label">
+                    <input type="radio" name="f5" value="-2" onclick="calculateScore()">
+                    重度横盘（已等待 > 10 根K线，警惕僵尸化）
+                </label>
+            </div>
+
+            <!-- Score Result Panel -->
+            <div class="result-panel">
+                <div style="font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted);">
+                    当前信号综合评分
+                </div>
+                <div class="score-display" id="total-score-val">0</div>
+                <div class="rating-badge b" id="rating-badge-val">👍 常态 (B)</div>
+                <div class="strategy-recommendation" id="recommendation-text">
+                    标准波段形态，各项指标均衡。建议以标准交易参数进行常态配置。
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+</div>
+
+<script>
+    function scrollToCalculator() {
+        document.getElementById('calculator-section').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function calculateScore() {
+        // Get values
+        const f1 = parseInt(document.querySelector('input[name="f1"]:checked').value);
+        const f2 = parseInt(document.querySelector('input[name="f2"]:checked').value);
+        const f3 = parseInt(document.querySelector('input[name="f3"]:checked').value);
+        const f4 = parseInt(document.querySelector('input[name="f4"]:checked').value);
+        const f5 = parseInt(document.querySelector('input[name="f5"]:checked').value);
+
+        // Update individual scores UI
+        document.getElementById('score-f1').innerText = (f1 >= 0 ? '+' : '') + f1 + ' 分';
+        document.getElementById('score-f2').innerText = (f2 >= 0 ? '+' : '') + f2 + ' 分';
+        document.getElementById('score-f3').innerText = (f3 >= 0 ? '+' : '') + f3 + ' 分';
+        document.getElementById('score-f4').innerText = (f4 >= 0 ? '+' : '') + f4 + ' 分';
+        document.getElementById('score-f5').innerText = (f5 >= 0 ? '+' : '') + f5 + ' 分';
+
+        const totalScore = f1 + f2 + f3 + f4 + f5;
+        document.getElementById('total-score-val').innerText = totalScore;
+
+        const ratingBadge = document.getElementById('rating-badge-val');
+        const recText = document.getElementById('recommendation-text');
+
+        // Rating mappings
+        ratingBadge.className = 'rating-badge'; // Reset
+        if (totalScore >= 3) {
+            ratingBadge.innerText = '🌟🌟 极品 (A+)';
+            ratingBadge.classList.add('aplus');
+            recText.innerText = '历史回测盈亏比极优，胜率高，属于核心狙击机会，可考虑积极配置。';
+        } else if (totalScore === 2) {
+            ratingBadge.innerText = '🌟 高预期 (A)';
+            ratingBadge.classList.add('a');
+            recText.innerText = '优质结构信号，多头动能保存完好，支持高仓位跟进。';
+        } else if (totalScore >= 0) {
+            ratingBadge.innerText = '👍 常态 (B)';
+            ratingBadge.classList.add('b');
+            recText.innerText = '标准波段形态，各项指标均衡。建议以标准交易参数进行常态配置。';
+        } else if (totalScore >= -2) {
+            ratingBadge.innerText = '⚠️ 低预期 (C)';
+            ratingBadge.classList.add('c');
+            recText.innerText = '结构偏弱或洗盘时间较长，向上爆发阻力大，建议极轻仓或仅作观望。';
+        } else {
+            ratingBadge.innerText = '💀 毒性 (D)';
+            ratingBadge.classList.add('d');
+            recText.innerText = '多头逻辑已基本瓦解，回调过于拖沓或连阴抛压过重。系统一律拦截，请勿参与挂单。';
+        }
+    }
+
+    // Run initial calculation
+    calculateScore();
+</script>
+</body>
+</html>
