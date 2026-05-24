@@ -159,6 +159,11 @@ def format_guardian_prompt(holding_data):
             f"策略: Gap+Pinbar(EMA20刺破) | 信号日: {signal_date} | 评级: {ev_rating}\n"
             f"SL(Gap Floor): {sl_price:.2f} | TP(起涨区间上翻): {tp_price:.2f} | 缺口: {gap_status}"
         )
+    elif 'GAP_H2' in strategy.upper() or 'H2' in strategy.upper():
+        thesis_desc = (
+            f"策略: Gap+H2(两腿回调) | 信号日: {signal_date} | 评级: {ev_rating}\n"
+            f"SL(Gap Floor): {sl_price:.2f} | TP(起涨区间上翻): {tp_price:.2f} | 缺口: {gap_status}"
+        )
     elif '3K' in strategy.upper():
         thesis_desc = f"策略: 3K动能突破 | 信号日: {signal_date} | SL: {sl_price:.2f} | TP: {tp_price:.2f}"
     elif 'MTR' in strategy.upper():

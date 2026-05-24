@@ -4,6 +4,7 @@ from .strategies.mtr_strategy import MTRStrategy
 from .strategies.three_k_strategy import ThreeKStrategy
 from .strategies.structural_gap_strategy import StructuralGapStrategy
 from .strategies.gap_pinbar_strategy import GapPinbarStrategy
+from .strategies.gap_h2_strategy import GapH2Strategy
 
 class StrategyRegistry:
     """
@@ -17,10 +18,11 @@ class StrategyRegistry:
         "STRATEGY_3K": ThreeKStrategy,
         "STRATEGY_STRUCTURAL_GAP": StructuralGapStrategy,
         "STRATEGY_GAP_PINBAR": GapPinbarStrategy,
+        "STRATEGY_GAP_H2": GapH2Strategy,
     }
     
     # 官方对外展示列表
-    _OFFICIAL_LIST = ["MTR_MASTER", "STRATEGY_3K", "STRATEGY_STRUCTURAL_GAP", "STRATEGY_GAP_PINBAR"]
+    _OFFICIAL_LIST = ["MTR_MASTER", "STRATEGY_3K", "STRATEGY_STRUCTURAL_GAP", "STRATEGY_GAP_PINBAR", "STRATEGY_GAP_H2"]
     
     @classmethod
     def get_strategy(cls, name: str) -> BaseStrategy:
@@ -38,6 +40,8 @@ class StrategyRegistry:
             return StructuralGapStrategy()
         if "PINBAR" in name_upper or "GAP_PINBAR" in name_upper:
             return GapPinbarStrategy()
+        if "H2" in name_upper or "GAP_H2" in name_upper:
+            return GapH2Strategy()
             
         # 默认回退
         strategy_class = cls._strategies.get(name_upper, MTRStrategy)
