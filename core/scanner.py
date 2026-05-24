@@ -3,6 +3,7 @@ import traceback
 import logging
 import time
 import warnings
+import pandas as pd
 # 🟢 Suppress FutureWarnings (e.g., from pandas internals)
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -73,6 +74,8 @@ def run_scanner(code: str, strategy_name: str = 'MTR_MASTER') -> Optional[Dict[s
                     'STRATEGY_3K_EX': 'sl_3k',
                     'STRATEGY_3K': 'sl_3k_gap_test',
                     'STRATEGY_STRUCTURAL_GAP': 'sl_struct_gap',
+                    'STRATEGY_GAP_PINBAR': 'sl_gap_pinbar',
+                    'STRATEGY_GAP_H2': 'sl_gap_h2',
                     'MTR_V29_MASTER': 'sl_price',
                     'MTR_MASTER': 'sl_price',
                     'MTR_V35_STRUCTURAL': 'sl_price' # 🟢 V35.0 Explicit Mapping
@@ -91,6 +94,16 @@ def run_scanner(code: str, strategy_name: str = 'MTR_MASTER') -> Optional[Dict[s
                 if 'STRUCTURAL_GAP' in strat.name.upper():
                     if 'entry_struct_gap' in df_strat.columns: df_strat['entry_price'] = df_strat['entry_struct_gap']
                     if 'tp_struct_gap' in df_strat.columns: df_strat['tp1_price'] = df_strat['tp_struct_gap']
+
+                # 🟢 为 Gap Pinbar 映射入场价与止盈价
+                if 'GAP_PINBAR' in strat.name.upper():
+                    if 'entry_gap_pinbar' in df_strat.columns: df_strat['entry_price'] = df_strat['entry_gap_pinbar']
+                    if 'tp_gap_pinbar' in df_strat.columns: df_strat['tp1_price'] = df_strat['tp_gap_pinbar']
+
+                # 🟢 为 Gap H2 映射入场价与止盈价
+                if 'GAP_H2' in strat.name.upper():
+                    if 'entry_gap_h2' in df_strat.columns: df_strat['entry_price'] = df_strat['entry_gap_h2']
+                    if 'tp_gap_h2' in df_strat.columns: df_strat['tp1_price'] = df_strat['tp_gap_h2']
                 # Ensure targets exist
                 if 'sl_price' not in df_strat.columns:
                     df_strat = calculate_targets(df_strat)
@@ -167,6 +180,12 @@ def run_scanner(code: str, strategy_name: str = 'MTR_MASTER') -> Optional[Dict[s
                         extra_info['ev_rating'] = '⚠️ 低预期'
                     else:
                         extra_info['ev_rating'] = '👍 常态'
+                elif 'GAP_PINBAR' in strat.name.upper():
+                    q = row.get('sig_bar_quality_gp', 0)
+                    extra_info['sig_quality'] = q
+                elif 'GAP_H2' in strat.name.upper():
+                    q = row.get('sig_bar_quality_h2', 0)
+                    extra_info['sig_quality'] = q
 
                 return {
                     'code': code,

@@ -22,7 +22,33 @@ import baostock as bs
 
 from core.calculator import add_indicators
 from core.strategies.structural_gap_strategy import StructuralGapStrategy
+from core.strategy_registry import StrategyRegistry
 import core.data_provider as dp
+
+# 策略输出列反射配置映射表，解耦具体策略指标
+STRATEGY_COLS = {
+    'STRATEGY_STRUCTURAL_GAP': {
+        'signal': 'signal_struct_gap_confirm',
+        'entry': 'entry_struct_gap',
+        'sl': 'sl_struct_gap',
+        'tp': 'tp_struct_gap',
+        'quality': 'sig_bar_quality'
+    },
+    'STRATEGY_GAP_PINBAR': {
+        'signal': 'signal_gap_pinbar',
+        'entry': 'entry_gap_pinbar',
+        'sl': 'sl_gap_pinbar',
+        'tp': 'tp_gap_pinbar',
+        'quality': 'sig_bar_quality_gp'
+    },
+    'STRATEGY_GAP_H2': {
+        'signal': 'signal_gap_h2',
+        'entry': 'entry_gap_h2',
+        'sl': 'sl_gap_h2',
+        'tp': 'tp_gap_h2',
+        'quality': 'sig_bar_quality_h2'
+    }
+}
 from tools.notifier import generate_chart_bytes, stitch_images, send_discord_image, send_discord_message, send_discord_images
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -39,169 +65,173 @@ def fetch_weekly_data(full_code: str, weeks: int = 200) -> pd.DataFrame:
 # 主扫描逻辑
 # =====================================================
 # 🟢 [P3 Opt 2] 单只股票的扫描逻辑（顶层函数，可跨进程序列化）
-def _scan_single_code(code: str, recent_weeks: int = 4) -> list:
+def _scan_single_code(code: str, recent_weeks: int = 4, strategies: list = None) -> list:
     """扫描单只股票的周线缺口信号，返回命中的信号列表"""
+    if strategies is None:
+        strategies = ['STRATEGY_STRUCTURAL_GAP']
     results = []
     try:
-        strategy = StructuralGapStrategy()
         df = fetch_weekly_data(code, weeks=300)
         if df is None or len(df) < 100:
             return results
         
         df = add_indicators(df)
-        df = strategy.calculate_signals(df)
         
-        # [V9.6 Update]: 取消 4 周硬性切割限制，改为只看最近 60 周（足够覆盖一个大级别波段的生命周期）
-        # 依靠策略内部的 "缺口开放" (gap_status) & "止盈未达" (_mm_not_reached) 原则来判定存活
-        # 并且依靠下方的 EV 评分淘汰长期拖延的无效死灰
-        recent = df.tail(60)
-        
-        # 第一优先级：缺口确认买点
-        gt_rows = recent[recent.get('signal_struct_gap_confirm', pd.Series(dtype=bool)) == True]
-        
-        # 第二优先级：悬空期的强力突破
-        if gt_rows.empty:
-            recent_breakouts = df[df.get('is_breakout', pd.Series(dtype=bool)) == True].tail(1)
-            if not recent_breakouts.empty:
-                bo_date = recent_breakouts.index[-1]
-                idx_bo = df.index.get_loc(bo_date)
-                recent_slice = df.iloc[idx_bo:]
-                
-                if recent_slice['struct_gap_open'].all() and len(recent_slice) <= strategy.MAX_PULLBACK_WINDOW:
-                    bo_row = recent_breakouts.iloc[-1]
-                    
-                    past_highs = df['high'].iloc[max(0, idx_bo - 60):max(0, idx_bo - 1)]
-                    temp_sl = past_highs.max() if not past_highs.empty else bo_row['low']
-                    
-                    past_lows = df['low'].iloc[max(0, idx_bo - 60):max(0, idx_bo - 1)]
-                    prior_sl = past_lows.min() if not past_lows.empty else bo_row['low']
-                    
-                    current_min_low = recent_slice['low'].min()
-                    temp_mid = (current_min_low + temp_sl) / 2
-                    temp_tp = 2 * temp_mid - prior_sl
-                    
-                    q = 0  # Pending 没有确认的信号K线
-                    
-                    name = dp.get_stock_name(code)
-                    results.append({
-                        'code': code,
-                        'name': name,
-                        'date': bo_row['trade_date'] if 'trade_date' in bo_row else (bo_row['date'] if 'date' in bo_row else str(bo_row.name)),
-                        'entry': df['high'].iloc[-1] + 0.01,
-                        'sl': temp_sl,
-                        'tp': temp_tp,
-                        'rr': round((temp_tp - df['high'].iloc[-1]) / (df['high'].iloc[-1] - temp_sl), 1) if df['high'].iloc[-1] > temp_sl else 0,
-                        'sig_quality': q,
-                        'bears': sum(recent_slice['close'] < recent_slice['open']),
-                        'ev_rating': '🔎 潜在缺口追踪 (尚未翻转)',
-                        'is_pending': True
-                    })
-                    return results
-                    
-        for sig_date, row in gt_rows.iterrows():
-            entry = row.get('entry_struct_gap', np.nan)
-            sl = row.get('sl_struct_gap', np.nan)
-            tp = row.get('tp_struct_gap', np.nan)
+        for strat_name in strategies:
+            if strat_name not in STRATEGY_COLS:
+                continue
             
-            # 检查此信号发出的时间距离当下有多远
-            idx = df.index.get_loc(sig_date)
-            bars_passed_since_signal = len(df) - 1 - idx
+            cols = STRATEGY_COLS[strat_name]
+            strategy = StrategyRegistry.get_strategy(strat_name)
+            df_strat = strategy.calculate_signals(df.copy())
             
-            # 【生命周期过滤 1】 检查此信号之后，缺口是否已被填补 (击穿 SL)
-            if not np.isnan(sl):
-                if idx < len(df) - 1:
-                    post_signal_min_low = df['low'].iloc[idx+1:].min()
-                    if post_signal_min_low <= sl:
-                        continue # 缺口已死，直接无视
+            # 获取当前策略的信号列
+            sig_col = cols['signal']
+            recent = df_strat.tail(60)
+            gt_rows = recent[recent.get(sig_col, pd.Series(dtype=bool)) == True]
             
-            # 【生命周期过滤 2】 检查此信号之后，是否已经达到了目标位 (TP)
-            if not np.isnan(tp):
-                if idx < len(df) - 1:
-                    post_signal_max_high = df['high'].iloc[idx+1:].max()
-                    if post_signal_max_high >= tp:
-                        continue # 目标已达，无需再扫
+            # 只有 STRATEGY_STRUCTURAL_GAP 才执行 pending 逻辑
+            if gt_rows.empty and strat_name == 'STRATEGY_STRUCTURAL_GAP':
+                recent_breakouts = df_strat[df_strat.get('is_breakout', pd.Series(dtype=bool)) == True].tail(1)
+                if not recent_breakouts.empty:
+                    bo_date = recent_breakouts.index[-1]
+                    idx_bo = df_strat.index.get_loc(bo_date)
+                    recent_slice = df_strat.iloc[idx_bo:]
+                    
+                    if recent_slice['struct_gap_open'].all() and len(recent_slice) <= strategy.MAX_PULLBACK_WINDOW:
+                        bo_row = recent_breakouts.iloc[-1]
                         
-            # 如果走到这里，说明这是一个【缺口仍然开放，且未达到止盈】的存活信号
-            
-            risk = entry - sl if not np.isnan(entry) and not np.isnan(sl) else 0
-            reward = tp - entry if not np.isnan(tp) and not np.isnan(entry) else 0
-            rr = round(reward / risk, 1) if risk > 0 else 0
-            
-            q = row.get('sig_bar_quality', 0)
-            
-            # 回调周期 (bars_since_breakout)
-            pb_bars = 0
-            pb_consec_bear = 0
-            if 'bars_since_breakout' in df.columns and not pd.isna(row.get('bars_since_breakout')):
-                pb_bars = int(row['bars_since_breakout'])
-                if pb_bars > 0 and idx >= pb_bars:
-                    pb_df = df.iloc[idx - pb_bars : idx]
-                    is_bear = pb_df['close'] < pb_df['open']
-                    shifts = is_bear != is_bear.shift()
-                    groups = shifts.cumsum()
-                    bear_groups = is_bear.groupby(groups).sum()
-                    pb_consec_bear = int(bear_groups.max()) if not bear_groups.empty else 0
-            
-            # 计算因为持有时间过长导致的衰减，如果拖了太久还没走出来，也要扣分
-            time_decay_penalty = 0
-            if bars_passed_since_signal > 10:
-                time_decay_penalty = -2
-            elif bars_passed_since_signal > 5:
-                time_decay_penalty = -1
-            
-            # 🟢 [V9.0] 缺口宽度计算 (经鲁棒性验证的新因子)
-            gap_top = row.get('struct_gap_top_exact', entry)
-            if pd.isna(gap_top): gap_top = entry
-            gap_size_pct = round((gap_top - sl) / sl * 100, 2) if sl > 0 else 0
-                    
-            # 🟢 [V9.0] 四因子积分制 EV 评级 (经逐年鲁棒性验证) + 引入存活时间衰减
-            # 每个因子贡献独立的加/减分，最终汇总
-            ev_score = 0
-            # 因子1: 回调周期 (最强单因子，前后半差异仅 4pp)
-            if pb_bars <= 4:    ev_score += 2   # 快速回调，强力加分
-            elif pb_bars > 7:   ev_score -= 2   # 拖延回调，强力减分
-            # 因子2: 缺口宽度 (与回调组合后极稳定：前后半差异仅 1.4pp)
-            if gap_size_pct > 7:   ev_score += 2  # 宽缺口
-            elif gap_size_pct < 3: ev_score -= 1  # 窄缺口
-            # 因子3: 信号K线质量 (方向一致但衰减较大，给较低权重)
-            if q > 0.8:         ev_score += 1
-            elif q < 0.5:       ev_score -= 1
-            # 因子4: 连阴数 (与回调周期相关度 0.466，给较低权重避免重复)
-            if pb_consec_bear >= 3: ev_score -= 1
-            
-            # 添加时间迟滞惩罚
-            ev_score += time_decay_penalty
-            
-            # 评级映射
-            if ev_score >= 3:
-                ev_rating = '🌟🌟 极品 (A+)'
-            elif ev_score >= 2:
-                ev_rating = '🌟 高预期 (A)'
-            elif ev_score >= 0:
-                ev_rating = '👍 常态 (B)'
-            elif ev_score >= -2:
-                ev_rating = '⚠️ 低预期 (C)'
-            else:
-                ev_rating = '💀 毒性 (D)'
-            
-            name = dp.get_stock_name(code)
-            results.append({
-                'code': code,
-                'name': name,
-                'date': row['trade_date'] if 'trade_date' in row else (row['date'] if 'date' in row else str(row.name)),
-                'entry': entry,
-                'sl': sl,
-                'tp': tp,
-                'rr': rr,
-                'sig_quality': q,
-                'bears': pb_consec_bear,
-                'pb_bars': pb_bars,
-                'gap_size_pct': gap_size_pct,
-                'ev_score': ev_score,
-                'ev_rating': ev_rating,
-                'is_pending': False,
-                'bars_passed': bars_passed_since_signal
-            })
+                        past_highs = df_strat['high'].iloc[max(0, idx_bo - 60):max(0, idx_bo - 1)]
+                        temp_sl = past_highs.max() if not past_highs.empty else bo_row['low']
+                        
+                        past_lows = df_strat['low'].iloc[max(0, idx_bo - 60):max(0, idx_bo - 1)]
+                        prior_sl = past_lows.min() if not past_lows.empty else bo_row['low']
+                        
+                        current_min_low = recent_slice['low'].min()
+                        temp_mid = (current_min_low + temp_sl) / 2
+                        temp_tp = 2 * temp_mid - prior_sl
+                        
+                        q = 0  # Pending 没有确认的信号K线
+                        
+                        name = dp.get_stock_name(code)
+                        results.append({
+                            'code': code,
+                            'name': name,
+                            'strategy_name': strat_name,
+                            'date': bo_row['trade_date'] if 'trade_date' in bo_row else (bo_row['date'] if 'date' in bo_row else str(bo_row.name)),
+                            'entry': df_strat['high'].iloc[-1] + 0.01,
+                            'sl': temp_sl,
+                            'tp': temp_tp,
+                            'rr': round((temp_tp - df_strat['high'].iloc[-1]) / (df_strat['high'].iloc[-1] - temp_sl), 1) if df_strat['high'].iloc[-1] > temp_sl else 0,
+                            'sig_quality': q,
+                            'bears': sum(recent_slice['close'] < recent_slice['open']),
+                            'ev_rating': '🔎 潜在缺口追踪 (尚未翻转)',
+                            'is_pending': True
+                        })
+                continue
+                        
+            for sig_date, row in gt_rows.iterrows():
+                entry = row.get(cols['entry'], np.nan)
+                sl = row.get(cols['sl'], np.nan)
+                tp = row.get(cols['tp'], np.nan)
+                
+                # 检查此信号发出的时间距离当下有多远
+                idx = df_strat.index.get_loc(sig_date)
+                bars_passed_since_signal = len(df_strat) - 1 - idx
+                
+                # 【生命周期过滤 1】 检查此信号之后，缺口是否已被填补 (击穿 SL)
+                if not np.isnan(sl):
+                    if idx < len(df_strat) - 1:
+                        post_signal_min_low = df_strat['low'].iloc[idx+1:].min()
+                        if post_signal_min_low <= sl:
+                            continue # 缺口已死，直接无视
+                
+                # 【生命周期过滤 2】 检查此信号之后，是否已经达到了目标位 (TP)
+                if not np.isnan(tp):
+                    if idx < len(df_strat) - 1:
+                        post_signal_max_high = df_strat['high'].iloc[idx+1:].max()
+                        if post_signal_max_high >= tp:
+                            continue # 目标已达，无需再扫
+                            
+                # 如果走到这里，说明这是一个【缺口仍然开放，且未达到止盈】的存活信号
+                
+                risk = entry - sl if not np.isnan(entry) and not np.isnan(sl) else 0
+                reward = tp - entry if not np.isnan(tp) and not np.isnan(entry) else 0
+                rr = round(reward / risk, 1) if risk > 0 else 0
+                
+                q = row.get(cols['quality'], 0)
+                
+                # 回调周期 (bars_since_breakout)
+                pb_bars = 0
+                pb_consec_bear = 0
+                
+                pb_bars_col = 'bars_since_breakout_gp' if 'PINBAR' in strat_name else 'bars_since_breakout_h2' if 'H2' in strat_name else 'bars_since_breakout'
+                if pb_bars_col in df_strat.columns and not pd.isna(row.get(pb_bars_col)):
+                    pb_bars = int(row[pb_bars_col])
+                    if pb_bars > 0 and idx >= pb_bars:
+                        pb_df = df_strat.iloc[idx - pb_bars : idx]
+                        is_bear = pb_df['close'] < pb_df['open']
+                        shifts = is_bear != is_bear.shift()
+                        groups = shifts.cumsum()
+                        bear_groups = is_bear.groupby(groups).sum()
+                        pb_consec_bear = int(bear_groups.max()) if not bear_groups.empty else 0
+                
+                # 计算因为持有时间过长导致的衰减，如果拖了太久还没走出来，也要扣分
+                time_decay_penalty = 0
+                if bars_passed_since_signal > 10:
+                    time_decay_penalty = -2
+                elif bars_passed_since_signal > 5:
+                    time_decay_penalty = -1
+                
+                # 🟢 缺口宽度计算
+                gap_top_col = 'gap_pinbar_top_exact' if 'PINBAR' in strat_name else 'gap_h2_top_exact' if 'H2' in strat_name else 'struct_gap_top_exact'
+                gap_top = row.get(gap_top_col, entry)
+                if pd.isna(gap_top): gap_top = entry
+                gap_size_pct = round((gap_top - sl) / sl * 100, 2) if sl > 0 else 0
+                        
+                # 🟢 四因子积分制 EV 评级
+                ev_score = 0
+                if pb_bars <= 4:    ev_score += 2   # 快速回调，强力加分
+                elif pb_bars > 7:   ev_score -= 2   # 拖延回调，强力减分
+                if gap_size_pct > 7:   ev_score += 2  # 宽缺口
+                elif gap_size_pct < 3: ev_score -= 1  # 窄缺口
+                if q > 0.8:         ev_score += 1
+                elif q < 0.5:       ev_score -= 1
+                if pb_consec_bear >= 3: ev_score -= 1
+                
+                ev_score += time_decay_penalty
+                
+                # 评级映射
+                if ev_score >= 3:
+                    ev_rating = '🌟🌟 极品 (A+)'
+                elif ev_score >= 2:
+                    ev_rating = '🌟 高预期 (A)'
+                elif ev_score >= 0:
+                    ev_rating = '👍 常态 (B)'
+                elif ev_score >= -2:
+                    ev_rating = '⚠️ 低预期 (C)'
+                else:
+                    ev_rating = '💀 毒性 (D)'
+                
+                name = dp.get_stock_name(code)
+                results.append({
+                    'code': code,
+                    'name': name,
+                    'strategy_name': strat_name,
+                    'date': row['trade_date'] if 'trade_date' in row else (row['date'] if 'date' in row else str(row.name)),
+                    'entry': entry,
+                    'sl': sl,
+                    'tp': tp,
+                    'rr': rr,
+                    'sig_quality': q,
+                    'bears': pb_consec_bear,
+                    'pb_bars': pb_bars,
+                    'gap_size_pct': gap_size_pct,
+                    'ev_score': ev_score,
+                    'ev_rating': ev_rating,
+                    'is_pending': False,
+                    'bars_passed': bars_passed_since_signal
+                })
             
     except Exception as e:
         logger.debug(f"扫描 {code} 失败: {e}")
@@ -209,7 +239,7 @@ def _scan_single_code(code: str, recent_weeks: int = 4) -> list:
     return results
 
 
-def scan_weekly_gap(all_codes: list, recent_weeks: int = 4) -> dict:
+def scan_weekly_gap(all_codes: list, strategies: list = None, recent_weeks: int = 4) -> dict:
     """
     🟢 [P3 Opt 2] 并行扫描全市场周线 Structural Gap 信号
     使用 ThreadPoolExecutor 进行多线程并发（因数据读取涉及 SQLite，线程比进程更安全）
@@ -224,7 +254,7 @@ def scan_weekly_gap(all_codes: list, recent_weeks: int = 4) -> dict:
     print(f"  🚀 启动 {MAX_WORKERS} 线程并行扫描 {total} 只股票...")
     
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {executor.submit(_scan_single_code, code, recent_weeks): code for code in all_codes}
+        futures = {executor.submit(_scan_single_code, code, recent_weeks, strategies): code for code in all_codes}
         
         for future in as_completed(futures):
             completed += 1
@@ -273,7 +303,7 @@ def _format_and_push_results(results, total_stocks=0):
         for s in confirmed:
             sig_date = s['date'].strftime('%Y-%m-%d') if hasattr(s['date'], 'strftime') else str(s['date'])
             archive_signal(
-                code=s['code'], strategy='STRUCTURAL_GAP', timeframe='weekly',
+                code=s['code'], strategy=s.get('strategy_name', 'STRUCTURAL_GAP'), timeframe='weekly',
                 entry=s['entry'], sl=s['sl'], tp=s['tp'] if not np.isnan(s['tp']) else 0,
                 ev_rating=s.get('ev_rating', ''), signal_date=sig_date,
                 ev_score=s.get('ev_score', 0), rr=s.get('rr', 0), name=s.get('name', ''),
@@ -296,7 +326,8 @@ def _format_and_push_results(results, total_stocks=0):
                 rr_str = f"1:{s['rr']:.1f}" if s['rr'] > 0 else "N/A"
                 gap_str = f" | 缺口={s.get('gap_size_pct', 0):.1f}%" if 'gap_size_pct' in s else ""
                 pb_str = f" | 回调={s.get('pb_bars', '?')}周" if 'pb_bars' in s else ""
-                print(f"  {s['code']:>12s} {s['name']:<6s} | 买入:>={s['entry']:.2f} | 止损:{s['sl']:.2f} | 止盈:{tp_str} | R:R={rr_str}{gap_str}{pb_str}")
+                strat_short = s.get('strategy_name', '').replace('STRATEGY_', '')
+                print(f"  {s['code']:>12s} {s['name']:<6s} | 策略:{strat_short:<10s} | 买入:>={s['entry']:.2f} | 止损:{s['sl']:.2f} | 止盈:{tp_str} | R:R={rr_str}{gap_str}{pb_str}")
                     
     _print_sg_console(sg_best, "🌟 高预期")
     _print_sg_console(sg_good, "👍 常态")
@@ -335,13 +366,14 @@ def _format_and_push_results(results, total_stocks=0):
     if not sig_gap:
         report_md += "本周无符合条件的突破标的。\n\n"
     else:
-        report_md += "| 代码 | 名称 | 信号特征 | 下周买点 (Buy Stop) | 绝对止损 (Gap Floor) | 测距翻倍 (TP) | 盈亏比预估 |\n"
-        report_md += "|:---:|:---|:---|:---|:---|:---|:---|\n"
+        report_md += "| 代码 | 名称 | 策略 | 信号特征 | 下周买点 (Buy Stop) | 绝对止损 (Gap Floor) | 测距翻倍 (TP) | 盈亏比预估 |\n"
+        report_md += "|:---:|:---|:---|:---|:---|:---|:---|:---|\n"
         for s in sig_gap:
             tp_str = f"{s['tp']:.2f}" if not np.isnan(s['tp']) else "N/A"
             rr_str = f"1:{s['rr']:.1f}" if s['rr'] > 0 else "N/A"
             date_str = s['date'].strftime('%Y-%m-%d') if hasattr(s['date'], 'strftime') else str(s['date'])
-            report_md += f"| `{s['code']}` | **{s['name']}** | {s['ev_rating']} | **>={s['entry']:.2f}** | *{s['sl']:.2f}* | {tp_str} | {rr_str} |\n"
+            strat_short = s.get('strategy_name', '').replace('STRATEGY_', '')
+            report_md += f"| `{s['code']}` | **{s['name']}** | {strat_short} | {s['ev_rating']} | **>={s['entry']:.2f}** | *{s['sl']:.2f}* | {tp_str} | {rr_str} |\n"
             
     with open(md_path, 'w', encoding='utf-8') as f:
         f.write(report_md)
@@ -371,10 +403,11 @@ def _format_and_push_results(results, total_stocks=0):
         if a_sigs:
             msg += f"\n🌟 **A+/A 级 ({len(a_sigs)}只)**:\n"
             for s in a_sigs:
-                msg += f"• {s['name']}({s['code']}) [{s['ev_rating']}]\n"
+                strat_short = s.get('strategy_name', '').replace('STRATEGY_', '')
+                msg += f"• {s['name']}({s['code']}) [{strat_short}] [{s['ev_rating']}]\n"
         
         # B/C/D 级：只列名字汇总（节省空间）
-        bc_names = [f"{s['name']}({s['code']})" for s in sig_gap 
+        bc_names = [f"{s['name']}({s['code']})[{s.get('strategy_name','').replace('STRATEGY_','')}]" for s in sig_gap 
                     if 'A' not in s.get('ev_rating', '') and not s.get('is_pending')]
         if bc_names:
             msg += f"\n📋 B/C 级 ({len(bc_names)}只): "
@@ -383,7 +416,7 @@ def _format_and_push_results(results, total_stocks=0):
         # Pending 追踪
         if sg_pend:
             msg += f"\n\n🔎 潜在追踪 ({len(sg_pend)}只): "
-            pend_names = [f"{s['name']}({s['code']})" for s in sg_pend]
+            pend_names = [f"{s['name']}({s['code']})[{s.get('strategy_name','').replace('STRATEGY_','')}]" for s in sg_pend]
             msg += " / ".join(pend_names)
         
         msg += f"\n\n🌟 A+/A 级图表即将推送..."
@@ -407,10 +440,11 @@ def _format_and_push_results(results, total_stocks=0):
                     df = fetch_weekly_data(s['code'], weeks=300)
                     if df is not None:
                         df = add_indicators(df)
-                        df = StructuralGapStrategy().calculate_signals(df)
+                        strat = StrategyRegistry.get_strategy(s.get('strategy_name', 'STRATEGY_STRUCTURAL_GAP'))
+                        df = strat.calculate_signals(df)
                         buf = generate_chart_bytes(
                             code=s['code'], stock_name=s['name'], 
-                            strategy_type="STRUCTURAL_GAP",
+                            strategy_type=s.get('strategy_name', 'STRATEGY_STRUCTURAL_GAP'),
                             sl_price=s['sl'], tp1=s['tp'] if not np.isnan(s['tp']) else 0,
                             reason=f"周线大底确认 | {s['ev_rating']}", df_override=df,
                             ev_rating=s['ev_rating'], sig_quality=s['sig_quality'], bears=s['bears']
@@ -437,6 +471,7 @@ def main():
     parser = argparse.ArgumentParser(description='周线 Structural Gap 策略扫描器')
     parser.add_argument('--limit', type=int, default=0, help='限制扫描股票数量')
     parser.add_argument('--weeks', type=int, default=4, help='检查最近N周的信号')
+    parser.add_argument('--strategy', type=str, default=None, help='要运行的策略，多个以逗号隔开')
     args = parser.parse_args()
     
     # ⚠️ 提示用户确认周线数据是否已更新
@@ -461,11 +496,20 @@ def main():
         
         if args.limit > 0:
             all_codes = all_codes[:args.limit]
+            
+        active_strategies = None
+        if args.strategy:
+            if args.strategy.upper() == 'ALL':
+                active_strategies = ['STRATEGY_STRUCTURAL_GAP', 'STRATEGY_GAP_PINBAR', 'STRATEGY_GAP_H2']
+            else:
+                active_strategies = [s.strip().upper() for s in args.strategy.split(',')]
+        else:
+            active_strategies = ['STRATEGY_STRUCTURAL_GAP']
         
-        print(f"\n🚀 周线 Structural Gap 扫描: {len(all_codes)} 只股票, 检查最近 {args.weeks} 周")
+        print(f"\n🚀 周线扫描: {len(all_codes)} 只股票, 检查最近 {args.weeks} 周, 策略: {', '.join(active_strategies)}")
         print("=" * 80)
         
-        results = scan_weekly_gap(all_codes, recent_weeks=args.weeks)
+        results = scan_weekly_gap(all_codes, strategies=active_strategies, recent_weeks=args.weeks)
         _format_and_push_results(results, total_stocks=len(all_codes))
         
     except Exception as e:

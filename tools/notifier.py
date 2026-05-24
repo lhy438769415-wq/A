@@ -267,16 +267,6 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
                     leg1_price = climax_price * 1.05
 
                 # 2. 绘制标注 (Textbook Style)
-                # Stage 1: Major Trend (左侧 -> Climax)
-                trend_mid_date = plot_df.index[len(plot_df.index)//4] 
-                if trend_mid_date < climax_date:
-                     ax.annotate("1. Bear Trend\n(趋势下跌)", 
-                                xy=(climax_date, climax_price), 
-                                xytext=(trend_mid_date, plot_df['high'].max()*0.95),
-                                arrowprops=dict(arrowstyle="->", color='gray', linestyle='dashed'),
-                                fontsize=9, color='black', fontweight='bold', ha='center',
-                                bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.7))
-
                 # Stage 2: Sell Climax
                 ax.annotate("2. Sell Climax\n(抛售高潮)", 
                             xy=(climax_date, climax_price), 
@@ -285,7 +275,7 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
                             fontsize=9, color='red', ha='center', va='top')
 
                 # Stage 3: First Leg Breakout
-                ax.annotate("3. First Leg\n(有力突破)", 
+                ax.annotate("3. First Leg\n(一腿突破)", 
                             xy=(leg1_date, leg1_price), 
                             xytext=(leg1_date, leg1_price * 1.10),
                             arrowprops=dict(arrowstyle="->", color='blue'),
@@ -302,48 +292,96 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
             except Exception as e:
                 logger.warning(f"MTR Annotation Failed: {e}")
 
-        # --- Structural Gap 极简直白标注 ---
-        if "STRUCTURAL_GAP" in strategy_type.upper():
+        # --- 针对所有缺口策略的极精心设计的标注 (STRUCTURAL_GAP, GAP_PINBAR, GAP_H2) ---
+        col_map = {
+            'STRUCTURAL_GAP': {
+                'prior_low': 'struct_gap_prior_low',
+                'floor_exact': 'struct_gap_floor_exact',
+                'top_exact': 'struct_gap_top_exact',
+                'entry': 'entry_struct_gap'
+            },
+            'GAP_PINBAR': {
+                'prior_low': 'gap_pinbar_prior_low',
+                'floor_exact': 'gap_pinbar_floor_exact',
+                'top_exact': 'gap_pinbar_top_exact',
+                'entry': 'entry_gap_pinbar'
+            },
+            'GAP_H2': {
+                'prior_low': 'gap_h2_prior_low',
+                'floor_exact': 'gap_h2_floor_exact',
+                'top_exact': 'gap_h2_top_exact',
+                'entry': 'entry_gap_h2'
+            }
+        }
+        
+        strategy_key = None
+        for key in col_map:
+            if key in strategy_type.upper():
+                strategy_key = key
+                break
+                
+        if strategy_key:
             try:
                 ax = axlist[0]
-                 # 1. 定位关键点
+                cols = col_map[strategy_key]
+                
+                # 1. 定位关键点
                 signal_date = None
                 
-                if 'signal_struct_gap_confirm' in plot_df.columns and plot_df['signal_struct_gap_confirm'].any():
-                    # 正常确认的信号
-                    signal_date = plot_df[plot_df['signal_struct_gap_confirm']].index[-1]
+                # 动态获取信号列名
+                if strategy_key == 'STRUCTURAL_GAP':
+                    sig_col = 'signal_struct_gap_confirm'
+                elif strategy_key == 'GAP_PINBAR':
+                    sig_col = 'signal_gap_pinbar'
+                elif strategy_key == 'GAP_H2':
+                    sig_col = 'signal_gap_h2'
+                    
+                if sig_col in plot_df.columns and plot_df[sig_col].any():
+                    signal_date = plot_df[plot_df[sig_col]].index[-1]
                     is_pending_track = False
                 elif 'is_breakout' in plot_df.columns and plot_df['is_breakout'].any() and ev_rating and '追踪' in ev_rating:
-                    # 这个是还在孕育期、未确认反转的悬空状态缺口
-                    signal_date = plot_df.index[-1] # 用最新一天假装成信号天
+                    signal_date = plot_df.index[-1]
+                    is_pending_track = True
+                elif 'is_breakout_gp' in plot_df.columns and plot_df['is_breakout_gp'].any() and ev_rating and '追踪' in ev_rating:
+                    signal_date = plot_df.index[-1]
+                    is_pending_track = True
+                elif 'is_breakout_h2' in plot_df.columns and plot_df['is_breakout_h2'].any() and ev_rating and '追踪' in ev_rating:
+                    signal_date = plot_df.index[-1]
                     is_pending_track = True
                 else:
                     raise ValueError("SILENT_SKIP")
+                    
                 signal_price = plot_df.loc[signal_date]['low']
-                floor_price = plot_df.loc[signal_date]['sl_struct_gap']
-                prior_low = plot_df.loc[signal_date]['struct_gap_prior_low']
+                
+                # 获取精确防守价 (Gap Floor)，带有防御性 Fallback 逻辑
+                floor_price = sl_price if sl_price > 0 else (plot_df.loc[signal_date][cols['floor_exact']] if cols['floor_exact'] in plot_df.columns else plot_df.loc[signal_date]['low'])
+                if pd.isna(floor_price) or floor_price <= 0:
+                    pre_signal = plot_df.loc[:signal_date]
+                    floor_price = pre_signal['low'].min()
+                
+                prior_low = plot_df.loc[signal_date][cols['prior_low']] if cols['prior_low'] in plot_df.columns else floor_price * 0.98
+                if pd.isna(prior_low) or prior_low <= 0:
+                    prior_low = floor_price * 0.98
                 
                 # --- 兼容: 原生倒求历史极值坐标点 ---
                 pre_signal = plot_df.loc[:signal_date]
-                # 寻找百日前高(作为缺口的边际) 对应的时间
                 floor_candidates = pre_signal[pre_signal['high'] >= floor_price * 0.99]
                 if not floor_candidates.empty:
                     floor_date = floor_candidates.index[0]
                 else:
                     floor_date = pre_signal.index[len(pre_signal)//3]
                 
-                # 起点: 严格定位绝对最低价那一天 (消除 >= 错配)
-                # 使用 abs 解决浮点相等判断问题
+                # 起点: 定位波段最低价那天
                 abs_diff = (pre_signal['low'] - prior_low).abs()
                 if abs_diff.min() < 1e-4:
                     origin_date = abs_diff.idxmin()
                 else:
                     origin_date = pre_signal.index[0]
                 
-                # 回调测试极值点: 触发信号前一根K线 (倒推1根)
+                # 回调测试极值点: 触发信号前一根 K 线
                 test_date = pre_signal.index[-2] if len(pre_signal) > 1 else pre_signal.index[0]
                 
-                # 将 timestamp 转换为 K线图上的 x 坐标
+                # timestamp 转换为 x 坐标
                 date_list = list(plot_df.index)
                 try:
                     signal_x = date_list.index(signal_date)
@@ -358,19 +396,19 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
                     signal_x = len(plot_df) - 1
                     origin_x, floor_x, test_x = signal_x - 40, signal_x - 20, signal_x - 1
                     origin_true_low, floor_true_high, test_true_low = prior_low, floor_price, floor_price * 1.02
-
-                # 如果策略暴露了精确高度，则优先使用：突破后的第一根阴线最低点 (有效顶部) 与 起始底座 (下沿)
-                exact_top_series = plot_df.loc[signal_date]['struct_gap_top_exact'] if 'struct_gap_top_exact' in plot_df.columns else None
-                exact_floor_series = plot_df.loc[signal_date]['struct_gap_floor_exact'] if 'struct_gap_floor_exact' in plot_df.columns else None
                 
-                # 兼容旧跑图数据或未更新缓存情况
+                exact_top_series = plot_df.loc[signal_date][cols['top_exact']] if cols['top_exact'] in plot_df.columns else None
+                exact_floor_series = plot_df.loc[signal_date][cols['floor_exact']] if cols['floor_exact'] in plot_df.columns else None
+                
                 final_gap_high = exact_top_series if pd.notna(exact_top_series) else test_true_low
                 final_gap_low = exact_floor_series if pd.notna(exact_floor_series) else floor_true_high
                 
-                # 标注 1. 开放的缺口区域 (矩形绘制) - 需求: 内部无填充的边框
-                # 矩形的左下角向左拉升到整个图片的一半 (防止遮挡右侧密集区域)
+                # 再次校正 final_gap_high 和 final_gap_low
+                if final_gap_low >= final_gap_high:
+                    final_gap_high = final_gap_low * 1.02
+                
+                # 标注 1. 开放的缺口区域 (矩形绘制) - 内部无填充 of the border
                 center_x = max(0, len(plot_df) // 2)
-                # 左边界强制位于中心点
                 rect_start_x = min(center_x, test_x - 5)
                 rect_width = test_x - rect_start_x
                 rect_height = final_gap_high - final_gap_low
@@ -378,7 +416,7 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
                 gap_rect = Rectangle(
                     (rect_start_x - 0.5, final_gap_low), 
                     rect_width + 1, rect_height,
-                    linewidth=1.2, facecolor='none', edgecolor='#2962FF', linestyle='--', alpha=0.6  # 无填充的虚线边框图案
+                    linewidth=1.2, facecolor='none', edgecolor='#2962FF', linestyle='--', alpha=0.6
                 )
                 ax.add_patch(gap_rect)
                 
@@ -394,11 +432,12 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
                 
                 # 标注 2. 左上角参数面板 (入场、止损、止盈、盈亏比)
                 if not is_pending_track:
-                    entry_price = plot_df.loc[signal_date]['entry_struct_gap'] # 提前获取 entry_price 以供面板计算
+                    entry_price = plot_df.loc[signal_date][cols['entry']] if cols['entry'] in plot_df.columns else plot_df.loc[signal_date]['high']
+                    if pd.isna(entry_price):
+                        entry_price = plot_df.loc[signal_date]['high']
                     rr_ratio = (tp1 - entry_price) / (entry_price - final_gap_low) if tp1 > entry_price and entry_price > final_gap_low else 0
                 else:
-                    # Pending hasn't generated entry_struct_gap to the dataframe, calculating manually from parameter
-                    entry_price = plot_df.loc[signal_date]['high'] + 0.01  # Approximation
+                    entry_price = plot_df.loc[signal_date]['high'] + 0.01
                     rr_ratio = (tp1 - entry_price) / (entry_price - final_gap_low) if tp1 > entry_price and entry_price > final_gap_low else 0
                 
                 panel_text = f"买入点：{entry_price:.2f}\n" \
@@ -409,13 +448,10 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
                              f"回调连阴：{bears} 连阴\n" \
                              f"系统评级：{strip_emoji(ev_rating) if ev_rating else 'N/A'}"
                 
-                
-                # ax.transAxes 表示相对坐标, 0,1 即左上角
                 ax.text(0.02, 0.96, panel_text, transform=ax.transAxes, fontsize=10,
                         verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'))
                 
-                # 标注 3. 测量缺口的起点 (精确指向波段极低点) TV风格
-                # 波段低点的文字移到紫色箭头右边，箭头向左边指 K 线
+                # 标注 3. 测量缺口的起点
                 ax.annotate("起跳支点", 
                             xy=(origin_x + 0.5, origin_true_low), 
                             xytext=(origin_x + 6.5, origin_true_low),
@@ -423,7 +459,7 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
                             fontsize=9, color='#6A1B9A', fontweight='normal', ha='left', va='center',
                             bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
                                 
-                # 标注 3. 入场点 (改为向左的水平箭头，指向信号当天的价格实体，只留箭头)
+                # 标注 3. 入场点
                 if not is_pending_track:
                     ax.annotate("买入点 (Buy Stop)", 
                                 xy=(signal_x + 0.5, entry_price), 
@@ -432,6 +468,25 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
                                 fontsize=9, color='#D32F2F', fontweight='bold', ha='left', va='center',
                                 bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
                 else:
+                    ax.annotate("预期买点 (待反转)", 
+                                xy=(signal_x + 0.5, entry_price), 
+                                xytext=(signal_x + 6.5, entry_price),
+                                arrowprops=dict(arrowstyle="->", color='#D32F2F', lw=1.5, linestyle="--"),
+                                fontsize=9, color='#D32F2F', fontweight='bold', ha='left', va='center',
+                                bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+                                
+                # 标注 4. 测量缺口止盈 (目标价 - 虚线与标注)
+                if tp1 > 0:
+                    ax.axhline(y=tp1, color='#D32F2F', linestyle='--', linewidth=1.2, alpha=0.6)
+                    ax.annotate("TP (目标)", 
+                                xy=(signal_x, tp1), 
+                                xytext=(signal_x - 8, tp1),
+                                arrowprops=dict(arrowstyle="-", color='#D32F2F', alpha=0),
+                                fontsize=9, color='#D32F2F', fontweight='bold', ha='right', va='center',
+                                bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='#D32F2F', alpha=0.7))
+            except Exception as e:
+                if str(e) != "SILENT_SKIP":
+                    logger.warning(f"Gap Strategy Annotation Failed: {e}")
                     ax.annotate("预期买点 (待反转)", 
                                 xy=(signal_x + 0.5, entry_price), 
                                 xytext=(signal_x + 6.5, entry_price),

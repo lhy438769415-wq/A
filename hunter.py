@@ -1,6 +1,14 @@
 # -*- coding: utf-8 -*-
 import sys
 import os
+
+# 确保控制台支持UTF-8，防止Windows GBK下打印Emoji报错
+if hasattr(sys.stdout, 'reconfigure') and sys.stdout.encoding != 'utf-8':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 import time
 import logging
 import psutil
@@ -295,7 +303,7 @@ def _scan_market(all_codes, strategies, seen_signals):
     return all_hits, new_signals
 
 
-def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_threads):
+def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_threads, use_ai: bool = True):
     """
     [Phase2 重构] 阶段 2: Watchlist 生命周期 + 策略分流 + AI 审计
     
@@ -334,19 +342,31 @@ def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_thr
         score = info.get('score', 0)
         date_val = str(res['df']['date'].iloc[-1].strftime('%Y-%m-%d')) if hasattr(res['df']['date'].iloc[-1], 'strftime') else str(res['df']['date'].iloc[-1]) if 'date' in res['df'] else ''
         
-        if code in watchlist.data:
-            sig_data = watchlist.data[code]
-            if sig_data['status'] in ['TRIGGERED', 'INVALIDATED', 'EXPIRED']:
-                if sb_idx != -1 and sb_idx != sig_data['signal_bar_idx']:
-                    watchlist.add_signal(code, entry, sl, score, sb_idx, date_val)
-                    new_hits.append(res)
+        strat_type = res.get('type', '').upper()
+        is_new_strategy = 'GAP_PINBAR' in strat_type or 'GAP_H2' in strat_type
+        
+        if is_new_strategy:
+            # 新策略暂时不启用 Watchlist 去重拦截功能，始终强制作为 new_hits 允许推送，但仍做入库记录供生命周期追踪
+            if code not in watchlist.data:
+                watchlist.add_signal(code, entry, sl, score, sb_idx, date_val)
             else:
-                if sb_idx != -1 and sb_idx != sig_data['signal_bar_idx']:
-                    watchlist.update_signal_bar(code, sb_idx, entry)
-                    new_hits.append(res)
-        else:
-            watchlist.add_signal(code, entry, sl, score, sb_idx, date_val)
+                watchlist.update_signal_bar(code, sb_idx, entry)
             new_hits.append(res)
+        else:
+            # 经典策略保持原有的去重拦截机制
+            if code in watchlist.data:
+                sig_data = watchlist.data[code]
+                if sig_data['status'] in ['TRIGGERED', 'INVALIDATED', 'EXPIRED']:
+                    if sb_idx != -1 and sb_idx != sig_data['signal_bar_idx']:
+                        watchlist.add_signal(code, entry, sl, score, sb_idx, date_val)
+                        new_hits.append(res)
+                else:
+                    if sb_idx != -1 and sb_idx != sig_data['signal_bar_idx']:
+                        watchlist.update_signal_bar(code, sb_idx, entry)
+                        new_hits.append(res)
+            else:
+                watchlist.add_signal(code, entry, sl, score, sb_idx, date_val)
+                new_hits.append(res)
             
     logger.info(f"📌 Watchlist 过滤后，新增/更新信号: {len(new_hits)}")
 
@@ -359,7 +379,7 @@ def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_thr
 
     for res in all_hits:
         strat_type = res.get('type', '').upper()
-        if '3K' in strat_type or 'STRUCTURAL_GAP' in strat_type or 'MTR' in strat_type:
+        if '3K' in strat_type or 'STRUCTURAL_GAP' in strat_type or 'MTR' in strat_type or 'GAP_PINBAR' in strat_type or 'GAP_H2' in strat_type:
             if 'MTR' in strat_type:
                 score = res.get('info', {}).get('score', 0)
                 if score >= 80: ev_rating = '🌟🌟 极品 (A+)'
@@ -382,6 +402,18 @@ def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_thr
     
     if direct_picks:
         logger.info(f"⚡ 快速通道: {len(direct_picks)} 个结构/动能信号直接入池 (跳过 AI)")
+
+    if not use_ai:
+        # 如果不启用 AI，所有本来要走 AI 的信号，全部变成技术面直通
+        for res in ai_candidates_raw:
+            reason_txt = f"[{res.get('type')}] 技术面信号 (AI 审计已关闭)"
+            res_item, chart_buf, _ = prepare_daily_chart(res, passed=True, reason=reason_txt)
+            if chart_buf:
+                res_item['chart_buf'] = chart_buf
+            res_item['ai_verdict'] = True
+            res_item['ai_parsed'] = {'verdict': 'PASS', 'reason': f'{reason_txt}'}
+            direct_picks.append(res_item)
+        ai_candidates_raw = []
 
     ai_candidates = ai_candidates_raw[:10]
     skipped_candidates = ai_candidates_raw[10:]
@@ -620,7 +652,7 @@ def _dispatch_charts(direct_picks, final_picks):
             )
 
 
-def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set = None) -> set:
+def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set = None, use_ai: bool = True) -> set:
     """
     [Phase2 重构] 主流水线协调器 (原 412 行 → 精简为 ~40 行控制流)
     
@@ -665,7 +697,7 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
     
     # 阶段 2: 分类 + AI 审计
     direct_picks, final_picks, rejected_list, watchlist, status_changes = _classify_signals(
-        all_hits, analysis_queue, result_queue, stop_event, ai_threads
+        all_hits, analysis_queue, result_queue, stop_event, ai_threads, use_ai=use_ai
     )
     
     # 阶段 3: 报告
@@ -759,6 +791,7 @@ def main():
     parser.add_argument('--weeks', type=int, default=4, help='(周线模式) 检查最近N周的信号')
     parser.add_argument('--track', action='store_true', help='追踪已归档信号的最新状态')
     parser.add_argument('--report', action='store_true', help='输出信号追踪统计报表')
+    parser.add_argument('--no-ai', action='store_true', help='旁路(Bypass) DeepSeek AI 审计，全量技术面直通')
     args = parser.parse_args()
 
     init_journal_db()
@@ -791,8 +824,19 @@ def main():
             all_codes = data_provider.get_stock_list()
             if not all_codes: print("❌ 获取股票列表失败"); return
             if args.limit > 0: all_codes = all_codes[:args.limit]
-            results = scan_weekly_gap(all_codes, recent_weeks=args.weeks)
-            _format_and_push_results(results)
+            
+            weekly_supported = ['STRATEGY_STRUCTURAL_GAP', 'STRATEGY_GAP_PINBAR', 'STRATEGY_GAP_H2']
+            active_strategies = None
+            if args.strategy:
+                if args.strategy.upper() == 'ALL':
+                    active_strategies = weekly_supported
+                else:
+                    active_strategies = [s.strip().upper() for s in args.strategy.split(',')]
+            else:
+                active_strategies = ['STRATEGY_STRUCTURAL_GAP']
+            
+            results = scan_weekly_gap(all_codes, strategies=active_strategies, recent_weeks=args.weeks)
+            _format_and_push_results(results, total_stocks=len(all_codes))
             return
         # daily: 继续往下进入策略选择
     else:
@@ -855,8 +899,41 @@ def main():
             all_codes = data_provider.get_stock_list()
             if not all_codes: print("❌ 获取股票列表失败"); return
             if args.limit > 0: all_codes = all_codes[:args.limit]
-            results = scan_weekly_gap(all_codes, recent_weeks=args.weeks)
-            _format_and_push_results(results)
+            
+            # 周线策略选择菜单
+            weekly_supported = ['STRATEGY_STRUCTURAL_GAP', 'STRATEGY_GAP_PINBAR', 'STRATEGY_GAP_H2']
+            print("\n" + "="*40)
+            print("🔍 周线扫描策略选择")
+            print("="*40)
+            for i, s in enumerate(weekly_supported):
+                print(f"  {i+1}. {s}")
+            print(f"  {len(weekly_supported)+1}. ALL (全量扫描)")
+            print("="*40)
+            
+            try:
+                choice = input(f"请输入选择序号 (默认 1 - {weekly_supported[0]}): ").strip()
+                if not choice:
+                    active_strategies = [weekly_supported[0]]
+                elif choice.isdigit():
+                    idx = int(choice)
+                    if idx == len(weekly_supported) + 1:
+                        active_strategies = weekly_supported
+                    elif 1 <= idx <= len(weekly_supported):
+                        active_strategies = [weekly_supported[idx-1]]
+                    else:
+                        active_strategies = [weekly_supported[0]]
+                else:
+                    if choice.upper() in weekly_supported:
+                        active_strategies = [choice.upper()]
+                    else:
+                        active_strategies = [weekly_supported[0]]
+            except (EOFError, KeyboardInterrupt):
+                active_strategies = [weekly_supported[0]]
+                
+            print(f"\n🚀 已激活周线策略: {', '.join(active_strategies)}")
+            
+            results = scan_weekly_gap(all_codes, strategies=active_strategies, recent_weeks=args.weeks)
+            _format_and_push_results(results, total_stocks=len(all_codes))
             return
 
     # ============================================================
@@ -903,13 +980,25 @@ def main():
             
     print(f"\n🚀 已激活策略: {', '.join(active_strategies)}")
 
+    # 询问是否启用 AI 二次审计
+    use_ai = True
+    if not args.no_ai:
+        try:
+            ai_choice = input("\n是否启用 AI 二次审计？\n  1. 是 [默认]\n  2. 否 (纯技术面直通，约10秒)\n请选择 (1/2): ").strip()
+            if ai_choice == '2':
+                use_ai = False
+        except (EOFError, KeyboardInterrupt):
+            use_ai = True
+    else:
+        use_ai = False
+
     try:
         all_codes = data_provider.get_stock_list()
         if not all_codes:
             return
         if args.limit > 0:
             all_codes = all_codes[:args.limit]
-        run_pipeline_once(all_codes, strategies=active_strategies)
+        run_pipeline_once(all_codes, strategies=active_strategies, use_ai=use_ai)
     except KeyboardInterrupt:
         logger.info("🛑 程序已终止")
     finally:
