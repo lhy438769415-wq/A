@@ -200,3 +200,28 @@ def init_db():
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")
         raise
+
+
+def close_all_connections():
+    """
+    优雅关闭所有数据库连接：WAL checkpoint → 排空连接池 → 关闭连接
+    
+    用于程序退出时确保 WAL 临时文件合并到主库，避免下次启动时的恢复等待。
+    """
+    global _db_pool
+    drained = 0
+    with _pool_lock:
+        while not _db_pool.empty():
+            try:
+                conn = _db_pool.get_nowait()
+                # 先做 WAL checkpoint，把临时文件合并进主库
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                conn.close()
+                drained += 1
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+    if drained > 0:
+        logger.info(f"🔒 连接池已排空: {drained} 个连接 (WAL checkpoint 完成)")

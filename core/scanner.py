@@ -69,41 +69,26 @@ def run_scanner(code: str, strategy_name: str = 'MTR_MASTER') -> Optional[Dict[s
             if latest_signal:
                 logger.info(f"✨ 策略命中 [{strat.name}]: {code}")
                 
+                # P1: 使用策略自描述接口替代硬编码列映射
+                signal_info = strat.get_signal_info(df_strat)
+                
                 # 映射止损列
-                sl_col_map = {
-                    'STRATEGY_3K_EX': 'sl_3k',
-                    'STRATEGY_3K': 'sl_3k_gap_test',
-                    'STRATEGY_STRUCTURAL_GAP': 'sl_struct_gap',
-                    'STRATEGY_GAP_PINBAR': 'sl_gap_pinbar',
-                    'STRATEGY_GAP_H2': 'sl_gap_h2',
-                    'MTR_V29_MASTER': 'sl_price',
-                    'MTR_MASTER': 'sl_price',
-                    'MTR_V35_STRUCTURAL': 'sl_price' # 🟢 V35.0 Explicit Mapping
-                }
-
-                if strat.name in sl_col_map:
-                    target_col = sl_col_map[strat.name]
-                    if target_col in df_strat.columns:
-                        df_strat['sl_price'] = df_strat[target_col]
-                        
-                # 🟢 为 3K 映射入场价 (Buy Stop)
-                if '3K' in strat.name.upper() and 'entry_3k_gap_test' in df_strat.columns:
-                    df_strat['entry_price'] = df_strat['entry_3k_gap_test']
-                    
-                # 🟢 为 Structural Gap 映射入场价与止盈价
-                if 'STRUCTURAL_GAP' in strat.name.upper():
-                    if 'entry_struct_gap' in df_strat.columns: df_strat['entry_price'] = df_strat['entry_struct_gap']
-                    if 'tp_struct_gap' in df_strat.columns: df_strat['tp1_price'] = df_strat['tp_struct_gap']
-
-                # 🟢 为 Gap Pinbar 映射入场价与止盈价
-                if 'GAP_PINBAR' in strat.name.upper():
-                    if 'entry_gap_pinbar' in df_strat.columns: df_strat['entry_price'] = df_strat['entry_gap_pinbar']
-                    if 'tp_gap_pinbar' in df_strat.columns: df_strat['tp1_price'] = df_strat['tp_gap_pinbar']
-
-                # 🟢 为 Gap H2 映射入场价与止盈价
-                if 'GAP_H2' in strat.name.upper():
-                    if 'entry_gap_h2' in df_strat.columns: df_strat['entry_price'] = df_strat['entry_gap_h2']
-                    if 'tp_gap_h2' in df_strat.columns: df_strat['tp1_price'] = df_strat['tp_gap_h2']
+                sl_col = strat.get_metadata().get('sl_column', '')
+                if sl_col and sl_col in df_strat.columns:
+                    df_strat['sl_price'] = df_strat[sl_col]
+                
+                # 映射入场价
+                entry_col = strat.get_metadata().get('entry_column', '')
+                if entry_col and entry_col in df_strat.columns:
+                    df_strat['entry_price'] = df_strat[entry_col]
+                
+                # 映射止盈价
+                tp_cols = strat.get_metadata().get('tp_columns', [])
+                if tp_cols and tp_cols[0] in df_strat.columns:
+                    df_strat['tp1_price'] = df_strat[tp_cols[0]]
+                    if len(tp_cols) > 1 and tp_cols[1] in df_strat.columns:
+                        df_strat['tp2_price'] = df_strat[tp_cols[1]]
+                
                 # Ensure targets exist
                 if 'sl_price' not in df_strat.columns:
                     df_strat = calculate_targets(df_strat)
@@ -115,77 +100,24 @@ def run_scanner(code: str, strategy_name: str = 'MTR_MASTER') -> Optional[Dict[s
                         df_strat['tp2_price'] = df_strat['tp2_target']
                     else:
                         risk = (df_strat['entry_price'] - df_strat['sl_price']).abs()
-                        # 🟢 V8.13 归位：遵循 Brooks 理论，不再拍脑袋。
-                        # 3K 是 1R 止盈，MTR 是 2R 止盈
-                        if "3K" in strat.name.upper():
-                            df_strat['tp1_price'] = df_strat['entry_price'] + (risk * 1.0)
-                            df_strat['tp2_price'] = df_strat['entry_price'] + (risk * 2.0)
-                        else:
-                            df_strat['tp1_price'] = df_strat['entry_price'] + (risk * 2.0)
-                            df_strat['tp2_price'] = df_strat['entry_price'] + (risk * 4.0)
+                        # P1: 使用 metadata 中的 tp_multiplier 代替硬编码策略名判断
+                        tp_mult = strat.get_metadata().get('tp_multiplier', 2.0)
+                        df_strat['tp1_price'] = df_strat['entry_price'] + (risk * tp_mult)
+                        df_strat['tp2_price'] = df_strat['entry_price'] + (risk * tp_mult * 2.0)
 
                 row = df_strat.iloc[-1]
 
-                # 🟢 [3K V2.1] 补充缺口测试确认信息和评分
-                extra_info = {}
-                if '3K' in strat.name.upper():
-                    # 尝试找最近的缺口测试确认信号 (可能在最近20根K线内)
-                    gt_col = 'signal_3k_gap_test'
-                    if gt_col in df_strat.columns:
-                        recent = df_strat.tail(25)
-                        gt_rows = recent[recent[gt_col] == True]
-                        if not gt_rows.empty:
-                            gt_row = gt_rows.iloc[-1]
-                            import numpy as np
-                            gt_entry = gt_row.get('entry_3k_gap_test', np.nan)
-                            gt_sl = gt_row.get('sl_3k_gap_test', np.nan)
-                            gt_tp = gt_row.get('tp_3k_gap_test', np.nan)
-                            if not np.isnan(gt_entry):
-                                extra_info['gap_test_entry'] = gt_entry
-                                extra_info['gap_test_sl'] = gt_sl
-                                extra_info['gap_test_tp'] = gt_tp
-                                risk = gt_entry - gt_sl if not np.isnan(gt_sl) else 0
-                                reward = gt_tp - gt_entry if not np.isnan(gt_tp) else 0
-                                extra_info['gap_test_rr'] = round(reward / risk, 1) if risk > 0 else 0
-                    # 3K 评分 (简化版: 使用 location_pct)
-                    loc = row.get('location_pct', 0.5)
-                    extra_info['score'] = round((1 - loc) * 100, 1)  # 低位加分
-
-                # 🟢 [Structural Gap V8.5] 补充 EV 概率评级分
-                if 'STRUCTURAL_GAP' in strat.name.upper():
-                    q = row.get('sig_bar_quality', 0)
-                    extra_info['sig_quality'] = q
-                    
-                    # 尝试找到回调期的连阴数
-                    if 'bars_since_breakout' in df_strat.columns and not pd.isna(row.get('bars_since_breakout')):
-                        pb_bars = int(row['bars_since_breakout'])
-                        # 取从突破日以来的切片
-                        if pb_bars > 0 and len(df_strat) >= pb_bars:
-                            pb_df = df_strat.iloc[-(pb_bars+1):-1]
-                            is_bear = pb_df['close'] < pb_df['open']
-                            shifts = is_bear != is_bear.shift()
-                            groups = shifts.cumsum()
-                            bear_groups = is_bear.groupby(groups).sum()
-                            extra_info['pb_consec_bear'] = int(bear_groups.max()) if not bear_groups.empty else 0
-                        else:
-                            extra_info['pb_consec_bear'] = 0
-                    else:
-                        extra_info['pb_consec_bear'] = 0
-                        
-                    # 动态评级 (Dynamic EV Rating)
-                    bears = extra_info['pb_consec_bear']
-                    if q > 0.8 and bears < 2:
-                        extra_info['ev_rating'] = '🌟 高预期'
-                    elif q <= 0.5 and bears >= 2:
-                        extra_info['ev_rating'] = '⚠️ 低预期'
-                    else:
-                        extra_info['ev_rating'] = '👍 常态'
-                elif 'GAP_PINBAR' in strat.name.upper():
-                    q = row.get('sig_bar_quality_gp', 0)
-                    extra_info['sig_quality'] = q
-                elif 'GAP_H2' in strat.name.upper():
-                    q = row.get('sig_bar_quality_h2', 0)
-                    extra_info['sig_quality'] = q
+                # P1: extra_info 从 get_signal_info 获取 (策略自描述)
+                extra_info = signal_info.get('extra_info', {})
+                
+                # 兼容: score 字段回退
+                if 'score' not in extra_info:
+                    score_col = strat.get_metadata().get('score_column', '')
+                    if score_col and score_col in row.index:
+                        val = row.get(score_col, 0)
+                        extra_info['score'] = float(val) if pd.notna(val) else 0
+                    elif 'mtr_score' in row.index:
+                        extra_info['score'] = row.get('mtr_score', 0)
 
                 return {
                     'code': code,

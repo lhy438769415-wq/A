@@ -23,7 +23,7 @@ import pandas as pd
 import numpy as np
 import logging
 import re
-from typing import Dict
+from typing import Dict, Any
 from .base import BaseStrategy
 from core.formatter import get_common_context
 from config import settings
@@ -50,6 +50,48 @@ class GapH2Strategy(BaseStrategy):
     @property
     def signal_column(self) -> str:
         return 'signal_gap_h2'
+
+    # =====================================================================
+    # P1: Self-Describing Interface
+    # =====================================================================
+    @classmethod
+    def get_metadata(cls) -> Dict[str, Any]:
+        """Gap H2 策略元数据声明"""
+        return {
+            'display_name': 'Gap H2',
+            'sl_column': 'sl_gap_h2',
+            'entry_column': 'entry_gap_h2',
+            'tp_columns': ['tp_gap_h2'],
+            'score_column': 'sig_bar_quality_h2',
+            'signal_column': 'signal_gap_h2',
+            'supported_timeframes': ['daily', 'weekly'],
+            'tp_multiplier': 2.0,
+        }
+
+    @classmethod
+    def get_signal_info(cls, df: pd.DataFrame) -> Dict[str, Any]:
+        """Gap H2 信号信息提取 — 包含信号质量"""
+        result = super().get_signal_info(df)
+        
+        if df is None or df.empty:
+            return result
+        
+        extra_info = result.get('extra_info', {})
+        row = df.iloc[-1]
+        
+        q = row.get('sig_bar_quality_h2', 0)
+        extra_info['sig_quality'] = q
+        
+        if extra_info:
+            result['extra_info'] = extra_info
+        
+        return result
+
+    @classmethod
+    def annotate_chart(cls, ax, plot_df: pd.DataFrame, strategy_type: str, **kwargs) -> None:
+        """Gap H2 图表标注"""
+        from core.strategies.structural_gap_strategy import _annotate_gap_strategy
+        _annotate_gap_strategy(ax, plot_df, strategy_type, **kwargs)
 
     def __init__(self):
         # 突破判定窗口

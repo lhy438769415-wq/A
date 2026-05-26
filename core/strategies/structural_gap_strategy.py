@@ -15,7 +15,7 @@ import pandas as pd
 import numpy as np
 import logging
 import re
-from typing import Dict
+from typing import Dict, Any
 from .base import BaseStrategy
 from core.formatter import get_common_context
 from config import settings
@@ -38,6 +38,72 @@ class StructuralGapStrategy(BaseStrategy):
     @property
     def signal_column(self) -> str:
         return 'signal_struct_gap_confirm'
+
+    # =====================================================================
+    # P1: Self-Describing Interface
+    # =====================================================================
+    @classmethod
+    def get_metadata(cls) -> Dict[str, Any]:
+        """Structural Gap 策略元数据声明"""
+        return {
+            'display_name': '结构缺口',
+            'sl_column': 'sl_struct_gap',
+            'entry_column': 'entry_struct_gap',
+            'tp_columns': ['tp_struct_gap'],
+            'score_column': 'sig_bar_quality',
+            'signal_column': 'signal_struct_gap_confirm',
+            'supported_timeframes': ['daily', 'weekly'],
+            'tp_multiplier': 2.0,
+        }
+
+    @classmethod
+    def get_signal_info(cls, df: pd.DataFrame) -> Dict[str, Any]:
+        """Structural Gap 信号信息提取 — 包含 EV 评级"""
+        result = super().get_signal_info(df)
+        
+        if df is None or df.empty:
+            return result
+        
+        extra_info = result.get('extra_info', {})
+        row = df.iloc[-1]
+        
+        # Signal bar quality
+        q = row.get('sig_bar_quality', 0)
+        extra_info['sig_quality'] = q
+        
+        # 回调连阴数计算
+        if 'bars_since_breakout' in df.columns and not pd.isna(row.get('bars_since_breakout')):
+            pb_bars = int(row['bars_since_breakout'])
+            if pb_bars > 0 and len(df) >= pb_bars:
+                pb_df = df.iloc[-(pb_bars+1):-1]
+                is_bear = pb_df['close'] < pb_df['open']
+                shifts = is_bear != is_bear.shift()
+                groups = shifts.cumsum()
+                bear_groups = is_bear.groupby(groups).sum()
+                extra_info['pb_consec_bear'] = int(bear_groups.max()) if not bear_groups.empty else 0
+            else:
+                extra_info['pb_consec_bear'] = 0
+        else:
+            extra_info['pb_consec_bear'] = 0
+        
+        # 动态 EV 评级
+        bears = extra_info['pb_consec_bear']
+        if q > 0.8 and bears < 2:
+            extra_info['ev_rating'] = '🌟 高预期'
+        elif q <= 0.5 and bears >= 2:
+            extra_info['ev_rating'] = '⚠️ 低预期'
+        else:
+            extra_info['ev_rating'] = '👍 常态'
+        
+        if extra_info:
+            result['extra_info'] = extra_info
+        
+        return result
+
+    @classmethod
+    def annotate_chart(cls, ax, plot_df: pd.DataFrame, strategy_type: str, **kwargs) -> None:
+        """Structural Gap 图表标注 — 缺口矩形、参数面板、买入点、止盈"""
+        _annotate_gap_strategy(ax, plot_df, strategy_type, **kwargs)
 
     def __init__(self):
         # 1. Lookback Window - 突破判定所需的周期, 默认 60 根 (A股日线约3个月, 周线约1.2年)
@@ -306,3 +372,233 @@ class StructuralGapStrategy(BaseStrategy):
             parsed['reason'] = tags
             
         return parsed
+
+
+# =====================================================================
+# P1: Shared Gap Strategy Chart Annotation Function
+# =====================================================================
+def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwargs) -> None:
+    """
+    通用的缺口策略图表标注函数，供 StructuralGap / GapPinbar / GapH2 共用。
+    
+    从 notifier.py 中提取的逻辑，消除重复的策略名称判断。
+    
+    Args:
+        ax: matplotlib Axes 对象
+        plot_df: 绘图用 DataFrame (已 Datetime-indexed)
+        strategy_type: 策略名称字符串
+        **kwargs:
+            - sl_price: float — 止损价 (用于水平线)
+            - tp1: float — 第一止盈价
+            - ev_rating: str — EV 评级标签
+            - sig_quality: float — 信号K线质量分
+            - bears: int — 连阴数
+    """
+    from matplotlib.patches import Rectangle
+    
+    sl_price = kwargs.get('sl_price', 0)
+    tp1 = kwargs.get('tp1', 0)
+    ev_rating = kwargs.get('ev_rating', '')
+    sig_quality = kwargs.get('sig_quality', 0)
+    bears = kwargs.get('bears', 0)
+    
+    # 策略列映射 — 基于 metadata 驱动
+    from core.strategy_registry import StrategyRegistry
+    strat_upper = strategy_type.upper()
+    
+    # 解析策略类以获取 metadata
+    try:
+        strat_cls = type(StrategyRegistry.get_strategy(strategy_type))
+        meta = strat_cls.get_metadata()
+    except Exception:
+        # 兼容回退：如果不能获取 metadata，跳过标注
+        return
+    
+    sig_col = meta.get('signal_column', '')
+    prior_low_col = None
+    floor_exact_col = None
+    top_exact_col = None
+    entry_col = meta.get('entry_column', '')
+    sl_col = meta.get('sl_column', '')
+    
+    # 根据策略名称推导绘图专用列
+    # 这些列不在 metadata 中因为它们仅供绘图使用
+    if 'STRUCTURAL_GAP' in strat_upper:
+        prior_low_col = 'struct_gap_prior_low'
+        floor_exact_col = 'struct_gap_floor_exact'
+        top_exact_col = 'struct_gap_top_exact'
+    elif 'GAP_PINBAR' in strat_upper:
+        prior_low_col = 'gap_pinbar_prior_low'
+        floor_exact_col = 'gap_pinbar_floor_exact'
+        top_exact_col = 'gap_pinbar_top_exact'
+    elif 'GAP_H2' in strat_upper:
+        prior_low_col = 'gap_h2_prior_low'
+        floor_exact_col = 'gap_h2_floor_exact'
+        top_exact_col = 'gap_h2_top_exact'
+    
+    try:
+        # 1. 定位关键点
+        signal_date = None
+        is_pending_track = False
+        
+        if sig_col and sig_col in plot_df.columns and plot_df[sig_col].any():
+            signal_date = plot_df[plot_df[sig_col]].index[-1]
+            is_pending_track = False
+        else:
+            # 尝试寻找 pending 状态的突破
+            breakout_col = None
+            for col_name in ['is_breakout', 'is_breakout_gp', 'is_breakout_h2']:
+                if col_name in plot_df.columns and plot_df[col_name].any():
+                    if ev_rating and '追踪' in str(ev_rating):
+                        signal_date = plot_df.index[-1]
+                        breakout_col = col_name
+                        is_pending_track = True
+                        break
+            if signal_date is None:
+                return
+        
+        signal_price = plot_df.loc[signal_date]['low']
+        
+        # 获取精确防守价
+        floor_price = sl_price if sl_price > 0 else (plot_df.loc[signal_date][floor_exact_col] if floor_exact_col and floor_exact_col in plot_df.columns else plot_df.loc[signal_date]['low'])
+        if pd.isna(floor_price) or floor_price <= 0:
+            pre_signal = plot_df.loc[:signal_date]
+            floor_price = pre_signal['low'].min()
+        
+        prior_low = plot_df.loc[signal_date][prior_low_col] if prior_low_col and prior_low_col in plot_df.columns else floor_price * 0.98
+        if pd.isna(prior_low) or prior_low <= 0:
+            prior_low = floor_price * 0.98
+        
+        # 兼容: 倒求历史极值坐标点
+        pre_signal = plot_df.loc[:signal_date]
+        floor_candidates = pre_signal[pre_signal['high'] >= floor_price * 0.99]
+        if not floor_candidates.empty:
+            floor_date = floor_candidates.index[0]
+        else:
+            floor_date = pre_signal.index[len(pre_signal)//3]
+        
+        # 起点: 定位波段最低价那天
+        abs_diff = (pre_signal['low'] - prior_low).abs()
+        if abs_diff.min() < 1e-4:
+            origin_date = abs_diff.idxmin()
+        else:
+            origin_date = pre_signal.index[0]
+        
+        # 回调测试极值点
+        test_date = pre_signal.index[-2] if len(pre_signal) > 1 else pre_signal.index[0]
+        
+        # timestamp 转换为 x 坐标
+        date_list = list(plot_df.index)
+        try:
+            signal_x = date_list.index(signal_date)
+            origin_x = date_list.index(origin_date)
+            floor_x = date_list.index(floor_date)
+            test_x = date_list.index(test_date)
+            
+            origin_true_low = prior_low
+            floor_true_high = plot_df.loc[floor_date, 'high']
+            test_true_low = plot_df.loc[test_date, 'low']
+        except ValueError:
+            signal_x = len(plot_df) - 1
+            origin_x, floor_x, test_x = signal_x - 40, signal_x - 20, signal_x - 1
+            origin_true_low, floor_true_high, test_true_low = prior_low, floor_price, floor_price * 1.02
+        
+        exact_top_series = plot_df.loc[signal_date][top_exact_col] if top_exact_col and top_exact_col in plot_df.columns else None
+        exact_floor_series = plot_df.loc[signal_date][floor_exact_col] if floor_exact_col and floor_exact_col in plot_df.columns else None
+        
+        final_gap_high = exact_top_series if pd.notna(exact_top_series) else test_true_low
+        final_gap_low = exact_floor_series if pd.notna(exact_floor_series) else floor_true_high
+        
+        if final_gap_low >= final_gap_high:
+            final_gap_high = final_gap_low * 1.02
+        
+        # 标注 1. 开放的缺口区域 (矩形绘制)
+        center_x = max(0, len(plot_df) // 2)
+        rect_start_x = min(center_x, test_x - 5)
+        rect_width = test_x - rect_start_x
+        rect_height = final_gap_high - final_gap_low
+        
+        gap_rect = Rectangle(
+            (rect_start_x - 0.5, final_gap_low), 
+            rect_width + 1, rect_height,
+            linewidth=1.2, facecolor='none', edgecolor='#2962FF', linestyle='--', alpha=0.6
+        )
+        ax.add_patch(gap_rect)
+        
+        # 缺口下沿警戒线
+        ax.axhline(y=final_gap_low, color='#2962FF', linestyle='-', linewidth=1, alpha=0.5)
+        
+        # 在矩形悬空居中位置标字
+        label_x_mid = rect_start_x + rect_width / 2
+        label_y_mid = final_gap_low + rect_height / 2
+        ax.text(label_x_mid, label_y_mid,
+                "防守缺口\n(Gap Zone)", color='#2962FF', fontsize=9, fontweight='normal', ha='center', va='center',
+                bbox=dict(boxstyle='square,pad=0.2', facecolor='white', edgecolor='#2962FF', alpha=0.8))
+        
+        # 标注 2. 左上角参数面板
+        if not is_pending_track:
+            entry_price = plot_df.loc[signal_date][entry_col] if entry_col and entry_col in plot_df.columns else plot_df.loc[signal_date]['high']
+            if pd.isna(entry_price):
+                entry_price = plot_df.loc[signal_date]['high']
+            rr_ratio = (tp1 - entry_price) / (entry_price - final_gap_low) if tp1 > entry_price and entry_price > final_gap_low else 0
+        else:
+            entry_price = plot_df.loc[signal_date]['high'] + 0.01
+            rr_ratio = (tp1 - entry_price) / (entry_price - final_gap_low) if tp1 > entry_price and entry_price > final_gap_low else 0
+        
+        # 移除 emoji 防止 matplotlib 乱码
+        def _strip_emoji(text):
+            if not text: return text
+            import re
+            text = str(text)
+            text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
+            text = re.sub(r'[\u2600-\u27bf]', '', text)
+            return text.strip()
+        
+        panel_text = f"买入点：{entry_price:.2f}\n" \
+                     f"极限防守：{final_gap_low:.2f}\n" \
+                     f"对称止盈：{tp1:.2f} ({rr_ratio:.2f}R)\n" \
+                     f"------------------\n" \
+                     f"动能质量：{sig_quality:.2f}\n" \
+                     f"回调连阴：{bears} 连阴\n" \
+                     f"系统评级：{_strip_emoji(ev_rating) if ev_rating else 'N/A'}"
+        
+        ax.text(0.02, 0.96, panel_text, transform=ax.transAxes, fontsize=10,
+                verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'))
+        
+        # 标注 3. 测量缺口的起点
+        ax.annotate("起跳支点", 
+                    xy=(origin_x + 0.5, origin_true_low), 
+                    xytext=(origin_x + 6.5, origin_true_low),
+                    arrowprops=dict(arrowstyle="->", color='#6A1B9A', lw=1.5, alpha=0.7),
+                    fontsize=9, color='#6A1B9A', fontweight='normal', ha='left', va='center',
+                    bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+        
+        # 标注 3. 入场点
+        if not is_pending_track:
+            ax.annotate("买入点 (Buy Stop)", 
+                        xy=(signal_x + 0.5, entry_price), 
+                        xytext=(signal_x + 6.5, entry_price),
+                        arrowprops=dict(arrowstyle="->", color='#D32F2F', lw=1.5),
+                        fontsize=9, color='#D32F2F', fontweight='bold', ha='left', va='center',
+                        bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+        else:
+            ax.annotate("预期买点 (待反转)", 
+                        xy=(signal_x + 0.5, entry_price), 
+                        xytext=(signal_x + 6.5, entry_price),
+                        arrowprops=dict(arrowstyle="->", color='#D32F2F', lw=1.5, linestyle="--"),
+                        fontsize=9, color='#D32F2F', fontweight='bold', ha='left', va='center',
+                        bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+        
+        # 标注 4. 测量缺口止盈
+        if tp1 > 0:
+            ax.axhline(y=tp1, color='#D32F2F', linestyle='--', linewidth=1.2, alpha=0.6)
+            ax.annotate("TP (目标)", 
+                        xy=(signal_x, tp1), 
+                        xytext=(signal_x - 8, tp1),
+                        arrowprops=dict(arrowstyle="-", color='#D32F2F', alpha=0),
+                        fontsize=9, color='#D32F2F', fontweight='bold', ha='right', va='center',
+                        bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='#D32F2F', alpha=0.7))
+                        
+    except Exception as e:
+        if str(e) != "SILENT_SKIP":
+            logger.warning(f"Gap Strategy Annotation Failed: {e}")

@@ -19,7 +19,7 @@ import pandas as pd
 import numpy as np
 import logging
 import re
-from typing import Dict
+from typing import Dict, Any
 from .base import BaseStrategy
 from core.formatter import get_common_context
 from config import settings
@@ -51,6 +51,48 @@ class GapPinbarStrategy(BaseStrategy):
     @property
     def signal_column(self) -> str:
         return 'signal_gap_pinbar'
+
+    # =====================================================================
+    # P1: Self-Describing Interface
+    # =====================================================================
+    @classmethod
+    def get_metadata(cls) -> Dict[str, Any]:
+        """Gap Pinbar 策略元数据声明"""
+        return {
+            'display_name': 'Gap Pinbar',
+            'sl_column': 'sl_gap_pinbar',
+            'entry_column': 'entry_gap_pinbar',
+            'tp_columns': ['tp_gap_pinbar'],
+            'score_column': 'sig_bar_quality_gp',
+            'signal_column': 'signal_gap_pinbar',
+            'supported_timeframes': ['daily', 'weekly'],
+            'tp_multiplier': 2.0,
+        }
+
+    @classmethod
+    def get_signal_info(cls, df: pd.DataFrame) -> Dict[str, Any]:
+        """Gap Pinbar 信号信息提取 — 包含信号质量"""
+        result = super().get_signal_info(df)
+        
+        if df is None or df.empty:
+            return result
+        
+        extra_info = result.get('extra_info', {})
+        row = df.iloc[-1]
+        
+        q = row.get('sig_bar_quality_gp', 0)
+        extra_info['sig_quality'] = q
+        
+        if extra_info:
+            result['extra_info'] = extra_info
+        
+        return result
+
+    @classmethod
+    def annotate_chart(cls, ax, plot_df: pd.DataFrame, strategy_type: str, **kwargs) -> None:
+        """Gap Pinbar 图表标注"""
+        from core.strategies.structural_gap_strategy import _annotate_gap_strategy
+        _annotate_gap_strategy(ax, plot_df, strategy_type, **kwargs)
 
     def __init__(self):
         # 突破判定窗口 (日线 ~3 个月, 周线 ~1.2 年)

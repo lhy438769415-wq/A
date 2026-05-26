@@ -1,10 +1,20 @@
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Dict, List, Optional, Any
+import pandas as pd
+import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 class BaseStrategy(ABC):
     """
     Abstract Base Class for Al Brooks Strategies.
     All strategies must implement these methods to be usable by Hunter/Guardian.
+    
+    Self-Describing Interface (P1):
+      - get_metadata():  Declares column names, display name, supported timeframes
+      - get_signal_info(): Extracts signal data from a computed DataFrame
+      - annotate_chart(): Renders strategy-specific chart annotations
     """
     
     @property
@@ -36,5 +46,117 @@ class BaseStrategy(ABC):
         Parse the specific XML tags returned by this strategy.
         Returns:
             Dict: Parsed result (verdict, reason, etc.)
+        """
+        pass
+
+    # =====================================================================
+    # Self-Describing Interface (P1)
+    # =====================================================================
+    @classmethod
+    def get_metadata(cls) -> Dict[str, Any]:
+        """
+        Declare this strategy's column names, display name, and supported timeframes.
+        
+        Subclasses MUST override to provide accurate column mappings.
+        Default implementation returns empty placeholders for backward compatibility.
+        
+        Returns:
+            dict with keys:
+                - display_name: str        — Chinese display name (e.g., 'MTR反转')
+                - sl_column: str           — Stop-loss column name in DataFrame
+                - entry_column: str        — Entry price column name
+                - tp_columns: List[str]    — Take-profit column names
+                - score_column: str        — Quality/score column name (empty string if none)
+                - signal_column: str       — Signal flag column name (e.g., 'signal_mtr')
+                - supported_timeframes: List[str] — e.g., ['daily'] or ['daily', 'weekly']
+        """
+        return {
+            'display_name': '策略',
+            'sl_column': '',
+            'entry_column': '',
+            'tp_columns': [],
+            'score_column': '',
+            'signal_column': '',
+            'supported_timeframes': ['daily'],
+        }
+
+    @classmethod
+    def get_signal_info(cls, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Extract signal-specific data from a DataFrame that has already been
+        processed by calculate_signals().
+        
+        The returned dict normalises column names so that consumers (scanner, 
+        notifier, weekly scanner) never need to know strategy-specific column names.
+        
+        Subclasses MAY override to add extra_info (e.g., 3K gap test info).
+        
+        Returns:
+            dict with keys (all optional, absent = not applicable):
+                - sl: float               — Stop-loss price from last row
+                - entry: float            — Entry price from last row
+                - tp1: float              — First take-profit price
+                - tp2: float              — Second take-profit price (if exists)
+                - score: float            — Signal quality score
+                - extra_info: dict        — Strategy-specific附加信息
+        """
+        meta = cls.get_metadata()
+        result: Dict[str, Any] = {}
+        
+        if df is None or df.empty:
+            return result
+            
+        row = df.iloc[-1]
+        
+        # SL
+        sl_col = meta.get('sl_column', '')
+        if sl_col and sl_col in df.columns:
+            val = row.get(sl_col, np.nan)
+            if pd.notna(val):
+                result['sl'] = float(val)
+        
+        # Entry
+        entry_col = meta.get('entry_column', '')
+        if entry_col and entry_col in df.columns:
+            val = row.get(entry_col, np.nan)
+            if pd.notna(val):
+                result['entry'] = float(val)
+        
+        # Take-profit columns
+        tp_cols = meta.get('tp_columns', [])
+        for i, tp_col in enumerate(tp_cols):
+            if tp_col and tp_col in df.columns:
+                val = row.get(tp_col, np.nan)
+                if pd.notna(val):
+                    result[f'tp{i+1}'] = float(val)
+        
+        # Score
+        score_col = meta.get('score_column', '')
+        if score_col and score_col in df.columns:
+            val = row.get(score_col, np.nan)
+            if pd.notna(val):
+                result['score'] = float(val)
+        
+        return result
+
+    @classmethod
+    def annotate_chart(cls, ax, plot_df: pd.DataFrame, strategy_type: str, **kwargs) -> None:
+        """
+        Render strategy-specific chart annotations onto a matplotlib Axes.
+        
+        Subclasses MUST override to provide visual annotations.
+        Default implementation is a no-op (safe fallback).
+        
+        Args:
+            ax: matplotlib Axes object (from mpf.plot returnfig)
+            plot_df: DataFrame slice used for plotting (already Datetime-indexed)
+            strategy_type: Strategy name string (for compatibility checks)
+            **kwargs: Additional strategy-specific parameters:
+                - sl_price: float         — Stop-loss price for horizontal lines
+                - tp1: float              — First take-profit price
+                - tp2: float              — Second take-profit price
+                - ev_rating: str          — EV rating label
+                - sig_quality: float       — Signal bar quality score
+                - bears: int              — Consecutive bear bars in pullback
         """
         pass

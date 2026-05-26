@@ -296,6 +296,9 @@ def _scan_market(all_codes, strategies, seen_signals):
                         )
                     except Exception:
                         pass  # 归档失败不影响主流程
+            except KeyboardInterrupt:
+                logger.info("🛑 扫描被中断，正在退出...")
+                break
             except Exception:
                 continue
                 
@@ -692,19 +695,25 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
         ai_threads.append(t)
     logger.info(f"🤖 已启动核心扫描进程 (技术面直通专线已就绪)")
 
-    # 阶段 1: 扫描
-    all_hits, new_signals = _scan_market(all_codes, strategies, seen_signals)
-    
-    # 阶段 2: 分类 + AI 审计
-    direct_picks, final_picks, rejected_list, watchlist, status_changes = _classify_signals(
-        all_hits, analysis_queue, result_queue, stop_event, ai_threads, use_ai=use_ai
-    )
-    
-    # 阶段 3: 报告
-    _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_changes)
-    
-    # 阶段 4: 图表
-    _dispatch_charts(direct_picks, final_picks)
+    try:
+        # 阶段 1: 扫描
+        all_hits, new_signals = _scan_market(all_codes, strategies, seen_signals)
+        
+        # 阶段 2: 分类 + AI 审计
+        direct_picks, final_picks, rejected_list, watchlist, status_changes = _classify_signals(
+            all_hits, analysis_queue, result_queue, stop_event, ai_threads, use_ai=use_ai
+        )
+        
+        # 阶段 3: 报告
+        _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_changes)
+        
+        # 阶段 4: 图表
+        _dispatch_charts(direct_picks, final_picks)
+    finally:
+        # 🛡️ 确保退出时 AI Worker 线程被正确停止
+        stop_event.set()
+        for t in ai_threads:
+            t.join(timeout=3)
     
     return new_signals
 
@@ -825,7 +834,9 @@ def main():
             if not all_codes: print("❌ 获取股票列表失败"); return
             if args.limit > 0: all_codes = all_codes[:args.limit]
             
-            weekly_supported = ['STRATEGY_STRUCTURAL_GAP', 'STRATEGY_GAP_PINBAR', 'STRATEGY_GAP_H2']
+            # 🟢 [P1] 使用 StrategyRegistry 动态获取支持周线的策略列表
+            from core.strategy_registry import StrategyRegistry
+            weekly_supported = StrategyRegistry.get_strategies_by_timeframe('weekly')
             active_strategies = None
             if args.strategy:
                 if args.strategy.upper() == 'ALL':
@@ -833,8 +844,8 @@ def main():
                 else:
                     active_strategies = [s.strip().upper() for s in args.strategy.split(',')]
             else:
-                active_strategies = ['STRATEGY_STRUCTURAL_GAP']
-            
+                active_strategies = [weekly_supported[0]] if weekly_supported else []
+
             results = scan_weekly_gap(all_codes, strategies=active_strategies, recent_weeks=args.weeks)
             _format_and_push_results(results, total_stocks=len(all_codes))
             return
@@ -900,8 +911,9 @@ def main():
             if not all_codes: print("❌ 获取股票列表失败"); return
             if args.limit > 0: all_codes = all_codes[:args.limit]
             
-            # 周线策略选择菜单
-            weekly_supported = ['STRATEGY_STRUCTURAL_GAP', 'STRATEGY_GAP_PINBAR', 'STRATEGY_GAP_H2']
+            # 🟢 [P1] 使用 StrategyRegistry 动态获取支持周线的策略列表
+            from core.strategy_registry import StrategyRegistry
+            weekly_supported = StrategyRegistry.get_strategies_by_timeframe('weekly')
             print("\n" + "="*40)
             print("🔍 周线扫描策略选择")
             print("="*40)
@@ -1002,6 +1014,12 @@ def main():
     except KeyboardInterrupt:
         logger.info("🛑 程序已终止")
     finally:
+        # 🛡️ 优雅退出: WAL checkpoint + 连接池排空
+        try:
+            from core.database import close_all_connections
+            close_all_connections()
+        except Exception:
+            pass
         gc.collect()
 
 if __name__ == "__main__":

@@ -1587,7 +1587,7 @@
         "signal_date": "2026-02-27",
         "signal_bar_idx": 299,
         "added_date": "2026-03-02",
-        "days_watching": 83
+        "days_watching": 84
     },
     "sh.600654": {
         "status": "NEW",
@@ -2200,14 +2200,14 @@
         "days_watching": 0
     },
     "sh.601588": {
-        "status": "UPDATED",
+        "status": "TRIGGERED",
         "entry": 1.97,
         "sl": 1.68,
         "score": 53.49,
         "signal_date": "2026-03-20",
         "signal_bar_idx": 299,
         "added_date": "2026-03-22",
-        "days_watching": 63
+        "days_watching": 64
     },
     "sh.601801": {
         "status": "NEW",
@@ -2710,14 +2710,14 @@
         "days_watching": 0
     },
     "sh.605133": {
-        "status": "NEW",
-        "entry": 40.6,
+        "status": "UPDATED",
+        "entry": 41.84,
         "sl": 37.88,
         "score": 0.0,
         "signal_date": "2026-05-14",
         "signal_bar_idx": -1,
         "added_date": "2026-05-15",
-        "days_watching": 0
+        "days_watching": 10
     },
     "sz.000668": {
         "status": "NEW",
@@ -2867,7 +2867,7 @@
         "signal_date": "2026-05-18",
         "signal_bar_idx": -1,
         "added_date": "2026-05-19",
-        "days_watching": 0
+        "days_watching": 6
     },
     "sh.601991": {
         "status": "NEW",
@@ -2950,14 +2950,14 @@
         "days_watching": 0
     },
     "sz.002831": {
-        "status": "UPDATED",
+        "status": "INVALIDATED",
         "entry": 45.2,
         "sl": 39.89,
         "score": 0.0,
         "signal_date": "2026-05-19",
         "signal_bar_idx": -1,
         "added_date": "2026-05-19",
-        "days_watching": 0
+        "days_watching": 6
     },
     "sz.002938": {
         "status": "NEW",
@@ -3007,7 +3007,7 @@
         "signal_date": "2026-05-19",
         "signal_bar_idx": -1,
         "added_date": "2026-05-19",
-        "days_watching": 0
+        "days_watching": 6
     },
     "sh.603776": {
         "status": "NEW",
@@ -4420,14 +4420,14 @@
         "days_watching": 0
     },
     "sz.002179": {
-        "status": "NEW",
-        "entry": 41.9,
+        "status": "UPDATED",
+        "entry": 41.45,
         "sl": 38.06,
         "score": 0.0,
         "signal_date": "2026-05-20",
         "signal_bar_idx": -1,
         "added_date": "2026-05-20",
-        "days_watching": 0
+        "days_watching": 5
     },
     "sz.002436": {
         "status": "NEW",
@@ -4450,14 +4450,14 @@
         "days_watching": 0
     },
     "sh.600500": {
-        "status": "NEW",
-        "entry": 6.46,
+        "status": "UPDATED",
+        "entry": 6.28,
         "sl": 5.32,
         "score": 0.0,
         "signal_date": "2026-05-20",
         "signal_bar_idx": -1,
         "added_date": "2026-05-20",
-        "days_watching": 0
+        "days_watching": 5
     },
     "sh.601133": {
         "status": "NEW",
@@ -5497,6 +5497,6 @@
         "signal_date": "2026-05-22",
         "signal_bar_idx": -1,
         "added_date": "2026-05-24",
-        "days_watching": 0
+        "days_watching": 1
     }
 }

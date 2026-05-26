@@ -10,7 +10,7 @@ import pandas as pd
 import numpy as np
 import logging
 import re
-from typing import Dict
+from typing import Dict, Any
 from .base import BaseStrategy
 from core.formatter import get_common_context
 from config import settings
@@ -42,6 +42,64 @@ class ThreeKStrategy(BaseStrategy):
     @property
     def signal_column(self) -> str:
         return 'signal_3k_gap_test'
+
+    # =====================================================================
+    # P1: Self-Describing Interface
+    # =====================================================================
+    @classmethod
+    def get_metadata(cls) -> Dict[str, Any]:
+        """3K 策略元数据声明"""
+        return {
+            'display_name': '3K动能',
+            'sl_column': 'sl_3k_gap_test',
+            'entry_column': 'entry_3k_gap_test',
+            'tp_columns': ['tp_3k_gap_test'],
+            'score_column': '',
+            'signal_column': 'signal_3k_gap_test',
+            'supported_timeframes': ['daily'],
+            'tp_multiplier': 1.0,
+        }
+
+    @classmethod
+    def get_signal_info(cls, df: pd.DataFrame) -> Dict[str, Any]:
+        """3K 信号信息提取 — 包含缺口测试确认的额外信息"""
+        result = super().get_signal_info(df)
+        
+        if df is None or df.empty:
+            return result
+        
+        extra_info = result.get('extra_info', {})
+        row = df.iloc[-1]
+        
+        # 尝试找最近的缺口测试确认信号
+        gt_col = 'signal_3k_gap_test'
+        if gt_col in df.columns:
+            recent = df.tail(25)
+            gt_rows = recent[recent[gt_col] == True]
+            if not gt_rows.empty:
+                gt_row = gt_rows.iloc[-1]
+                gt_entry = gt_row.get('entry_3k_gap_test', np.nan)
+                gt_sl = gt_row.get('sl_3k_gap_test', np.nan)
+                gt_tp = gt_row.get('tp_3k_gap_test', np.nan)
+                if not np.isnan(gt_entry) if isinstance(gt_entry, float) else gt_entry is not None:
+                    gt_entry_f = float(gt_entry) if not np.isnan(gt_entry) else 0
+                    gt_sl_f = float(gt_sl) if not np.isnan(gt_sl) else 0
+                    gt_tp_f = float(gt_tp) if not np.isnan(gt_tp) else 0
+                    extra_info['gap_test_entry'] = gt_entry_f
+                    extra_info['gap_test_sl'] = gt_sl_f
+                    extra_info['gap_test_tp'] = gt_tp_f
+                    risk = gt_entry_f - gt_sl_f if gt_sl_f else 0
+                    reward = gt_tp_f - gt_entry_f if gt_tp_f else 0
+                    extra_info['gap_test_rr'] = round(reward / risk, 1) if risk > 0 else 0
+        
+        # 3K 评分 (简化版: 使用 location_pct)
+        loc = row.get('location_pct', 0.5)
+        extra_info['score'] = round((1 - loc) * 100, 1)  # 低位加分
+        
+        if extra_info:
+            result['extra_info'] = extra_info
+        
+        return result
 
     def __init__(self):
         # Load parameters from settings

@@ -25,30 +25,45 @@ from core.strategies.structural_gap_strategy import StructuralGapStrategy
 from core.strategy_registry import StrategyRegistry
 import core.data_provider as dp
 
-# 策略输出列反射配置映射表，解耦具体策略指标
-STRATEGY_COLS = {
-    'STRATEGY_STRUCTURAL_GAP': {
-        'signal': 'signal_struct_gap_confirm',
-        'entry': 'entry_struct_gap',
-        'sl': 'sl_struct_gap',
-        'tp': 'tp_struct_gap',
-        'quality': 'sig_bar_quality'
-    },
-    'STRATEGY_GAP_PINBAR': {
-        'signal': 'signal_gap_pinbar',
-        'entry': 'entry_gap_pinbar',
-        'sl': 'sl_gap_pinbar',
-        'tp': 'tp_gap_pinbar',
-        'quality': 'sig_bar_quality_gp'
-    },
-    'STRATEGY_GAP_H2': {
-        'signal': 'signal_gap_h2',
-        'entry': 'entry_gap_h2',
-        'sl': 'sl_gap_h2',
-        'tp': 'tp_gap_h2',
-        'quality': 'sig_bar_quality_h2'
+# 🟢 [P1] 使用策略元数据替代硬编码 STRATEGY_COLS 映射表
+def _get_strategy_cols(strategy_name: str) -> dict:
+    """
+    从 StrategyRegistry 获取策略的列名映射 (signal/entry/sl/tp/quality/bars_since_breakout/gap_top_exact)。
+
+    替代原先的硬编码 STRATEGY_COLS 字典，未来新增策略只需在策略类中
+    声明 get_metadata()，此处自动适配。
+
+    对于 bars_since_breakout 和 gap_top_exact 等周线扫描专用列，
+    根据 strategy_name 后缀匹配来补充 (这些列不属于 metadata 标准字段)。
+    """
+    try:
+        meta = StrategyRegistry.get_metadata(strategy_name)
+    except Exception:
+        return {}
+
+    tp_cols = meta.get('tp_columns', [])
+    cols = {
+        'signal': meta.get('signal_column', ''),
+        'entry': meta.get('entry_column', ''),
+        'sl': meta.get('sl_column', ''),
+        'tp': tp_cols[0] if tp_cols else '',
+        'quality': meta.get('score_column', ''),
     }
-}
+
+    # 🟢 [P1] 周线扫描专用列: bars_since_breakout / gap_top_exact
+    # 这些列名含策略后缀，无法从标准 metadata 推导，根据策略名后缀匹配
+    name_upper = strategy_name.upper()
+    if 'PINBAR' in name_upper:
+        cols['bars_since_breakout'] = 'bars_since_breakout_gp'
+        cols['gap_top_exact'] = 'gap_pinbar_top_exact'
+    elif 'H2' in name_upper:
+        cols['bars_since_breakout'] = 'bars_since_breakout_h2'
+        cols['gap_top_exact'] = 'gap_h2_top_exact'
+    else:
+        cols['bars_since_breakout'] = 'bars_since_breakout'
+        cols['gap_top_exact'] = 'struct_gap_top_exact'
+
+    return cols
 from tools.notifier import generate_chart_bytes, stitch_images, send_discord_image, send_discord_message, send_discord_images
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -78,10 +93,11 @@ def _scan_single_code(code: str, recent_weeks: int = 4, strategies: list = None)
         df = add_indicators(df)
         
         for strat_name in strategies:
-            if strat_name not in STRATEGY_COLS:
+            # 🟢 [P1] 使用 _get_strategy_cols() 替代硬编码 STRATEGY_COLS
+            cols = _get_strategy_cols(strat_name)
+            if not cols or not cols.get('signal'):
                 continue
             
-            cols = STRATEGY_COLS[strat_name]
             strategy = StrategyRegistry.get_strategy(strat_name)
             df_strat = strategy.calculate_signals(df.copy())
             
@@ -165,7 +181,8 @@ def _scan_single_code(code: str, recent_weeks: int = 4, strategies: list = None)
                 pb_bars = 0
                 pb_consec_bear = 0
                 
-                pb_bars_col = 'bars_since_breakout_gp' if 'PINBAR' in strat_name else 'bars_since_breakout_h2' if 'H2' in strat_name else 'bars_since_breakout'
+                # 🟢 [P1] 使用 cols 字典替代硬编码列名
+                pb_bars_col = cols.get('bars_since_breakout', 'bars_since_breakout')
                 if pb_bars_col in df_strat.columns and not pd.isna(row.get(pb_bars_col)):
                     pb_bars = int(row[pb_bars_col])
                     if pb_bars > 0 and idx >= pb_bars:
@@ -184,7 +201,8 @@ def _scan_single_code(code: str, recent_weeks: int = 4, strategies: list = None)
                     time_decay_penalty = -1
                 
                 # 🟢 缺口宽度计算
-                gap_top_col = 'gap_pinbar_top_exact' if 'PINBAR' in strat_name else 'gap_h2_top_exact' if 'H2' in strat_name else 'struct_gap_top_exact'
+                # 🟢 [P1] 使用 cols 字典替代硬编码列名
+                gap_top_col = cols.get('gap_top_exact', 'struct_gap_top_exact')
                 gap_top = row.get(gap_top_col, entry)
                 if pd.isna(gap_top): gap_top = entry
                 gap_size_pct = round((gap_top - sl) / sl * 100, 2) if sl > 0 else 0
@@ -500,11 +518,11 @@ def main():
         active_strategies = None
         if args.strategy:
             if args.strategy.upper() == 'ALL':
-                active_strategies = ['STRATEGY_STRUCTURAL_GAP', 'STRATEGY_GAP_PINBAR', 'STRATEGY_GAP_H2']
+                active_strategies = StrategyRegistry.get_strategies_by_timeframe('weekly')
             else:
                 active_strategies = [s.strip().upper() for s in args.strategy.split(',')]
         else:
-            active_strategies = ['STRATEGY_STRUCTURAL_GAP']
+            active_strategies = StrategyRegistry.get_strategies_by_timeframe('weekly')[:1]  # 默认第一个周线策略
         
         print(f"\n🚀 周线扫描: {len(all_codes)} 只股票, 检查最近 {args.weeks} 周, 策略: {', '.join(active_strategies)}")
         print("=" * 80)

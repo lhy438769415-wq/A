@@ -41,6 +41,79 @@ class MTRStrategy(BaseStrategy):
     def signal_column(self) -> str:
         return 'signal_mtr'
 
+    # =====================================================================
+    # P1: Self-Describing Interface
+    # =====================================================================
+    @classmethod
+    def get_metadata(cls) -> Dict[str, Any]:
+        """MTR 策略元数据声明"""
+        return {
+            'display_name': 'MTR反转',
+            'sl_column': 'sl_price',
+            'entry_column': 'entry_price',
+            'tp_columns': ['tp1_price', 'tp2_price'],
+            'score_column': 'mtr_score',
+            'signal_column': 'signal_mtr',
+            'supported_timeframes': ['daily'],
+            'tp_multiplier': 2.0,
+        }
+
+    @classmethod
+    def get_signal_info(cls, df: pd.DataFrame) -> Dict[str, Any]:
+        """MTR 信号信息提取 (使用基类默认实现即可, 无额外信息)"""
+        return super().get_signal_info(df)
+
+    @classmethod
+    def annotate_chart(cls, ax, plot_df: pd.DataFrame, strategy_type: str, **kwargs) -> None:
+        """MTR 教科书式标注 — Sell Climax, First Leg, Signal HL"""
+        try:
+            if 'signal_mtr' not in plot_df.columns:
+                return
+            sig_mask = plot_df['signal_mtr']
+            if not sig_mask.any():
+                return
+            
+            signal_date = sig_mask[sig_mask].index[-1]
+            signal_price = plot_df.loc[signal_date]['low']
+            
+            # 极值低点 (Climax Low) - 在信号前
+            pre_signal = plot_df.loc[:signal_date]
+            climax_date = pre_signal['low'].idxmin()
+            climax_price = pre_signal.loc[climax_date]['low']
+            
+            # 第一腿高点 (Leg 1 Peak) - 在低点和信号之间
+            if climax_date != signal_date:
+                leg1_range = plot_df.loc[climax_date:signal_date]
+                leg1_date = leg1_range['high'].idxmax()
+                leg1_price = leg1_range.loc[leg1_date]['high']
+            else:
+                leg1_date = climax_date
+                leg1_price = climax_price * 1.05
+
+            # Stage 2: Sell Climax
+            ax.annotate("2. Sell Climax\n(抛售高潮)", 
+                        xy=(climax_date, climax_price), 
+                        xytext=(climax_date, climax_price * 0.90),
+                        arrowprops=dict(arrowstyle="->", color='red'),
+                        fontsize=9, color='red', ha='center', va='top')
+
+            # Stage 3: First Leg Breakout
+            ax.annotate("3. First Leg\n(一腿突破)", 
+                        xy=(leg1_date, leg1_price), 
+                        xytext=(leg1_date, leg1_price * 1.10),
+                        arrowprops=dict(arrowstyle="->", color='blue'),
+                        fontsize=9, color='blue', ha='center', va='bottom')
+                        
+            # Stage 4: Signal (Higher Low)
+            ax.annotate("4. SIGNAL (HL)\n(次低点确认)", 
+                        xy=(signal_date, signal_price), 
+                        xytext=(signal_date, signal_price * 0.90),
+                        arrowprops=dict(arrowstyle="->", color='green', linewidth=2),
+                        fontsize=10, color='green', fontweight='bold', ha='center', va='top',
+                        bbox=dict(boxstyle='round,pad=0.3', facecolor='#e6ffe6', edgecolor='green'))
+        except Exception as e:
+            logger.warning(f"MTR Annotation Failed: {e}")
+
     def __init__(self):
         self.structural_engine = MTRStructuralEngineV35()
 
