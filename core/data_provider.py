@@ -12,6 +12,7 @@ from typing import Optional, List, Dict, Any
 from config import settings
 from core.database import get_db_connection, init_db
 from tools import fetcher
+from tools.fetcher_baostock import BsBlacklistedError
 
 logger = logging.getLogger(__name__)
 
@@ -83,25 +84,31 @@ def preload_snapshots():
     """
     pass
 
+_name_cache_attempted = False  # 🛡️ 防止网络失败后反复重试刷屏
+
 def get_stock_name(code: str) -> str:
     """
     Get stock name from cache (fast) or return code if missing.
     Thread-safe. Now supports Baostock Only mode.
+    
+    🛡️ V9.16: 首次加载失败后不再反复重试，避免 VPN 环境下刷屏报错。
     """
     symbol = code.split('.')[-1]
     
-    global _snapshot_cache
+    global _snapshot_cache, _name_cache_attempted
     
     with _cache_lock:
-        # 如果缓存为空，尝试通过 Baostock 加载全市场名称
-        if not _snapshot_cache:
+        # 如果缓存为空且尚未尝试过，才发起网络请求
+        if not _snapshot_cache and not _name_cache_attempted:
+            _name_cache_attempted = True  # 无论成功失败，标记为已尝试
             try:
                 import baostock as bs
-                from tools.fetcher_baostock import _ensure_login
+                from tools.fetcher_baostock import _ensure_login, _run_with_timeout, BS_QUERY_TIMEOUT
                 _ensure_login()
                 
                 logger.info("🏷️ Initializing stock name cache from Baostock...")
-                rs = bs.query_stock_basic()
+                # 🛡️ 超时保护：VPN 环境下可能卡死
+                rs = _run_with_timeout(bs.query_stock_basic, timeout=BS_QUERY_TIMEOUT, desc="query_stock_basic(names)")
                 if rs.error_code == '0':
                     while rs.next():
                         row = rs.get_row_data()
@@ -110,9 +117,9 @@ def get_stock_name(code: str) -> str:
                         _snapshot_cache[s_code] = {'name': row[1]}
                     logger.info(f"✅ Loaded {len(_snapshot_cache)} stock names.")
                 else:
-                    logger.warning(f"⚠️ Failed to load names from Baostock: {rs.error_msg}")
+                    logger.warning(f"⚠️ Failed to load names from Baostock: {rs.error_msg} (后续将降级使用代码)")
             except Exception as e:
-                logger.error(f"❌ Stock name initialization failed: {e}")
+                logger.error(f"❌ Stock name initialization failed: {e} (后续将降级使用代码)")
 
         if symbol in _snapshot_cache:
             return _snapshot_cache[symbol].get('name', code)
@@ -570,6 +577,8 @@ def _fetch_worker(full_code, target_date, last_date_cache=None):
         if df is not None and not df.empty:
             return (symbol, df)
             
+    except BsBlacklistedError:
+        raise  # 黑名单封禁必须穿透到主循环
     except Exception as e:
         # Logger might not work perfectly in MP on Windows without config, but try best effort
         print(f"Worker Error {symbol}: {e}")
@@ -602,6 +611,8 @@ def _fetch_weekly_worker(full_code, target_date, last_date_cache=None):
         df = fetcher.fetch_weekly_history_active(symbol, start_date, end_date)
         if df is not None and not df.empty:
             return (symbol, df)
+    except BsBlacklistedError:
+        raise
     except Exception as e:
         print(f"Weekly Worker Error {symbol}: {e}")
         
@@ -662,6 +673,9 @@ def update_daily_data_batch(max_workers=settings.MAX_WORKERS):
         else:
             logger.warning("⚠️ [Phase 2] 联网列表为空，跳过新股发现 (VPN/网络限制)")
             
+    except BsBlacklistedError:
+        logger.error("🚫 Baostock 黑名单封禁！终止本次同步，避免反复登录延长封禁。")
+        return
     except Exception as e:
         logger.warning(f"⚠️ [Phase 2] 增量发现失败: {e} (不影响存量更新)")
     finally:
@@ -718,6 +732,7 @@ def update_daily_data_batch(max_workers=settings.MAX_WORKERS):
         # 30 秒全局超时导致只能下载约 400 只股票就被强制终止。
         # 修复：移除全局超时，改为对每个 future.result() 设置单任务超时 (60s)。
         SINGLE_TASK_TIMEOUT = 60  # 单任务最大等待秒数
+        blacklisted = False
         for i, future in enumerate(as_completed(futures)):
             try:
                 result = future.result(timeout=SINGLE_TASK_TIMEOUT)
@@ -727,7 +742,20 @@ def update_daily_data_batch(max_workers=settings.MAX_WORKERS):
                     download_count += 1
             except concurrent.futures.TimeoutError:
                 logger.warning(f"⚠️ 单任务超时 ({SINGLE_TASK_TIMEOUT}s)，跳过")
+            except BsBlacklistedError:
+                logger.error("🚫 Baostock 黑名单封禁！立即终止同步，取消剩余任务...")
+                blacklisted = True
+                for f in futures:
+                    f.cancel()
+                break
             except Exception as e:
+                # 🛡️ 检查子进程中的 BsBlacklistedError（跨进程时异常类型可能变为 RemoteTraceback）
+                if '黑名单' in str(e) or 'BsBlacklistedError' in str(type(e).__name__):
+                    logger.error("🚫 Baostock 黑名单封禁！立即终止同步，取消剩余任务...")
+                    blacklisted = True
+                    for f in futures:
+                        f.cancel()
+                    break
                 logger.error(f"Task failed: {e}")
 
             # 🟢 V8.6: 降低打印频率，减少主线程 I/O 竞争
@@ -941,7 +969,17 @@ def update_weekly_data_batch(max_workers=settings.MAX_WORKERS):
                     symbol, df = result
                     data_queue.put((symbol, df))
                     download_count += 1
+            except BsBlacklistedError:
+                logger.error("🚫 Baostock 黑名单封禁！立即终止周线同步...")
+                for f in futures:
+                    f.cancel()
+                break
             except Exception as e:
+                if '黑名单' in str(e) or 'BsBlacklistedError' in str(type(e).__name__):
+                    logger.error("🚫 Baostock 黑名单封禁！立即终止周线同步...")
+                    for f in futures:
+                        f.cancel()
+                    break
                 logger.error(f"Weekly Task failed: {e}")
 
             # 🟢 完美复用工业级的全屏进度提现

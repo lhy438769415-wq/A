@@ -1,4 +1,4 @@
-# Brooks-AI Quant System V9.8
+# Brooks-AI Quant System V9.18
 
 > 基于 Al Brooks 价格行为理论的 A 股全自动量化扫描系统。
 > 支持日线/周线双周期扫描、多策略信号检测、AI 二次筛选、Discord 实时推送。
@@ -103,6 +103,9 @@ python hunter.py --track --report            # 追踪 + 报表
 
 | 版本 | 日期 | 主要变更 |
 |:---:|:---:|:---|
+| V9.18 | 2026-06-25 | **Baostock 黑名单防护与查询超时保护**：(1) 新增 `BsBlacklistedError` 异常类，在 `_ensure_login()` 登录、`bs_fetch_daily_history()` / `bs_fetch_weekly_history()` 查询两层检测 Baostock 服务端返回的“黑名单”封禁，通过 `retry_on_failure` 装饰器放行、`fetcher.py` 适配层放行、`_fetch_worker` 放行、主循环捕获四层穿透，实现黑名单时立即终止同步。修复此前“每次同步产生 ≥9 次失败登录反复延长封禁”的死亡螺旋。(2) 为 `query_history_k_data_plus()` 日线/周线查询加入 `_run_with_timeout(45s)` 超时保护，与 V9.16 已有的 `login` / `query_stock_basic` 超时保护对齐，修复多进程环境下 socket 挂起导致全部 worker 卡死的问题。 |
+| V9.17 | 2026-06-04 | **图表历史缺口标注精简 (TradingView 风格)**：将 `_annotate_gap_strategy()` 中的历史止盈缺口全量叠加（绿色填充矩形+前序止盈文字框+历史TP右侧标签）精简为：(1) 可视范围 70 根 K 线内未被回补的前序多头缺口以薄虚线标注 gap floor 位置；(2) 历史达标次数汇总为面板下方一行文字。删除所有绿色填充矩形和散布文字标签，大幅提升图表可读性。 |
+| V9.16 | 2026-05-27 | **Baostock 网络超时保护 + Discord 推送格式统一**：(1) 针对 VPN/海外网络环境下 `bs.login()` 和 `bs.query_stock_basic()` 因底层 TCP socket 无超时设置而无限挂起的问题，在 `tools/fetcher_baostock.py` 中引入 `_run_with_timeout()` 通用超时保护器（基于 threading.Event），为登录操作设置 20s 超时、为股票列表查询设置 45s 超时，同步修复 `core/data_provider.py` 中 `get_stock_name()` 的同类隐患。(2) **统一日线/周线 Discord 推送格式**：以周线推送的成熟信息层次为标准模板，重构日线 `_compose_report()` 从"按策略分组"改为"按评级分组"（标题区→统计区→A+/A详细双行展示→B/C压缩汇总→观察区→状态变更→看板），新增 `format_signal_line()` 通用格式函数替代原有三套独立模板，图表推送从全量改为仅推 A+/A 级（与周线对齐）。 |
 | V9.15 | 2026-05-24 | **缺口与 MTR 策略标注修复、美化与日线去重优化**：(1) 彻底修复 `tools/notifier.py` 内部由于合并错误导致的 `SyntaxError` 语法崩溃问题；(2) 完美恢复 MTR 策略经典的四阶段波段反转标注；(3) 针对所有缺口策略（`STRUCTURAL_GAP`, `GAP_PINBAR`, `GAP_H2`）引入防御性 Fallback 机制以确保画图不崩溃；(4) 大幅升级并优化 PA 标注视觉，包括波段低点起跳支点、Gap Zone 虚线矩形及入场/止盈 TP 圆角气泡框；(5) 针对新策略 `Gap+H2` 和 `Gap+Pinbar` 绕过 Watchlist 去重拦截限制，确保日线新信号每次均能照常推送。 |
 | V9.14 | 2026-05-24 | **日周流程统一与多策略扫描增强**：(1) 简化日线机会扫描流程：增加 `--no-ai` 命令行参数和交互式 AI 旁路开关，支持“纯技术面直通”模式，显著提升大批量检索效率。(2) 增强周线机会扫描：周线引入策略选择交互菜单及命令行选项，完全兼容新开发的 `Gap+H2` 等策略，字段反射映射与扫描器解耦，无任何硬编码公式。 |
 | V9.13 | 2026-05-19 | **数据同步双重 Bug 修复**：(1) 定位 `as_completed(timeout=30)` 是全局超时而非单任务间隔超时，30 秒一到即强制终止整个迭代器，导致每次只能同步约 400 只股票。修复为 `future.result(timeout=60)` 单任务超时。(2) 修复 `bs_fetch_stock_list()` 缺少 `type==1` 过滤，将指数(上证红利/上证B股等 ~229 个 type=2)误判为深市主板股票，每次"发现"~400只伪新股并浪费下载时间。 |

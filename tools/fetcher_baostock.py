@@ -19,6 +19,11 @@ from functools import wraps
 
 logger = logging.getLogger(__name__)
 
+
+class BsBlacklistedError(Exception):
+    """Baostock 服务端返回黑名单封禁时抛出，上层应立即终止同步。"""
+    pass
+
 # =========================================================================
 # 连接管理
 # 🟢 Baostock Mechanism Note:
@@ -33,9 +38,62 @@ import sys
 _bs_lock = threading.Lock()
 _bs_logged_in = False
 
+# =========================================================================
+# 🛡️ 超时保护器 (Timeout Guard)
+# Baostock 底层使用原生 socket 且无超时设置，在 VPN/不稳定网络环境下
+# bs.login() 和 bs.query_*() 可能因 TCP recv() 无限等待而卡死。
+# 此函数通过子线程 + Event 实现非侵入式超时包装。
+# =========================================================================
+def _run_with_timeout(func, args=(), kwargs=None, timeout=30, desc="operation"):
+    """
+    在子线程中执行 func，超时则抛出 TimeoutError。
+    
+    Args:
+        func: 要执行的函数
+        args: 位置参数
+        kwargs: 关键字参数
+        timeout: 超时秒数 (默认 30s)
+        desc: 操作描述 (用于日志)
+    Returns:
+        func 的返回值
+    Raises:
+        TimeoutError: 超时
+        Exception: func 内部异常
+    """
+    if kwargs is None:
+        kwargs = {}
+    result_container = [None]
+    error_container = [None]
+    done_event = threading.Event()
+    
+    def _worker():
+        try:
+            result_container[0] = func(*args, **kwargs)
+        except Exception as e:
+            error_container[0] = e
+        finally:
+            done_event.set()
+    
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    
+    if not done_event.wait(timeout=timeout):
+        raise TimeoutError(f"Baostock {desc} 超时 ({timeout}s)，可能是网络/VPN不稳定")
+    
+    if error_container[0] is not None:
+        raise error_container[0]
+    
+    return result_container[0]
+
+# 🟢 Baostock 网络操作的默认超时 (秒)
+BS_LOGIN_TIMEOUT = 20
+BS_QUERY_TIMEOUT = 45
+
 def _ensure_login(force=False):
     """
     确保 Baostock 已登录（惰性连接）
+    
+    🛡️ 增加超时保护：VPN 环境下 bs.login() 可能无限挂起
     
     Args:
         force: 是否强制重连
@@ -46,11 +104,21 @@ def _ensure_login(force=False):
         bs_logout()
     
     if not _bs_logged_in:
-        lg = bs.login()
+        try:
+            lg = _run_with_timeout(bs.login, timeout=BS_LOGIN_TIMEOUT, desc="login")
+        except TimeoutError as e:
+            msg = f"Baostock 登录超时: {e}"
+            logger.error(msg)
+            print(f"❌ {msg}")
+            raise ConnectionError(msg)
+        
         if lg.error_code != '0':
             msg = f"Baostock 登录失败: {lg.error_msg}"
             logger.error(msg)
             print(f"❌ {msg}")
+            # 🛡️ 黑名单时必须用 BsBlacklistedError，防止 retry 装饰器反复重试延长封禁
+            if '黑名单' in str(lg.error_msg):
+                raise BsBlacklistedError(msg)
             raise ConnectionError(msg)
             
         _bs_logged_in = True
@@ -84,6 +152,8 @@ def retry_on_failure(max_retries=3, delay=1.0):
             for attempt in range(1, max_retries + 1):
                 try:
                     return func(*args, **kwargs)
+                except BsBlacklistedError:
+                    raise  # 黑名单封禁不可重试，直接向上传播
                 except Exception as e:
                     logger.warning(f"⚠️ {func.__name__} 失败 (尝试 {attempt}/{max_retries}): {e}")
                     if attempt < max_retries:
@@ -109,8 +179,13 @@ def bs_fetch_stock_list() -> List[str]:
         # 获取当日日期
         today = pd.Timestamp.now().strftime('%Y-%m-%d')
         
-        # query_stock_basic 返回所有股票基本信息
-        rs = bs.query_stock_basic()
+        # 🛡️ query_stock_basic 需拉取全市场数千只股票信息，数据量大
+        # 在 VPN 环境下极易因 socket 无超时而卡死，加超时保护
+        try:
+            rs = _run_with_timeout(bs.query_stock_basic, timeout=BS_QUERY_TIMEOUT, desc="query_stock_basic")
+        except TimeoutError as e:
+            logger.error(f"❌ 获取股票列表超时: {e}")
+            return []
         
         if rs.error_code != '0':
             logger.error(f"获取股票列表失败: {rs.error_msg}")
@@ -189,16 +264,23 @@ def bs_fetch_daily_history(symbol: str, start_date: str, end_date: str) -> Optio
             end_date = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:]}"
         
         # 查询日线数据（前复权）
-        rs = bs.query_history_k_data_plus(
-            full_code,
-            "date,open,high,low,close,volume",
-            start_date=start_date,
-            end_date=end_date,
-            frequency="d",
-            adjustflag="2"  # 2=前复权
-        )
+        # 🛡️ 超时保护：query_history_k_data_plus 底层 socket 可能无限挂起
+        try:
+            rs = _run_with_timeout(
+                bs.query_history_k_data_plus,
+                args=(full_code, "date,open,high,low,close,volume"),
+                kwargs=dict(start_date=start_date, end_date=end_date, frequency="d", adjustflag="2"),
+                timeout=BS_QUERY_TIMEOUT,
+                desc=f"query_daily({symbol})"
+            )
+        except TimeoutError as e:
+            logger.warning(f"⚠️ [Baostock] {symbol} 日线查询超时: {e}")
+            return None
         
         if rs.error_code != '0':
+            # 🛡️ 黑名单检测：立即终止，避免继续浪费请求配额
+            if '黑名单' in str(rs.error_msg):
+                raise BsBlacklistedError(f"Baostock 黑名单封禁: {rs.error_msg}")
             logger.warning(f"[Baostock] {symbol} 查询失败: {rs.error_msg}")
             return None
         
@@ -265,16 +347,22 @@ def bs_fetch_weekly_history(symbol: str, start_date: str, end_date: str) -> Opti
         if len(end_date) == 8:
             end_date = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:]}"
         
-        rs = bs.query_history_k_data_plus(
-            full_code,
-            "date,open,high,low,close,volume",
-            start_date=start_date,
-            end_date=end_date,
-            frequency="w",
-            adjustflag="2"  # 2=前复权
-        )
+        # 🛡️ 超时保护：query_history_k_data_plus 底层 socket 可能无限挂起
+        try:
+            rs = _run_with_timeout(
+                bs.query_history_k_data_plus,
+                args=(full_code, "date,open,high,low,close,volume"),
+                kwargs=dict(start_date=start_date, end_date=end_date, frequency="w", adjustflag="2"),
+                timeout=BS_QUERY_TIMEOUT,
+                desc=f"query_weekly({symbol})"
+            )
+        except TimeoutError as e:
+            logger.warning(f"⚠️ [Baostock] {symbol} 周线查询超时: {e}")
+            return None
         
         if rs.error_code != '0':
+            if '黑名单' in str(rs.error_msg):
+                raise BsBlacklistedError(f"Baostock 黑名单封禁: {rs.error_msg}")
             logger.warning(f"[Baostock] {symbol} 周线查询失败: {rs.error_msg}")
             return None
         

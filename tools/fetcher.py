@@ -26,12 +26,14 @@ try:
         bs_fetch_stock_list,
         bs_fetch_daily_history,
         bs_fetch_weekly_history,
-        bs_logout
+        bs_logout,
+        BsBlacklistedError,
     )
     BAOSTOCK_AVAILABLE = True
 except ImportError as e:
     logger.error(f"❌ Baostock 不可用: {e}")
     BAOSTOCK_AVAILABLE = False
+    BsBlacklistedError = Exception  # fallback 以免 except 报错
 
 # =========================================================================
 # 🚀 数据获取接口 (Baostock Only)
@@ -52,6 +54,8 @@ def fetch_stock_list_active() -> List[str]:
         if result:
             logger.info(f"[Baostock] 获取股票列表: {len(result)} 只")
             return result
+    except BsBlacklistedError:
+        raise
     except Exception as e:
         logger.error(f"❌ 获取股票列表失败: {e}")
     
@@ -78,6 +82,8 @@ def fetch_daily_history_active(symbol: str, start_date: str, end_date: str) -> O
         if result is not None and not result.empty:
             logger.debug(f"[Baostock] {symbol}: {len(result)} 条日线")
             return result
+    except BsBlacklistedError:
+        raise  # 黑名单封禁直接上抛
     except Exception as e:
         logger.warning(f"[Baostock] {symbol} 获取失败: {e}")
     
@@ -104,6 +110,8 @@ def fetch_weekly_history_active(symbol: str, start_date: str, end_date: str) -> 
         if result is not None and not result.empty:
             logger.debug(f"[Baostock] {symbol}: {len(result)} 条周线")
             return result
+    except BsBlacklistedError:
+        raise
     except Exception as e:
         logger.warning(f"[Baostock] {symbol} 周线获取失败: {e}")
     
