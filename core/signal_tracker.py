@@ -104,7 +104,7 @@ def archive_signal(code, strategy, timeframe, entry, sl, tp,
     if not name:
         try:
             name = dp.get_stock_name(code)
-        except:
+        except Exception:
             name = ''
     
     # 将额外因子信息序列化为 JSON
@@ -129,204 +129,6 @@ def archive_signal(code, strategy, timeframe, entry, sl, tp,
     except Exception as e:
         logger.error(f"信号归档失败 {code}: {e}")
         return ''
-
-
-# =====================================================================
-# 1b. Watchlist 兼容方法 (P2: 供 WatchlistManager Facade 调用)
-# =====================================================================
-def check_signal_exists(code: str, strategy: str = None, signal_date: str = None) -> bool:
-    """
-    检查信号是否已存在。
-
-    Args:
-        code: 股票代码
-        strategy: 策略名 (可选, 与 signal_date 一起精确匹配)
-        signal_date: 信号日期 (可选, 与 strategy 一起精确匹配)
-
-    Returns:
-        bool: 信号是否存在
-    """
-    init_signal_archive()
-    try:
-        with get_db_connection() as conn:
-            if strategy and signal_date:
-                strategy = strategy.upper()
-                signal_id = f"{code}_{strategy}_{signal_date}"
-                row = conn.execute(
-                    "SELECT 1 FROM signal_archive WHERE signal_id = ?", (signal_id,)
-                ).fetchone()
-            else:
-                row = conn.execute(
-                    "SELECT 1 FROM signal_archive WHERE code = ? LIMIT 1", (code,)
-                ).fetchone()
-            return row is not None
-    except Exception as e:
-        logger.error(f"检查信号存在失败 {code}: {e}")
-        return False
-
-
-def add_signal_entry(code: str, entry: float, sl: float, score: float = 0.0,
-                     signal_date: str = '', strategy: str = '', timeframe: str = 'daily',
-                     name: str = '', tp: float = 0.0, ev_rating: str = '',
-                     ev_score: int = 0, rr: float = 0.0, **extra) -> str:
-    """
-    添加一个信号到 signal_archive (兼容 WatchlistManager.add_signal 接口)。
-    内部调用 archive_signal(), 保持幂等性。
-
-    Args:
-        code: 股票代码
-        entry: 入场价
-        sl: 止损价
-        score: 信号质量分
-        signal_date: 信号日期
-        strategy: 策略名
-        timeframe: 时间周期 (daily/weekly)
-        name: 股票名
-        tp: 止盈价
-        ev_rating: EV 评级
-        ev_score: EV 积分
-        rr: 盈亏比
-        **extra: 额外参数 (序列化为 extra_json)
-
-    Returns:
-        str: signal_id 或 ''
-    """
-    if not strategy:
-        strategy = 'UNKNOWN'
-    if not signal_date:
-        signal_date = datetime.now().strftime('%Y-%m-%d')
-    return archive_signal(
-        code=code, strategy=strategy, timeframe=timeframe,
-        entry=entry, sl=sl, tp=tp,
-        ev_rating=ev_rating, signal_date=signal_date,
-        ev_score=ev_score, rr=rr, name=name,
-        sig_quality=score, **extra
-    )
-
-
-def get_signal_status(code: str, strategy: str = None) -> str:
-    """
-    获取信号的当前状态。
-
-    Args:
-        code: 股票代码
-        strategy: 策略名 (可选, 用于精确匹配)
-
-    Returns:
-        str: 信号状态 (PENDING/ACTIVE/WIN/LOSS/INVALIDATED/EXPIRED) 或空字符串
-    """
-    init_signal_archive()
-    try:
-        with get_db_connection() as conn:
-            if strategy:
-                strategy = strategy.upper()
-                row = conn.execute(
-                    "SELECT status FROM signal_archive WHERE code = ? AND strategy = ? ORDER BY updated_at DESC LIMIT 1",
-                    (code, strategy)
-                ).fetchone()
-            else:
-                row = conn.execute(
-                    "SELECT status FROM signal_archive WHERE code = ? ORDER BY updated_at DESC LIMIT 1",
-                    (code,)
-                ).fetchone()
-            return row[0] if row else ''
-    except Exception as e:
-        logger.error(f"获取信号状态失败 {code}: {e}")
-        return ''
-
-
-def get_signals_by_status(status: str, strategy: str = None, timeframe: str = None) -> list:
-    """
-    获取指定状态的所有信号。
-
-    Args:
-        status: 信号状态 (PENDING/ACTIVE/WIN/LOSS/INVALIDATED/EXPIRED)
-        strategy: 策略名 (可选)
-        timeframe: 时间周期 (可选)
-
-    Returns:
-        list[dict]: 信号记录列表
-    """
-    init_signal_archive()
-    try:
-        with get_db_connection() as conn:
-            conditions = ["status = ?"]
-            params = [status]
-            if strategy:
-                strategy = strategy.upper()
-                conditions.append("strategy = ?")
-                params.append(strategy)
-            if timeframe:
-                conditions.append("timeframe = ?")
-                params.append(timeframe)
-
-            where = " AND ".join(conditions)
-            rows = conn.execute(
-                f"SELECT * FROM signal_archive WHERE {where} ORDER BY ev_score DESC, updated_at DESC",
-                params
-            ).fetchall()
-            col_names = [desc[0] for desc in conn.execute("SELECT * FROM signal_archive LIMIT 0").description]
-            return [dict(zip(col_names, row)) for row in rows]
-    except Exception as e:
-        logger.error(f"获取信号列表失败: {e}")
-        return []
-
-
-def update_signal_entry(code: str, strategy: str = None, **fields) -> bool:
-    """
-    更新信号的指定字段 (兼容 WatchlistManager.update_signal_bar 接口)。
-
-    Args:
-        code: 股票代码
-        strategy: 策略名 (可选, 用于精确匹配)
-        **fields: 要更新的字段 (如 entry_price, sl_price, status 等)
-
-    Returns:
-        bool: 是否更新成功
-    """
-    init_signal_archive()
-    try:
-        with get_db_connection() as conn:
-            conditions = ["code = ?"]
-            params = []
-            params.append(code)
-            if strategy:
-                strategy = strategy.upper()
-                conditions.append("strategy = ?")
-                params.append(strategy)
-
-            # 限定只更新未结算的信号
-            conditions.append("status IN ('PENDING', 'ACTIVE')")
-
-            set_clauses = ["updated_at = ?"]
-            values = [datetime.now().strftime('%Y-%m-%d %H:%M:%S')]
-
-            for k, v in fields.items():
-                # 映射 Watchlist 字段名到 signal_archive 字段名
-                if k == 'entry':
-                    k = 'entry_price'
-                elif k == 'sl':
-                    k = 'sl_price'
-                elif k == 'tp':
-                    k = 'tp_price'
-                elif k == 'signal_bar_idx':
-                    # signal_archive 没有 signal_bar_idx 字段, 存入 extra_json
-                    continue
-                set_clauses.append(f"{k} = ?")
-                values.append(v)
-
-            if len(set_clauses) <= 1:
-                return False  # 没有实际要更新的字段
-
-            values.extend(params)
-            where = " AND ".join(conditions)
-            sql = f"UPDATE signal_archive SET {', '.join(set_clauses)} WHERE {where}"
-            conn.execute(sql, values)
-            conn.commit()
-            return True
-    except Exception as e:
-        logger.error(f"更新信号失败 {code}: {e}")
-        return False
 
 
 
@@ -1118,7 +920,7 @@ def _get_latest_price(code, timeframe='daily'):
         df = dp.get_stock_data(code, limit=5)
         if df is not None and not df.empty:
             return float(df.iloc[-1]['close'])
-    except:
+    except Exception:
         pass
     return None
 
@@ -1133,43 +935,6 @@ def _format_entry_distance(dist_pct):
         return "刚好到入场价"
 
 
-def _push_resolved_alert(sig, status):
-    """信号结算时推送 Discord 通知 (含K线图)"""
-    try:
-        code = sig['code']
-        name = sig.get('name', code)
-        rating = _simplify_rating(sig.get('ev_rating', ''))
-        entry = sig.get('entry_price', 0)
-        sl = sig.get('sl_price', 0)
-        tp = sig.get('tp_price', 0)
-        
-        # 构造消息
-        if status == 'WIN':
-            icon = "🟢"
-            title = "止盈达成"
-            detail = f"入场 {entry:.2f} → 止盈 {tp:.2f}"
-        elif status == 'LOSS':
-            icon = "🔴"
-            title = "触发止损"
-            detail = f"入场 {entry:.2f} → 止损 {sl:.2f}"
-        elif status == 'INVALIDATED':
-            icon = "💀"
-            title = "缺口被回补"
-            detail = f"入场价 {entry:.2f} 未触发, SL {sl:.2f} 已击穿"
-        else:
-            return
-        
-        msg = f"{icon} **{name}** ({code}) [{rating}]\n"
-        msg += f"状态: **{title}**\n"
-        msg += f"{detail}\n"
-        
-        from tools.notifier import send_discord_message
-        send_discord_message(msg)
-        
-        logger.info(f"📤 {name}({code}) [{status}] 文字战报已推送 Discord (无图模式)")
-        
-    except Exception as e:
-        logger.warning(f"推送结算通知失败: {e}")
 
 
 def _simplify_rating(rating_str):
@@ -1182,11 +947,6 @@ def _simplify_rating(rating_str):
     return '?'
 
 
-def _make_progress_bar(progress, width=10):
-    """生成进度条: ██████░░░░"""
-    filled = int(progress * width)
-    filled = max(0, min(width, filled))
-    return '█' * filled + '░' * (width - filled)
 
 
 def _push_dashboard_discord(enriched, win_all, loss_all, invalidated_all,
