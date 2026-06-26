@@ -261,6 +261,8 @@ def simulate_trade(symbol, signal_date, entry_level, sl, tp, df, eval_end_dt):
         "exit_date": str(exit_date)[:10],
         "entry_price": round(fill_price, 4),
         "exit_price": round(exit_price, 4),
+        "sl": round(sl, 4),
+        "tp": round(tp, 4),
         "pnl_pct": round(pnl_pct, 2),
         "holding_bars": holding_bars,
         "triggered": triggered,
@@ -413,7 +415,7 @@ def export_results(equity_curve, trade_history, prefix, initial_cash, start, end
     tr_path = out_dir / f"{prefix}_trades.csv"
     fields = [
         "entry_date", "exit_date", "side", "size",
-        "entry_price", "exit_price", "pnl", "pnl_pct",
+        "entry_price", "exit_price", "sl", "tp", "pnl", "pnl_pct",
         "holding_bars", "symbol", "symbol_name", "display_symbol",
     ]
     with tr_path.open("w", newline="", encoding="utf-8") as f:
@@ -629,6 +631,20 @@ def main():
     print("  gap_h2_equity.csv")
     print("  gap_h2_trades.csv")
     print("  gap_h2_summary.json")
+
+    # 4b. 导出全量信号级回测结果 (不受组合单仓约束)
+    import csv as _csv
+    sig_fields = ["signal_date", "entry_date", "exit_date",
+                  "entry_price", "exit_price", "sl", "tp",
+                  "pnl_pct", "holding_bars", "triggered", "symbol"]
+    with open("gap_h2_all_signals.csv", "w", newline="", encoding="utf-8") as f:
+        writer = _csv.writer(f)
+        writer.writerow(sig_fields)
+        for t in all_potential_trades:
+            writer.writerow([t.get(k, "") for k in sig_fields])
+    tp_count = sum(1 for t in all_potential_trades if t['triggered'] == 'TP')
+    sl_count = sum(1 for t in all_potential_trades if t['triggered'] == 'SL')
+    print(f"  gap_h2_all_signals.csv ({len(all_potential_trades)} 信号, TP={tp_count}, SL={sl_count})")
 
     # 5. 渲染仪表盘
     print("[5/5] 渲染仪表盘...")

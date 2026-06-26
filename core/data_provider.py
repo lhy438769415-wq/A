@@ -84,46 +84,151 @@ def preload_snapshots():
     """
     pass
 
-_name_cache_attempted = False  # 🛡️ 防止网络失败后反复重试刷屏
+# ==========================================
+# 💾 股票中文名本地持久化缓存 (V9.19)
+# ==========================================
+def _get_names_json_path() -> str:
+    """
+    获取股票中文名本地缓存文件的绝对路径。
+    基于 settings.DB_PATH 推导，确保与数据库同目录，路径唯一。
+    """
+    import os
+    return os.path.join(os.path.dirname(settings.DB_PATH), 'stock_names.json')
+
+
+def load_names_from_local() -> dict[str, str]:
+    """
+    从本地 JSON 文件读取股票中文名缓存。
+    
+    Returns:
+        dict: 成功返回名称字典 {'sh.600000': '浦发银行', ...}，
+              文件不存在或损坏时静默返回空字典。
+    """
+    import json
+    import os
+    
+    json_path = _get_names_json_path()
+    
+    if not os.path.exists(json_path):
+        return {}
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+            logger.warning(f"⚠️ 本地中文名缓存格式异常（非 dict），将重建")
+            return {}
+    except (json.JSONDecodeError, IOError, OSError) as e:
+        logger.warning(f"⚠️ 本地中文名缓存文件损坏，将降级等待下次同步重建: {e}")
+        return {}
+
+
+def save_names_to_local(name_dict: dict[str, str]) -> bool:
+    """
+    将股票中文名字典持久化到本地 JSON 文件。
+    
+    安全机制:
+    1. 动态安全阀：传入数据量必须大于旧缓存的 50% 且至少 100 条，防止 Baostock 维护期返回空数据抹杀缓存
+    2. 原子写入：先写临时文件再替换，防止写入中途断电损坏文件
+    3. 合并策略：新数据优先 + 保留旧数据中独有的条目（保护长期停牌股）
+    
+    只允许从主进程 Phase 2 调用。
+    
+    Args:
+        name_dict: 最新的股票中文名字典 {'sh.600000': '浦发银行', ...}
+    
+    Returns:
+        bool: 写入成功返回 True，触发安全阀或异常返回 False。
+    """
+    import json
+    import os
+    import tempfile
+    
+    json_path = _get_names_json_path()
+    
+    # 🛡️ 动态安全阀：用“本地现有缓存量的 50%”作为动态下限，防止维护期空数据抹杀缓存
+    local_data = load_names_from_local()
+    min_threshold = max(len(local_data) * 0.5, 100)  # 至少 100 条作为绝对下限
+    
+    if len(name_dict) < min_threshold:
+        logger.error(
+            f"❌ 获取到的中文名数据量({len(name_dict)})低于安全阀阈值({min_threshold:.0f})，"
+            f"拒绝写入，保留旧缓存。(可能是 Baostock 维护期返回空数据)"
+        )
+        return False
+    
+    # 🛡️ 合并策略：新数据优先覆盖改名股，保留旧数据中独有的停牌股条目
+    merged = {**local_data, **name_dict}
+    
+    # 🛡️ 原子写入：先写临时文件，再替换，防止写入中途被打断导致文件损坏
+    try:
+        dir_name = os.path.dirname(json_path)
+        os.makedirs(dir_name, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            'w', dir=dir_name, delete=False,
+            suffix='.tmp', encoding='utf-8'
+        ) as tf:
+            json.dump(merged, tf, ensure_ascii=False, indent=2)
+            tmp_path = tf.name
+        os.replace(tmp_path, json_path)
+        logger.info(f"✅ 股票中文名已持久化: {len(merged)} 只 → {os.path.basename(json_path)}")
+        return True
+    except OSError as e:
+        logger.error(f"❌ 持久化写入失败（磁盘满或权限问题）: {e}")
+        # 清理可能残留的临时文件
+        try:
+            if 'tmp_path' in locals() and os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+        return False
+
 
 def get_stock_name(code: str) -> str:
     """
-    Get stock name from cache (fast) or return code if missing.
-    Thread-safe. Now supports Baostock Only mode.
+    查询股票中文名。严格只读，不发起任何网络请求。
     
-    🛡️ V9.16: 首次加载失败后不再反复重试，避免 VPN 环境下刷屏报错。
+    🛡️ V9.19: 改造为纯只读函数，彻底杜绝在扫描/推送阶段连接 Baostock。
+    网络拉取入口唯一：只允许在主进程 Phase 2 由 save_names_to_local() 负责。
+    
+    查找优先级: 内存缓存 → 本地 JSON 文件 → 降级返回代码
+    
+    Args:
+        code: 股票代码，支持 'sh.600000' 或 '600000' 格式
+    
+    Returns:
+        str: 中文名称，找不到时返回原始代码
     """
-    symbol = code.split('.')[-1]
+    global _snapshot_cache
     
-    global _snapshot_cache, _name_cache_attempted
+    # 统一 key 格式：尝试两种常见输入
+    symbol = code.split('.')[-1]  # 纯数字部分
+    # 构造带前缀的完整 key
+    if '.' in code:
+        full_key = code  # 已是 sh.600000 格式
+    elif symbol.startswith('6'):
+        full_key = f"sh.{symbol}"
+    else:
+        full_key = f"sz.{symbol}"
     
+    # Layer 1: 内存缓存（最快）
     with _cache_lock:
-        # 如果缓存为空且尚未尝试过，才发起网络请求
-        if not _snapshot_cache and not _name_cache_attempted:
-            _name_cache_attempted = True  # 无论成功失败，标记为已尝试
-            try:
-                import baostock as bs
-                from tools.fetcher_baostock import _ensure_login, _run_with_timeout, BS_QUERY_TIMEOUT
-                _ensure_login()
-                
-                logger.info("🏷️ Initializing stock name cache from Baostock...")
-                # 🛡️ 超时保护：VPN 环境下可能卡死
-                rs = _run_with_timeout(bs.query_stock_basic, timeout=BS_QUERY_TIMEOUT, desc="query_stock_basic(names)")
-                if rs.error_code == '0':
-                    while rs.next():
-                        row = rs.get_row_data()
-                        # row: [code, code_name, ipoDate, outDate, type, status]
-                        s_code = row[0].split('.')[-1]
-                        _snapshot_cache[s_code] = {'name': row[1]}
-                    logger.info(f"✅ Loaded {len(_snapshot_cache)} stock names.")
-                else:
-                    logger.warning(f"⚠️ Failed to load names from Baostock: {rs.error_msg} (后续将降级使用代码)")
-            except Exception as e:
-                logger.error(f"❌ Stock name initialization failed: {e} (后续将降级使用代码)")
-
-        if symbol in _snapshot_cache:
-            return _snapshot_cache[symbol].get('name', code)
-            
+        if _snapshot_cache:
+            # 兼容旧格式（纯数字 key + dict value）和新格式（带前缀 key + str value）
+            cached = _snapshot_cache.get(full_key) or _snapshot_cache.get(symbol)
+            if cached:
+                # 兼容旧格式: {'name': 'xxx'} 和新格式: 'xxx'
+                return cached.get('name', cached) if isinstance(cached, dict) else cached
+    
+    # Layer 2: 本地 JSON 文件（一次性加载到内存）
+    local_names = load_names_from_local()
+    if local_names:
+        with _cache_lock:
+            # 将本地 JSON 装填至内存缓存，后续调用直接命中 Layer 1
+            _snapshot_cache.update(local_names)
+        return local_names.get(full_key, code)
+    
+    # Layer 3: 降级，返回代码本身
     return code
 
 # ==========================================
@@ -657,9 +762,12 @@ def update_daily_data_batch(max_workers=settings.MAX_WORKERS):
     discovery_tasks = []
     try:
         logger.info("🌐 [Phase 2] 启动增量发现 (Discovery)...")
-        online_codes = fetcher.fetch_stock_list_active()
+        online_codes, online_names = fetcher.fetch_stock_list_active()
         
         if online_codes:
+            # 🆕 利用每日同步必定执行的联网请求，顺便将中文名持久化到本地
+            # 自动完成：新股追加 + 改名覆盖（含 ST/摘帽）+ 停牌股保留
+            save_names_to_local(online_names)
             # 提取 set 进行差集运算
             local_set = set(f"sh.{s}" if s.startswith('6') else f"sz.{s}" for s in local_stock_list)
             online_set = set(online_codes)

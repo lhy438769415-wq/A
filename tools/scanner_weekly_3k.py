@@ -257,7 +257,7 @@ def main():
             print("✅ Discord 图文推送成功！")
         else:
             if not sig_gt and not sig_3k:
-                send_discord_message("🔔 **【周线 3K 雷达】**\n本周无任何符合条件的标的。好好休息！")
+                send_discord_message("💤 【周线/3K】，本次未发现信号")
                 print("✅ Discord 空结果推送成功！")
             else:
                 print("⚠️ 没有成功生成任何图表。")

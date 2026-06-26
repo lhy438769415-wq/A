@@ -1,4 +1,4 @@
-# Brooks-AI Quant System V9.18
+# Brooks-AI Quant System V9.19
 
 > 基于 Al Brooks 价格行为理论的 A 股全自动量化扫描系统。
 > 支持日线/周线双周期扫描、多策略信号检测、AI 二次筛选、Discord 实时推送。
@@ -103,6 +103,7 @@ python hunter.py --track --report            # 追踪 + 报表
 
 | 版本 | 日期 | 主要变更 |
 |:---:|:---:|:---|
+| V9.19 | 2026-06-26 | **股票中文名本地持久化**：将 `get_stock_name()` 从内存空则联网拉取改造为内存缓存-本地JSON-降级返回代码的纯只读函数,彻底杜绝在扫描/推送阶段连接Baostock,大幅降低黑名单概率。`bs_fetch_stock_list()` 同时返回代码列表和中文名字典(零额外网络开销),Phase 2 同步成功后自动持久化到 `data/stock_names.json`。安全机制:原子写入防损坏、动态安全阀(旧缓存50%)防空数据抹杀、合并策略(新数据优先+保留停牌股)防误删。 |
 | V9.18 | 2026-06-25 | **Baostock 黑名单防护与查询超时保护**：(1) 新增 `BsBlacklistedError` 异常类，在 `_ensure_login()` 登录、`bs_fetch_daily_history()` / `bs_fetch_weekly_history()` 查询两层检测 Baostock 服务端返回的“黑名单”封禁，通过 `retry_on_failure` 装饰器放行、`fetcher.py` 适配层放行、`_fetch_worker` 放行、主循环捕获四层穿透，实现黑名单时立即终止同步。修复此前“每次同步产生 ≥9 次失败登录反复延长封禁”的死亡螺旋。(2) 为 `query_history_k_data_plus()` 日线/周线查询加入 `_run_with_timeout(45s)` 超时保护，与 V9.16 已有的 `login` / `query_stock_basic` 超时保护对齐，修复多进程环境下 socket 挂起导致全部 worker 卡死的问题。 |
 | V9.17 | 2026-06-04 | **图表历史缺口标注精简 (TradingView 风格)**：将 `_annotate_gap_strategy()` 中的历史止盈缺口全量叠加（绿色填充矩形+前序止盈文字框+历史TP右侧标签）精简为：(1) 可视范围 70 根 K 线内未被回补的前序多头缺口以薄虚线标注 gap floor 位置；(2) 历史达标次数汇总为面板下方一行文字。删除所有绿色填充矩形和散布文字标签，大幅提升图表可读性。 |
 | V9.16 | 2026-05-27 | **Baostock 网络超时保护 + Discord 推送格式统一**：(1) 针对 VPN/海外网络环境下 `bs.login()` 和 `bs.query_stock_basic()` 因底层 TCP socket 无超时设置而无限挂起的问题，在 `tools/fetcher_baostock.py` 中引入 `_run_with_timeout()` 通用超时保护器（基于 threading.Event），为登录操作设置 20s 超时、为股票列表查询设置 45s 超时，同步修复 `core/data_provider.py` 中 `get_stock_name()` 的同类隐患。(2) **统一日线/周线 Discord 推送格式**：以周线推送的成熟信息层次为标准模板，重构日线 `_compose_report()` 从"按策略分组"改为"按评级分组"（标题区→统计区→A+/A详细双行展示→B/C压缩汇总→观察区→状态变更→看板），新增 `format_signal_line()` 通用格式函数替代原有三套独立模板，图表推送从全量改为仅推 A+/A 级（与周线对齐）。 |

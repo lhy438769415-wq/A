@@ -38,7 +38,8 @@ def _get_strategy_cols(strategy_name: str) -> dict:
     """
     try:
         meta = StrategyRegistry.get_metadata(strategy_name)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"[{strategy_name}] 获取策略列映射失败: {e}")
         return {}
 
     tp_cols = meta.get('tp_columns', [])
@@ -298,11 +299,23 @@ def _format_and_push_results(results, total_stocks=0):
     """控制台输出 + JSON/MD 导出 + Discord 推送 (可被 hunter.py 调用)"""
     
     # === 控制台输出 ===
-    print("\n" + "=" * 80)
-    print(f"  周线 结构缺口 信号汇总")
-    print("=" * 80)
-    
     sig_gap = results['signals_gap']
+    
+    # 🟢 根据实际命中信号动态生成策略标签（不再硬编码单一策略名）
+    _active_strats = sorted(set(s.get('strategy_name', '') for s in sig_gap if s.get('strategy_name')))
+    _strat_labels = []
+    for _sn in _active_strats:
+        try:
+            _dn = StrategyRegistry.get_metadata(_sn).get('display_name', _sn.replace('STRATEGY_', ''))
+        except Exception as e:
+            logger.debug(f"获取策略 {_sn} display_name 失败: {e}")
+            _dn = _sn.replace('STRATEGY_', '')
+        _strat_labels.append(_dn)
+    strat_display = ' / '.join(_strat_labels) if _strat_labels else '缺口策略'
+    
+    print("\n" + "=" * 80)
+    print(f"  周线 {strat_display} 信号汇总")
+    print("=" * 80)
     
     sg_best = [s for s in sig_gap if '🌟' in s.get('ev_rating', '') and not s.get('is_pending')]
     sg_good = [s for s in sig_gap if '👍' in s.get('ev_rating', '') and not s.get('is_pending')]
@@ -375,7 +388,7 @@ def _format_and_push_results(results, total_stocks=0):
     os.makedirs(lab_dir, exist_ok=True)
     md_path = os.path.join(lab_dir, 'weekly_struct_gap_plan.md')
     
-    report_md = f"# 下周交易埋伏计划 (基于周线 Structural Gap V9.0)\n\n"
+    report_md = f"# 下周交易埋伏计划 (基于周线 {strat_display})\n\n"
     report_md += f"**生成时间**: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
     if total_stocks > 0:
         report_md += f"**扫描范围**: 全市场 {total_stocks} 只个股\n\n"
@@ -401,7 +414,7 @@ def _format_and_push_results(results, total_stocks=0):
     print("\n🚀 正在生成 Discord 图文全量推送...")
     
     # 🟢 [Fix] 按评级分组构建完整推送消息，不再截断任何标的
-    msg = "🔔 **【周线 结构性缺口(Structural Gap) V9.0 雷达扫描完成】**\n"
+    msg = f"🔔 **【周线 {strat_display} 雷达扫描完成】**\n"
     msg += f"时间: {pd.Timestamp.now().strftime('%Y-%m-%d')}\n"
     if total_stocks > 0:
         msg += f"池子: 全市场 {total_stocks} 只个股\n"
@@ -414,7 +427,7 @@ def _format_and_push_results(results, total_stocks=0):
     if sg_pend: msg += f"   🔎 **潜在孕育期追踪**: {len(sg_pend)} 只\n"
     
     if not sig_gap:
-        msg += "\n本周无任何符合条件的缺口买点出现。耐心等待战机！"
+        msg += f"\n💤 【周线/{strat_display}】，本次未发现信号"
     else:
         # A+/A 级：完整展示名字+评级（这些是核心关注标的）
         a_sigs = [s for s in sig_gap if 'A' in s.get('ev_rating', '')]
@@ -474,13 +487,15 @@ def _format_and_push_results(results, total_stocks=0):
                 except Exception as e:
                     logger.warning(f"绘图失败 {s['code']}: {e}")
             
-            # 多图推送 (Discord 自动排列网格, 每条消息最多10张)
+            # 🟢 分批推送 (VPN 环境下一次性推 20 张会被 Discord 断连)
             if chart_bufs:
-                send_discord_images(
-                    chart_bufs, chart_names,
-                    content=f"🌟 **A+/A 级 K线图** ({len(chart_bufs)} 张)"
-                )
-                print(f"✅ {len(chart_bufs)} 张 A+/A 级图表推送完成！")
+                BATCH_SIZE = 5
+                for batch_start in range(0, len(chart_bufs), BATCH_SIZE):
+                    batch_bufs = chart_bufs[batch_start:batch_start + BATCH_SIZE]
+                    batch_names = chart_names[batch_start:batch_start + BATCH_SIZE]
+                    batch_label = f"🌟 **A+/A 级 K线图** ({batch_start+1}-{batch_start+len(batch_bufs)}/{len(chart_bufs)})"
+                    send_discord_images(batch_bufs, batch_names, content=batch_label)
+                print(f"✅ {len(chart_bufs)} 张 A+/A 级图表分 {(len(chart_bufs)-1)//BATCH_SIZE+1} 批推送完成！")
         else:
             print("  本周无 A+/A 级标的")
 

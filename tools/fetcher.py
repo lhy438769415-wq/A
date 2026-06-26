@@ -38,28 +38,32 @@ except ImportError as e:
 # =========================================================================
 # 🚀 数据获取接口 (Baostock Only)
 # =========================================================================
-def fetch_stock_list_active() -> List[str]:
+def fetch_stock_list_active() -> tuple[list[str], dict[str, str]]:
     """
-    获取股票列表 (Baostock)
+    获取股票列表及中文名 (Baostock)
     
     Returns:
-        股票代码列表，格式 ['sh.600000', 'sz.000001', ...]
+        tuple: (code_list, name_dict)
+            - code_list: 股票代码列表 ['sh.600000', 'sz.000001', ...]
+            - name_dict: 中文名字典 {'sh.600000': '浦发银行', ...}
+            失败时返回 ([], {})
     """
     if not BAOSTOCK_AVAILABLE:
         logger.error("❌ Baostock 不可用，无法获取股票列表")
-        return []
+        return [], {}
     
     try:
-        result = bs_fetch_stock_list()
-        if result:
-            logger.info(f"[Baostock] 获取股票列表: {len(result)} 只")
-            return result
+        codes, names = bs_fetch_stock_list()
+        if codes:
+            logger.info(f"[Baostock] 获取股票列表: {len(codes)} 只")
+            return codes, names
     except BsBlacklistedError:
         raise
     except Exception as e:
         logger.error(f"❌ 获取股票列表失败: {e}")
     
-    return []
+    return [], {}
+
 
 def fetch_daily_history_active(symbol: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
     """
@@ -145,10 +149,11 @@ if __name__ == "__main__":
     
     # 测试股票列表
     print("\n1. 测试股票列表获取...")
-    codes = fetch_stock_list_active()
+    codes, names = fetch_stock_list_active()
     print(f"   获取 {len(codes)} 只股票")
     if codes:
         print(f"   前3只: {codes[:3]}")
+        print(f"   中文名样本: {dict(list(names.items())[:3])}")
     
     # 测试日线数据
     print("\n2. 测试日线数据获取...")

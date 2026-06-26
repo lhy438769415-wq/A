@@ -96,7 +96,7 @@ def archive_signal(code, strategy, timeframe, entry, sl, tp,
         signal_date = datetime.now().strftime('%Y-%m-%d')
     
     # 标准化策略名
-    strategy = strategy.upper().replace('MTR_V35_STRUCTURAL', 'STRUCTURAL_GAP')
+    strategy = strategy.upper()
     
     signal_id = f"{code}_{strategy}_{signal_date}"
     scan_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -150,7 +150,7 @@ def check_signal_exists(code: str, strategy: str = None, signal_date: str = None
     try:
         with get_db_connection() as conn:
             if strategy and signal_date:
-                strategy = strategy.upper().replace('MTR_V35_STRUCTURAL', 'STRUCTURAL_GAP')
+                strategy = strategy.upper()
                 signal_id = f"{code}_{strategy}_{signal_date}"
                 row = conn.execute(
                     "SELECT 1 FROM signal_archive WHERE signal_id = ?", (signal_id,)
@@ -219,7 +219,7 @@ def get_signal_status(code: str, strategy: str = None) -> str:
     try:
         with get_db_connection() as conn:
             if strategy:
-                strategy = strategy.upper().replace('MTR_V35_STRUCTURAL', 'STRUCTURAL_GAP')
+                strategy = strategy.upper()
                 row = conn.execute(
                     "SELECT status FROM signal_archive WHERE code = ? AND strategy = ? ORDER BY updated_at DESC LIMIT 1",
                     (code, strategy)
@@ -253,7 +253,7 @@ def get_signals_by_status(status: str, strategy: str = None, timeframe: str = No
             conditions = ["status = ?"]
             params = [status]
             if strategy:
-                strategy = strategy.upper().replace('MTR_V35_STRUCTURAL', 'STRUCTURAL_GAP')
+                strategy = strategy.upper()
                 conditions.append("strategy = ?")
                 params.append(strategy)
             if timeframe:
@@ -291,7 +291,7 @@ def update_signal_entry(code: str, strategy: str = None, **fields) -> bool:
             params = []
             params.append(code)
             if strategy:
-                strategy = strategy.upper().replace('MTR_V35_STRUCTURAL', 'STRUCTURAL_GAP')
+                strategy = strategy.upper()
                 conditions.append("strategy = ?")
                 params.append(strategy)
 
@@ -594,6 +594,55 @@ def _update_signal(conn, updates: dict):
     values.append(signal_id)
     sql = f"UPDATE signal_archive SET {', '.join(set_clauses)} WHERE signal_id = ?"
     conn.execute(sql, values)
+
+
+# =====================================================================
+# 2b. 查询历史已止盈缺口 (供图表叠加绘制)
+# =====================================================================
+def get_resolved_gaps(code: str, strategy_pattern: str = 'GAP') -> list:
+    """
+    查询指定股票的已止盈 GAP 策略历史记录。
+
+    用于在新信号推送图表上叠加绘制"前序已止盈缺口"，
+    辅助人工判断该区域缺口策略的历史表现。
+
+    Args:
+        code: 股票代码
+        strategy_pattern: 策略名模糊匹配关键词 (默认 'GAP'，
+                          匹配 STRATEGY_GAP_H2 / STRATEGY_GAP_PINBAR / STRATEGY_STRUCTURAL_GAP)
+
+    Returns:
+        list[dict]: 每条记录包含:
+            - signal_date, resolved_date
+            - entry_price, sl_price (Gap Floor), tp_price, exit_price
+            - strategy, status
+        按 signal_date DESC 排序 (最近的在前)
+    """
+    init_signal_archive()
+    try:
+        with get_db_connection() as conn:
+            # 仅查询已止盈 (WIN) 的缺口策略记录
+            rows = conn.execute(
+                """
+                SELECT signal_date, resolved_date, entry_price, sl_price,
+                       tp_price, exit_price, strategy, status
+                FROM signal_archive
+                WHERE code = ?
+                  AND strategy LIKE ?
+                  AND status = 'WIN'
+                ORDER BY signal_date DESC
+                """,
+                (code, f'%{strategy_pattern}%')
+            ).fetchall()
+
+            col_names = [
+                'signal_date', 'resolved_date', 'entry_price', 'sl_price',
+                'tp_price', 'exit_price', 'strategy', 'status'
+            ]
+            return [dict(zip(col_names, row)) for row in rows]
+    except Exception as e:
+        logger.error(f"查询历史止盈缺口失败 {code}: {e}")
+        return []
 
 
 # =====================================================================

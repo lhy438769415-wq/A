@@ -168,10 +168,14 @@ def retry_on_failure(max_retries=3, delay=1.0):
 # 股票列表
 # =========================================================================
 @retry_on_failure()
-def bs_fetch_stock_list() -> List[str]:
+def bs_fetch_stock_list() -> tuple[list[str], dict[str, str]]:
     """
-    获取 A 股股票列表（从 Baostock）
-    返回格式: ['sh.600000', 'sz.000001', ...]
+    获取 A 股股票列表及中文名（从 Baostock）
+    
+    Returns:
+        tuple: (code_list, name_dict)
+            - code_list: ['sh.600000', 'sz.000001', ...]
+            - name_dict: {'sh.600000': '浦发银行', ...}
     """
     with _bs_lock:
         _ensure_login()
@@ -185,11 +189,11 @@ def bs_fetch_stock_list() -> List[str]:
             rs = _run_with_timeout(bs.query_stock_basic, timeout=BS_QUERY_TIMEOUT, desc="query_stock_basic")
         except TimeoutError as e:
             logger.error(f"❌ 获取股票列表超时: {e}")
-            return []
+            return [], {}
         
         if rs.error_code != '0':
             logger.error(f"获取股票列表失败: {rs.error_msg}")
-            return []
+            return [], {}
         
         data_list = []
         while rs.next():
@@ -200,6 +204,7 @@ def bs_fetch_stock_list() -> List[str]:
     # 过滤规则（与原 fetcher.py 一致）
     # code 格式: sh.600000, sz.000001
     code_list = []
+    name_dict = {}  # { "sh.600000": "浦发银行", ... }
     
     for _, row in df.iterrows():
         code = row['code']  # sh.600000 格式
@@ -226,9 +231,11 @@ def bs_fetch_stock_list() -> List[str]:
         # 仅保留主板：沪市(60开头)、深市主板(00开头)
         if pure_code.startswith('6') or pure_code.startswith('0'):
             code_list.append(code)
+            if name:  # 同时收集中文名，零额外网络开销
+                name_dict[code] = name
     
     logger.info(f"✅ [Baostock] 获取股票列表: {len(code_list)} 只")
-    return code_list
+    return code_list, name_dict
 
 # =========================================================================
 # 日线历史数据
@@ -478,8 +485,9 @@ if __name__ == "__main__":
     _ensure_login()
     
     # 测试股票列表
-    codes = bs_fetch_stock_list()
+    codes, names = bs_fetch_stock_list()
     print(f"股票列表: {len(codes)} 只, 前5只: {codes[:5]}")
+    print(f"中文名样本: {dict(list(names.items())[:3])}")
     
     # 测试日线数据
     df = bs_fetch_daily_history('600000', '2024-01-01', '2024-01-15')

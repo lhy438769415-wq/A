@@ -392,7 +392,16 @@ def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_thr
                 res['info']['ev_rating'] = ev_rating
                 reason_txt = f"MTR 结构确认 | {ev_rating}"
             else:
-                reason_txt = "[V3.0] 结构突破信号" if 'STRUCTURAL' in strat_type else "[3K] 技术面信号"
+                # 🟢 [V9.16 Fix] 非 MTR 策略也需统一评级，否则推送格式无法分级展示
+                score = res.get('info', {}).get('score', 0)
+                if not res.get('info', {}).get('ev_rating'):
+                    if score >= 80: ev_rating = '🌟🌟 极品 (A+)'
+                    elif score >= 65: ev_rating = '🌟 高预期 (A)'
+                    elif score >= 50: ev_rating = '👍 常态 (B)'
+                    else: ev_rating = '⚠️ 低预期 (C)'
+                    res['info']['ev_rating'] = ev_rating
+                strat_label = strat_type.replace('STRATEGY_', '')
+                reason_txt = f"[{strat_label}] 结构信号 | {res['info']['ev_rating']}"
 
             res_item, chart_buf, _ = prepare_daily_chart(res, passed=True, reason=reason_txt)
             if chart_buf:
@@ -467,11 +476,15 @@ def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_thr
     return direct_picks, final_picks, rejected_list, watchlist, status_changes
 
 
-def _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_changes):
+def _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_changes, total_stocks=0, strategy_names=None):
     """
-    [Phase2 重构] 阶段 3: 拼装 Discord 文本消息并推送
+    [V9.16] 阶段 3: 统一推送格式 (与周线完全对齐)
+    
+    推送结构: 标题区 → 统计区 → A+/A 详细区 → B/C 压缩区 → 图表预告
     """
-    # Top 3 优先选取
+    from tools.notifier import format_signal_line
+    
+    # ===== 数据准备 =====
     passed_candidates = []
     for p in final_picks:
         p['ai_verdict'] = True
@@ -484,139 +497,129 @@ def _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_
         rejected_with_reason.append(p)
 
     if not passed_candidates and not rejected_with_reason and not direct_picks:
+        # 🟢 空结果消息包含周期+策略名
+        strat_label = ' / '.join(s.replace('STRATEGY_', '').replace('_MASTER', '') for s in strategy_names) if strategy_names else '全策略'
         logger.info("💤 本轮无新信号 (Scanner 0 命中)")
-        send_discord_message("💤 今日全市场扫描结束，未发现符合技术面雏形的信号。")
+        send_discord_message(f"💤 【日线/{strat_label}】，本次未发现信号")
         return
 
-    passed_candidates.sort(key=lambda x: x.get('info', {}).get('score', 0), reverse=True)
-    top_mtr = passed_candidates[:3]
-    
-    if not top_mtr and rejected_with_reason:
-        rejected_with_reason.sort(key=lambda x: x.get('info', {}).get('score', 0), reverse=True)
-        top_mtr = rejected_with_reason[:1]
-
-    direct_picks.sort(key=lambda x: x.get('info', {}).get('score', 0), reverse=True)
+    # 合并所有通过的信号 (direct + AI passed)
+    all_passed = list(direct_picks) + list(passed_candidates)
+    all_passed.sort(key=lambda x: x.get('info', {}).get('score', 0), reverse=True)
 
     logger.info("\n" + "="*50)
     logger.info(f"📨 阶段 3/3: 信号归档与结果推送 (Dispatch)")
     logger.info("="*50)
 
-    msg_lines = ["🚀 **Brooks-AI 猎手报告**\n"]
-    from tools.notifier import format_mtr_alert, format_3k_alert
+    # ===== 按评级分组 (统一维度, 不区分策略) =====
+    sg_best, sg_good, sg_warn, sg_other = [], [], [], []
     
-    # Block 1: 🆕 MTR 新信号
-    mtr_picks = [p for p in direct_picks if 'MTR' in p.get('type', '').upper()]
-    if mtr_picks:
-        msg_lines.append("【🎯 MTR 结构反转信号】")
-        for p in mtr_picks:
-            code, name = p['code'], (p.get('name_cn') or fetch_stock_name(p['code']))
+    for p in all_passed:
+        ev_rating = p.get('info', {}).get('ev_rating', '')
+        if '🌟' in ev_rating or 'A+' in ev_rating or '极品' in ev_rating:
+            sg_best.append(p)
+        elif '高预期' in ev_rating:
+            sg_best.append(p)
+        elif '👍' in ev_rating or '常态' in ev_rating or 'B' in ev_rating:
+            sg_good.append(p)
+        elif '⚠️' in ev_rating or '低预期' in ev_rating or 'C' in ev_rating:
+            sg_warn.append(p)
+        else:
+            sg_other.append(p)
+    
+    total_hits = len(all_passed)
+    
+    # ===== ① 标题区 =====
+    msg_lines = []
+    msg_lines.append("🔔 **【日线 Brooks-AI 猎手 雷达扫描完成】**")
+    msg_lines.append(f"时间: {datetime.now().strftime('%Y-%m-%d')}")
+    if total_stocks > 0:
+        msg_lines.append(f"池子: 全市场 {total_stocks} 只个股")
+    msg_lines.append("----------------------")
+    
+    # ===== ② 统计区 =====
+    msg_lines.append(f"🎯 **命中结果**: 共 {total_hits} 只")
+    if sg_best:
+        msg_lines.append(f"   🌟 **高预期**: {len(sg_best)} 只")
+    if sg_good:
+        msg_lines.append(f"   👍 **常态**: {len(sg_good)} 只")
+    if sg_warn:
+        msg_lines.append(f"   ⚠️ **低预期**: {len(sg_warn)} 只")
+    if sg_other:
+        msg_lines.append(f"   📋 **其他**: {len(sg_other)} 只")
+    msg_lines.append("")
+    
+    # ===== ③ A+/A 级详细展示 =====
+    if sg_best:
+        msg_lines.append(f"🌟 **A+/A 级 ({len(sg_best)}只)**:")
+        for p in sg_best:
+            code = p['code']
+            name = p.get('name_cn') or fetch_stock_name(code)
             info = p.get('info', {})
+            strat_type = p.get('type', 'MTR')
+            entry = info.get('entry', info.get('price', 0))
+            sl = info.get('sl', 0)
+            tp1 = info.get('tp1', 0)
             ev_rating = info.get('ev_rating', 'N/A')
-            msg_lines.append(f"✅ {name} ({code}) [{ev_rating}]")
-            msg_lines.append(format_mtr_alert(
-                code, name, info.get('entry', info.get('price',0)), 
-                info.get('sl',0), info.get('tp1',0), info.get('tp2',0),
-                ev_rating=ev_rating
+            rr = info.get('rr', 0)
+            msg_lines.append(format_signal_line(
+                code, name, strat_type, entry, sl, tp1,
+                ev_rating=ev_rating, rr=rr, detail=True
             ))
-            msg_lines.append("")
-    
-    # Block 2: ⚡ 技术面直通信号 (3K / Structural Gap)
-    other_direct_picks = [p for p in direct_picks if 'MTR' not in p.get('type', '').upper()]
-    if other_direct_picks:
-        from tools.notifier import format_structural_alert
-        msg_lines.append(f"【⚡ 结构/动能波段信号 ({len(other_direct_picks)} 只)】")
-        
-        sg_best, sg_good, sg_warn, others = [], [], [], []
-        
-        for p in other_direct_picks:
-            strat_type = p.get('type', '').upper()
-            if 'STRUCTURAL' in strat_type:
-                ev_rating = p.get('info', {}).get('ev_rating', '')
-                if '🌟' in ev_rating: sg_best.append(p)
-                elif '👍' in ev_rating: sg_good.append(p)
-                elif '⚠️' in ev_rating: sg_warn.append(p)
-                else: others.append(p)
-            else:
-                others.append(p)
-        
-        def _add_sg_lines(group_list, title):
-            if group_list:
-                msg_lines.append(f"  {title} ({len(group_list)}只):")
-                for p in group_list:
-                    code, name = p['code'], (p.get('name_cn') or fetch_stock_name(p['code']))
-                    info = p.get('info', {})
-                    msg_lines.append("  " + format_structural_alert(code, name, info.get('entry', info.get('price',0)), info.get('sl',0), info.get('tp1',0), ev_rating=info.get('ev_rating', 'N/A')))
-        
-        _add_sg_lines(sg_best, "🌟 高预期")
-        _add_sg_lines(sg_good, "👍 常态")
-        _add_sg_lines(sg_warn, "⚠️ 低预期")
-        
-        for p in others:
-            code, name = p['code'], (p.get('name_cn') or fetch_stock_name(p['code']))
-            info = p.get('info', {})
-            strat_type = p.get('type', '').upper()
-            
-            if 'STRUCTURAL' in strat_type:
-                msg_lines.append("  " + format_structural_alert(code, name, info.get('entry', info.get('price',0)), info.get('sl',0), info.get('tp1',0), ev_rating=info.get('ev_rating', 'N/A')))
-            else:
-                gt_entry = info.get('gap_test_entry', 0)
-                gt_rr = info.get('gap_test_rr', 0)
-                if gt_entry:
-                    msg_lines.append(f"• {name} ({code}) | Buy Stop: {gt_entry:.2f} | R:R=1:{gt_rr:.1f}")
-                else:
-                    msg_lines.append(format_3k_alert(code, name, info.get('entry', info.get('price',0)), info.get('sl',0), info.get('tp1',0)))
-        
         msg_lines.append("")
     
-    if not top_mtr and not direct_picks:
-        msg_lines.append("  (无新增信号)\n")
-
-    # Block 3: 📌 观察中
-    watching_now = watchlist.get_watching()
-    watching_count = len(watching_now) if watching_now else 0
+    # ===== ④ B/C 级压缩汇总 =====
+    bc_list = sg_good + sg_warn + sg_other
+    if bc_list:
+        bc_names = []
+        for p in bc_list:
+            code = p['code']
+            name = p.get('name_cn') or fetch_stock_name(code)
+            strat_type = p.get('type', 'MTR')
+            bc_names.append(format_signal_line(
+                code, name, strat_type, 0, 0, 0, detail=False
+            ))
+        msg_lines.append(f"📋 B/C 级 ({len(bc_list)}只): " + " / ".join(bc_names))
+        msg_lines.append("")
     
-    if watching_count > 0:
-        msg_lines.append("【📌 仍在观察中信号】")
-        for watch_code, watch_data in watching_now.items():
-            name = fetch_stock_name(watch_code)
-            entry = watch_data.get('entry', 0)
-            msg_lines.append(f"• 挂单有效 {name} ({watch_code}) | Buy Stop: {entry:.2f}")
+    if total_hits == 0:
+        msg_lines.append("  (无新增信号)")
         msg_lines.append("")
 
-    # Block 4: 🚫 状态变更
-    if status_changes:
-        msg_lines.append("【🔔 信号状态变更】")
-        for st_code, st_status, st_data in status_changes:
-            name = fetch_stock_name(st_code)
-            if st_status == 'TRIGGERED':
-                icon = "🎯"
-                action = "突破买点成交，恭喜入场！"
-            else:
-                icon = "💔"
-                action = "结构破位或止损，建议撤单观察。"
-            msg_lines.append(f"• {icon} {name} ({st_code}) -> {st_status}: {action}")
-        msg_lines.append("")
-
-    msg_lines.append("-------------------")
+    # ===== ⑤ 图表预告 =====
+    # 🟢 确定图表推送候选: A+/A 优先, 无则降级取 B/C 前 5 只
+    chart_candidates = sg_best if sg_best else (sg_good + sg_warn + sg_other)[:5]
     
-    rejected_count = len(rejected_list) if rejected_list else 0
-    msg_lines.append(f"📊 猎手看板: 伏击圈内在观望 {watching_count} 只 | AI 今日挡下 {rejected_count} 只次优形态")
+    if chart_candidates:
+        if sg_best:
+            msg_lines.append(f"🌟 A+/A 级图表即将推送...")
+        else:
+            msg_lines.append(f"📋 本轮无 A+/A 级, B/C 级图表即将推送...")
 
     summary_text = "\n".join(msg_lines)
     send_discord_message(summary_text)
+    
+    # 🟢 返回图表推送候选列表供 _dispatch_charts 使用
+    return chart_candidates
 
 
-def _dispatch_charts(direct_picks, final_picks):
+def _dispatch_charts(direct_picks, final_picks, top_picks=None):
     """
-    [Phase2 重构] 阶段 4: 图表生成 + Discord 分批推送
+    [V9.16 重构] 阶段 4: 仅为 A+/A 级信号生成图表并推送 (与周线对齐)
     """
     from tools.notifier import generate_chart_bytes, send_discord_images
     
-    # 合并所有需要推送图表的信号
-    # top_mtr 从 final_picks 中取前 3
-    final_picks_sorted = sorted(final_picks, key=lambda x: x.get('info', {}).get('score', 0), reverse=True)
-    top_mtr = final_picks_sorted[:3]
-    all_chart_candidates = list(top_mtr) + list(direct_picks)
+    # 🟢 [V9.16] 只推 A+/A 级图表 (与周线统一)
+    if top_picks is None:
+        # 兼容回退: 如果没传 top_picks, 按旧逻辑取全量
+        final_picks_sorted = sorted(final_picks, key=lambda x: x.get('info', {}).get('score', 0), reverse=True)
+        all_chart_candidates = list(final_picks_sorted[:3]) + list(direct_picks)
+    else:
+        all_chart_candidates = list(top_picks)
+    
+    if not all_chart_candidates:
+        logger.info("📭 无任何标的，跳过图表推送")
+        return
     
     chart_pool = []
     for p in all_chart_candidates:
@@ -645,13 +648,18 @@ def _dispatch_charts(direct_picks, final_picks):
 
     if chart_pool:
         BATCH_SIZE = 10 
-        logger.info(f"🎨 Discord 多图推送: {len(chart_pool)} 张 ({BATCH_SIZE} 张/批)")
+        logger.info(f"🎨 Discord 图表推送: {len(chart_pool)} 张 A+/A 级 ({BATCH_SIZE} 张/批)")
+        
+        # 🟢 根据候选级别动态调整附言
+        has_a_level = any('🌟' in p.get('info', {}).get('ev_rating', '') or 'A' in p.get('info', {}).get('ev_rating', '')
+                         for p in all_chart_candidates)
+        label = "🌟 **A+/A 级 K线图**" if has_a_level else "📋 **信号 K线图**"
         
         for batch_start in range(0, len(chart_pool), BATCH_SIZE):
             batch = chart_pool[batch_start:batch_start + BATCH_SIZE]
             send_discord_images(
                 batch, 
-                content=f"📈 信号图表回顾 ({batch_start+1}-{batch_start+len(batch)})"
+                content=f"{label} ({len(chart_pool)} 张)"
             )
 
 
@@ -704,11 +712,12 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
             all_hits, analysis_queue, result_queue, stop_event, ai_threads, use_ai=use_ai
         )
         
-        # 阶段 3: 报告
-        _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_changes)
+        # 阶段 3: 报告 (V9.16: 统一推送格式, 传入池子总量+策略名)
+        top_picks = _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_changes,
+                                     total_stocks=len(all_codes), strategy_names=strategies)
         
-        # 阶段 4: 图表
-        _dispatch_charts(direct_picks, final_picks)
+        # 阶段 4: 图表 (V9.16: 仅推 A+/A 级)
+        _dispatch_charts(direct_picks, final_picks, top_picks=top_picks)
     finally:
         # 🛡️ 确保退出时 AI Worker 线程被正确停止
         stop_event.set()

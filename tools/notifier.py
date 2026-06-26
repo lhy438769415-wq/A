@@ -92,9 +92,9 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
         try:
             strat = StrategyRegistry.get_strategy(strategy_type)
             df = strat.calculate_signals(df)
-        except Exception:
+        except Exception as e:
             # 兼容回退：如果策略注入失败，跳过
-            pass
+            logger.debug(f"[{strategy_type}] {code} 策略注入失败，使用原始数据: {e}")
             
         # 取最近 display_bars 天画图
         plot_df = df.tail(display_bars).copy()
@@ -134,7 +134,8 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
     try:
         from core.strategy_registry import StrategyRegistry
         strat_cn = StrategyRegistry.get_metadata(strategy_type).get('display_name', '策略')
-    except Exception:
+    except Exception as e:
+        logger.debug(f"获取策略 {strategy_type} 中文名失败: {e}")
         strat_cn = '策略'
     
     # 标题极简：中文名（代码）
@@ -241,7 +242,8 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
             ax = axlist[0]
             strat_cls.annotate_chart(ax, plot_df, strategy_type,
                                       sl_price=sl_price, tp1=tp1, tp2=tp2,
-                                      ev_rating=ev_rating, sig_quality=sig_quality, bears=bears)
+                                      ev_rating=ev_rating, sig_quality=sig_quality, bears=bears,
+                                      code=code)
         except Exception as e:
             logger.debug(f"Strategy annotation skipped: {e}")
 
@@ -266,12 +268,55 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
         logger.error(f"❌ Plot Error ({code}): {e}")
         return None
 
+def format_signal_line(code, name, strategy_type, entry, sl, tp1=0, ev_rating="N/A", rr=0, detail=True):
+    """
+    [V9.16] 统一信号格式函数 — 生成与周线推送一致的标准格式
+    
+    Args:
+        code: 股票代码 (如 sz.002350)
+        name: 中文名称
+        strategy_type: 策略名 (如 STRATEGY_GAP_H2)
+        entry: 入场价
+        sl: 止损价
+        tp1: 止盈价
+        ev_rating: 评级标签 (如 '🌟🌟 极品 (A+)')
+        rr: 盈亏比 (float)
+        detail: True=双行展示(含交易三价), False=单行压缩
+    
+    Returns:
+        str: 格式化后的信号文本
+    """
+    strat_short = strategy_type.replace('STRATEGY_', '').replace('MTR_MASTER', 'MTR')
+    
+    if not detail:
+        # 压缩模式: 用于 B/C 级汇总
+        return f"{name}({code})[{strat_short}]"
+    
+    # 完整模式: A+/A 级双行展示
+    line1 = f"• {name}({code}) [{strat_short}] [{ev_rating}]"
+    
+    # 计算盈亏比 (如果未提供)
+    if rr == 0 and entry > 0 and sl > 0 and tp1 > 0:
+        risk = entry - sl
+        if risk > 0:
+            rr = round((tp1 - entry) / risk, 1)
+    
+    tp_str = f"{tp1:.2f}" if tp1 > 0 else "N/A"
+    rr_str = f"1:{rr:.1f}" if rr > 0 else "N/A"
+    line2 = f"  ↳ 入场: ≥{entry:.2f} | 止损: {sl:.2f} | 止盈: {tp_str} | R:R={rr_str}"
+    
+    return f"{line1}\n{line2}"
+
+
+# =========================================================================
+# 兼容性保留 (旧版格式函数，内部重定向到 format_signal_line)
+# =========================================================================
 def format_mtr_alert(code, name, price, sl, tp1, tp2, ev_rating="N/A"):
-    """MTR Master 极简模板 (V9.5)"""
+    """MTR Master 极简模板 (V9.5) — 兼容保留"""
     return f"• 🎯 {name} ({code}) [{ev_rating}] | Buy Stop: {price:.2f} | 止损: {sl:.2f} | 目标: {tp1:.2f}"
 
 def format_3k_alert(code, name, price, sl, tp1=0):
-    """3K Momentum 极简模板 (单行无图标)"""
+    """3K Momentum 极简模板 — 兼容保留"""
     if tp1 == 0:
         risk = price - sl
         if risk <= 0: risk = 0.01
@@ -280,7 +325,7 @@ def format_3k_alert(code, name, price, sl, tp1=0):
     return f"• {name} ({code}) | Buy Stop: {price:.2f} | 止损: {sl:.2f} | 止盈: {tp1:.2f}"
 
 def format_structural_alert(code, name, price, sl, tp1=0, ev_rating="N/A"):
-    """Structural Gap (V3.0) 结构性缺口报警"""
+    """Structural Gap (V3.0) — 兼容保留"""
     if tp1 == 0: tp1 = price * 1.05
     return f"• 🚀 {name} ({code}) [{ev_rating}] | 入场: {price:.2f} | 止损: {sl:.2f} | 建议止盈: {tp1:.2f}"
 
@@ -498,15 +543,34 @@ def send_discord_images(img_buffers, filenames=None, content=""):
         if batch_start == 0 and content:
             data["content"] = content
         
-        try:
-            resp = requests.post(url, headers=headers, files=files, data=data,
-                                proxies=proxies, timeout=60)
-            if resp.status_code == 200:
-                logger.info(f"✅ 多图推送成功 ({len(batch_bufs)} 张)")
-            else:
-                logger.error(f"❌ 多图推送失败: [{resp.status_code}] {resp.text[:200]}")
-        except Exception as e:
-            logger.error(f"❌ 多图推送异常: {e}")
+        # 🟢 [Fix] 与 send_discord_image 对齐: 增加重试机制，防止大文件上传时网络抖动导致一次性失败
+        for attempt in range(2):
+            try:
+                resp = requests.post(url, headers=headers, files=files, data=data,
+                                    proxies=proxies, timeout=90)
+                if resp.status_code in [200, 201]:
+                    logger.info(f"✅ 多图推送成功 ({len(batch_bufs)} 张)")
+                    break
+                elif resp.status_code == 429:
+                    retry_after = resp.json().get('retry_after', 2)
+                    logger.warning(f"⚠️ Discord 限速，等待 {retry_after}s...")
+                    import time
+                    time.sleep(retry_after)
+                else:
+                    logger.error(f"❌ 多图推送失败: [{resp.status_code}] {resp.text[:200]}")
+                    break
+            except Exception as e:
+                if attempt == 0:
+                    logger.warning(f"⚠️ 多图推送尝试 {attempt+1} 失败，正在重试... ({e})")
+                    # 重试前需重新构建 files (BytesIO 已被 read 过)
+                    files = {}
+                    for i, (buf, fname) in enumerate(zip(batch_bufs, batch_names)):
+                        buf.seek(0)
+                        files[f"file{i}"] = (fname, buf.read(), "image/png")
+                    import time
+                    time.sleep(2)
+                else:
+                    logger.error(f"❌ 多图推送异常: {e}")
         
         # 批次间间隔避免 rate limit
         if batch_start + MAX_PER_MSG < len(img_buffers):

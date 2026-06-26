@@ -131,7 +131,8 @@ def run_scanner(code: str, strategy_name: str = 'MTR_MASTER') -> Optional[Dict[s
                         'atr': row.get('atr', 1),
                         'type': strat.name,
                         'score': extra_info.get('score', row.get('mtr_score', 0) if 'mtr_score' in row else 0),
-                        'signal_bar_idx': int(row['mtr_signal_bar_idx']) if ('mtr_signal_bar_idx' in row and row['mtr_signal_bar_idx'] == row['mtr_signal_bar_idx']) else -1,
+                        # 🟢 [Bugfix] 非 MTR 策略用信号K线日期作为稳定去重标识，避免 -1 导致 Watchlist 永久屏蔽
+                        'signal_bar_idx': int(row['mtr_signal_bar_idx']) if ('mtr_signal_bar_idx' in row and row['mtr_signal_bar_idx'] == row['mtr_signal_bar_idx']) else (int(pd.Timestamp(row['date']).strftime('%Y%m%d')) if 'date' in row.index and pd.notna(row['date']) else -1),
                         **extra_info
                     },
                     'df': df_strat.tail(70)

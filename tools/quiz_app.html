@@ -1,0 +1,1557 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PA 看图训练 — Al Brooks Price Action</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   CSS Custom Properties
+   ============================================================ */
+:root {
+  --bg-primary: #0d1117;
+  --bg-card: rgba(22, 27, 34, 0.85);
+  --bg-card-solid: #161b22;
+  --bg-elevated: rgba(33, 38, 45, 0.9);
+  --accent-gradient: linear-gradient(135deg, #58a6ff, #bc8cff);
+  --accent-blue: #58a6ff;
+  --accent-purple: #bc8cff;
+  --success: #3fb950;
+  --danger: #f85149;
+  --warning: #d29922;
+  --text-primary: #e6edf3;
+  --text-muted: #8b949e;
+  --text-dim: #484f58;
+  --border-color: rgba(240, 246, 252, 0.1);
+  --border-highlight: rgba(88, 166, 255, 0.3);
+  --radius-card: 12px;
+  --radius-btn: 8px;
+  --radius-chip: 20px;
+  --shadow-card: 0 8px 32px rgba(0,0,0,0.3);
+  --shadow-glow: 0 0 30px rgba(88,166,255,0.15);
+  --transition: all 0.3s ease;
+  --font: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* ============================================================
+   Reset & Base
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 16px; scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+  line-height: 1.6;
+}
+
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(ellipse 600px 400px at 20% 10%, rgba(88,166,255,0.06) 0%, transparent 70%),
+    radial-gradient(ellipse 500px 350px at 80% 90%, rgba(188,140,255,0.05) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ============================================================
+   Utility Classes
+   ============================================================ */
+.gradient-text {
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.glass {
+  background: var(--bg-card);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card);
+}
+
+.fade-enter {
+  animation: fadeIn 0.4s ease forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-8px); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 0.7; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(88,166,255,0.2); }
+  50%      { box-shadow: 0 0 40px rgba(88,166,255,0.4); }
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translate(-50%, -20px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@keyframes toastOut {
+  from { opacity: 1; transform: translate(-50%, 0); }
+  to   { opacity: 0; transform: translate(-50%, -20px); }
+}
+
+@keyframes correctBounce {
+  0%   { transform: scale(0.8); opacity: 0; }
+  50%  { transform: scale(1.05); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes shakeWrong {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-8px); }
+  40%      { transform: translateX(8px); }
+  60%      { transform: translateX(-6px); }
+  80%      { transform: translateX(6px); }
+}
+
+/* ============================================================
+   Layout
+   ============================================================ */
+#app {
+  position: relative;
+  z-index: 1;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px 40px;
+}
+
+/* ============================================================
+   Header
+   ============================================================ */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 0 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.header-left h1 {
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.header-left .subtitle {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.header-right {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.stat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-chip);
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid var(--border-color);
+  background: var(--bg-elevated);
+  white-space: nowrap;
+}
+
+.stat-badge .label { color: var(--text-muted); font-weight: 400; }
+.stat-badge .value { color: var(--text-primary); }
+.stat-badge.accent .value { color: var(--accent-blue); }
+.stat-badge.streak .value { color: var(--warning); }
+
+.btn-stats-toggle {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  padding: 6px 12px;
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-family: var(--font);
+  transition: var(--transition);
+}
+.btn-stats-toggle:hover {
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+/* ============================================================
+   Filter Bar
+   ============================================================ */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  margin-bottom: 20px;
+  border-radius: var(--radius-btn);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  flex-wrap: wrap;
+  overflow: hidden;
+  max-height: 60px;
+  transition: max-height 0.35s ease, opacity 0.3s ease;
+}
+
+.filter-bar.collapsed {
+  max-height: 0;
+  padding: 0 16px;
+  border-color: transparent;
+  opacity: 0;
+  margin-bottom: 0;
+}
+
+.filter-bar label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.filter-bar select {
+  background: var(--bg-card-solid);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 5px 28px 5px 10px;
+  font-size: 0.8rem;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: var(--transition);
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238b949e'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+.filter-bar select:hover { border-color: var(--accent-blue); }
+.filter-bar select:focus { outline: none; border-color: var(--accent-blue); box-shadow: 0 0 0 2px rgba(88,166,255,0.15); }
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ============================================================
+   Main Content Area
+   ============================================================ */
+.main-wrap {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.main-content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ============================================================
+   IDLE State
+   ============================================================ */
+.idle-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 40px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.idle-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: var(--radius-card);
+  padding: 1px;
+  background: var(--accent-gradient);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.idle-icon {
+  font-size: 3.5rem;
+  margin-bottom: 16px;
+  filter: drop-shadow(0 0 20px rgba(88,166,255,0.3));
+}
+
+.idle-card h2 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.idle-card .idle-desc {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  margin-bottom: 28px;
+}
+
+.btn-start {
+  background: var(--accent-gradient);
+  color: #fff;
+  border: none;
+  padding: 14px 48px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-family: var(--font);
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  transition: var(--transition);
+  position: relative;
+  overflow: hidden;
+  letter-spacing: 0.02em;
+}
+.btn-start::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  transition: var(--transition);
+}
+.btn-start:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(88,166,255,0.35);
+}
+.btn-start:hover::after {
+  box-shadow: inset 0 0 20px rgba(255,255,255,0.1);
+}
+.btn-start:active { transform: translateY(0); }
+
+.pool-count {
+  margin-top: 18px;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+/* ============================================================
+   Loading Skeleton
+   ============================================================ */
+.skeleton-chart {
+  width: 100%;
+  height: 400px;
+  border-radius: var(--radius-card);
+  background: linear-gradient(90deg, var(--bg-card-solid) 25%, rgba(48,54,61,0.6) 50%, var(--bg-card-solid) 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.8s infinite linear;
+}
+
+.skeleton-bar {
+  height: 20px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--bg-card-solid) 25%, rgba(48,54,61,0.6) 50%, var(--bg-card-solid) 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.8s infinite linear;
+  margin-top: 12px;
+}
+.skeleton-bar.short { width: 40%; }
+.skeleton-bar.med   { width: 65%; }
+
+/* ============================================================
+   Question State (Chart + Action Buttons)
+   ============================================================ */
+.chart-container {
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card-solid);
+  position: relative;
+}
+
+.chart-container img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.signal-info-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 18px;
+  margin-top: 12px;
+  border-radius: var(--radius-btn);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  font-size: 0.82rem;
+  flex-wrap: wrap;
+}
+
+.signal-info-bar .info-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.signal-info-bar .info-label { color: var(--text-muted); }
+.signal-info-bar .info-value { color: var(--text-primary); font-weight: 600; }
+
+.action-buttons {
+  display: flex;
+  gap: 16px;
+  margin-top: 20px;
+  justify-content: center;
+}
+
+.btn-action {
+  flex: 1;
+  max-width: 220px;
+  padding: 16px 24px;
+  border: none;
+  border-radius: var(--radius-btn);
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: var(--transition);
+  letter-spacing: 0.01em;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-long {
+  background: linear-gradient(135deg, #238636, #2ea043);
+  color: #fff;
+  box-shadow: 0 4px 15px rgba(46,160,67,0.25);
+}
+.btn-long:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(46,160,67,0.4);
+}
+
+.btn-skip {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+}
+.btn-skip:hover {
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+  transform: translateY(-2px);
+}
+
+.btn-action:active { transform: translateY(0) !important; }
+
+/* ============================================================
+   Result Banner
+   ============================================================ */
+.result-banner {
+  padding: 16px 24px;
+  border-radius: var(--radius-card);
+  font-size: 1.1rem;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.result-banner.correct {
+  background: linear-gradient(135deg, rgba(63,185,80,0.15), rgba(63,185,80,0.05));
+  border: 1px solid rgba(63,185,80,0.3);
+  color: var(--success);
+  animation: correctBounce 0.5s ease;
+}
+
+.result-banner.incorrect {
+  background: linear-gradient(135deg, rgba(248,81,73,0.15), rgba(248,81,73,0.05));
+  border: 1px solid rgba(248,81,73,0.3);
+  color: var(--danger);
+  animation: shakeWrong 0.5s ease;
+}
+
+/* ============================================================
+   Signal Details Card (Reveal)
+   ============================================================ */
+.details-card {
+  padding: 24px;
+  margin-top: 16px;
+}
+
+.details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-item .d-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+}
+
+.detail-item .d-value {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.badge-status {
+  display: inline-block;
+  padding: 3px 12px;
+  border-radius: var(--radius-chip);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.badge-status.win  { background: rgba(63,185,80,0.15); color: var(--success); border: 1px solid rgba(63,185,80,0.3); }
+.badge-status.loss { background: rgba(248,81,73,0.15); color: var(--danger); border: 1px solid rgba(248,81,73,0.3); }
+.badge-status.expired { background: rgba(139,148,158,0.15); color: var(--text-muted); border: 1px solid rgba(139,148,158,0.3); }
+
+/* ============================================================
+   Annotation Panel
+   ============================================================ */
+.annotation-panel {
+  margin-top: 20px;
+  padding: 24px;
+}
+
+.annotation-panel h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.anno-section {
+  margin-bottom: 18px;
+}
+
+.anno-section .anno-label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.toggle-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toggle-btn {
+  padding: 7px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-family: var(--font);
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.toggle-btn:hover { border-color: var(--accent-blue); color: var(--text-primary); }
+.toggle-btn.active {
+  background: rgba(88,166,255,0.12);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+.toggle-btn.active-good {
+  background: rgba(63,185,80,0.12);
+  border-color: var(--success);
+  color: var(--success);
+}
+.toggle-btn.active-warn {
+  background: rgba(210,153,34,0.12);
+  border-color: var(--warning);
+  color: var(--warning);
+}
+.toggle-btn.active-bad {
+  background: rgba(248,81,73,0.12);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.chip-btn {
+  padding: 5px 13px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-family: var(--font);
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.chip-btn:hover { border-color: var(--accent-purple); color: var(--text-muted); }
+.chip-btn.selected {
+  background: rgba(188,140,255,0.12);
+  border-color: var(--accent-purple);
+  color: var(--accent-purple);
+}
+
+.anno-textarea {
+  width: 100%;
+  min-height: 70px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-btn);
+  background: var(--bg-card-solid);
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 0.85rem;
+  resize: vertical;
+  transition: var(--transition);
+}
+.anno-textarea:focus { outline: none; border-color: var(--accent-blue); box-shadow: 0 0 0 2px rgba(88,166,255,0.15); }
+.anno-textarea::placeholder { color: var(--text-dim); }
+
+.btn-submit-anno {
+  background: var(--accent-gradient);
+  color: #fff;
+  border: none;
+  padding: 10px 32px;
+  border-radius: var(--radius-btn);
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: var(--transition);
+  margin-top: 6px;
+}
+.btn-submit-anno:hover:not(:disabled) { box-shadow: 0 4px 20px rgba(88,166,255,0.3); transform: translateY(-1px); }
+.btn-submit-anno:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-next {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  margin: 28px auto 0;
+  padding: 14px 24px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-btn);
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.btn-next:hover {
+  border-color: var(--accent-blue);
+  background: rgba(88,166,255,0.08);
+  transform: translateY(-1px);
+}
+
+/* ============================================================
+   Stats Sidebar
+   ============================================================ */
+.stats-sidebar {
+  width: 300px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 20px;
+  transition: var(--transition);
+}
+
+.stats-sidebar.hidden { display: none; }
+
+.stats-card {
+  padding: 24px;
+}
+
+.stats-card h3 {
+  font-size: 0.92rem;
+  font-weight: 700;
+  margin-bottom: 20px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.72rem;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(240,246,252,0.05);
+}
+.stat-row:last-child { border-bottom: none; }
+
+.stat-row .s-label { font-size: 0.82rem; color: var(--text-muted); }
+.stat-row .s-value { font-size: 0.95rem; font-weight: 700; }
+
+.accuracy-big {
+  text-align: center;
+  padding: 20px 0;
+  margin-bottom: 12px;
+}
+.accuracy-big .big-num {
+  font-size: 2.8rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.accuracy-big .big-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.recent-bar {
+  display: flex;
+  gap: 3px;
+  margin: 16px 0 8px;
+}
+
+.recent-bar .bar-item {
+  flex: 1;
+  height: 24px;
+  border-radius: 3px;
+  transition: var(--transition);
+}
+.recent-bar .bar-item.correct { background: var(--success); }
+.recent-bar .bar-item.wrong   { background: var(--danger); }
+.recent-bar .bar-item.empty   { background: rgba(139,148,158,0.15); }
+
+.recent-label {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+/* Calibration */
+.calibration-section {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-color);
+}
+
+.calibration-section h4 {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 12px;
+}
+
+.cal-table {
+  width: 100%;
+  font-size: 0.78rem;
+  border-collapse: collapse;
+}
+.cal-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 500;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.7rem;
+}
+.cal-table td {
+  padding: 6px;
+  color: var(--text-muted);
+}
+.cal-table td:first-child { font-weight: 600; color: var(--text-primary); }
+
+.cal-pct {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+.cal-pct.high  { background: rgba(63,185,80,0.15); color: var(--success); }
+.cal-pct.mid   { background: rgba(210,153,34,0.15); color: var(--warning); }
+.cal-pct.low   { background: rgba(248,81,73,0.15); color: var(--danger); }
+
+/* ============================================================
+   Toast
+   ============================================================ */
+.toast {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 28px;
+  border-radius: var(--radius-btn);
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-family: var(--font);
+  z-index: 9999;
+  animation: toastIn 0.35s ease;
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+}
+.toast.success {
+  background: rgba(63,185,80,0.2);
+  color: var(--success);
+  border: 1px solid rgba(63,185,80,0.3);
+}
+.toast.error {
+  background: rgba(248,81,73,0.2);
+  color: var(--danger);
+  border: 1px solid rgba(248,81,73,0.3);
+}
+.toast.info {
+  background: rgba(88,166,255,0.2);
+  color: var(--accent-blue);
+  border: 1px solid rgba(88,166,255,0.3);
+}
+.toast.removing { animation: toastOut 0.3s ease forwards; }
+
+/* ============================================================
+   Keyboard Hints
+   ============================================================ */
+.kbd-hint {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(139,148,158,0.15);
+  color: var(--text-dim);
+  font-size: 0.65rem;
+  font-family: var(--font);
+  font-weight: 600;
+  margin-left: 6px;
+  vertical-align: middle;
+  border: 1px solid rgba(139,148,158,0.2);
+}
+
+/* ============================================================
+   Hidden utility
+   ============================================================ */
+.hidden { display: none !important; }
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media (max-width: 900px) {
+  .main-wrap { flex-direction: column; }
+  .stats-sidebar { width: 100%; position: static; }
+  .stats-sidebar.hidden { display: none !important; }
+}
+
+@media (max-width: 768px) {
+  .header { flex-direction: column; align-items: flex-start; }
+  .header-right { width: 100%; justify-content: flex-start; }
+  .filter-bar { flex-direction: column; align-items: flex-start; max-height: 120px; }
+  .filter-bar.collapsed { max-height: 0; }
+  .idle-card { padding: 50px 24px; }
+  .action-buttons { flex-direction: column; align-items: center; }
+  .btn-action { max-width: 100%; width: 100%; }
+  .details-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 480px) {
+  #app { padding: 0 12px 30px; }
+  .header-left h1 { font-size: 1.3rem; }
+  .stat-badge { font-size: 0.72rem; padding: 4px 10px; }
+  .details-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- ==================== Header ==================== -->
+  <header class="header">
+    <div class="header-left">
+      <h1><span class="gradient-text">📊 PA 看图训练</span></h1>
+      <div class="subtitle">Al Brooks Price Action 信号识别训练</div>
+    </div>
+    <div class="header-right">
+      <span class="stat-badge">
+        <span class="label">已练习</span>
+        <span class="value" id="hdr-total">0</span>
+      </span>
+      <span class="stat-badge accent">
+        <span class="label">正确率</span>
+        <span class="value" id="hdr-accuracy">0%</span>
+      </span>
+      <span class="stat-badge streak">
+        <span class="label">连胜</span>
+        <span class="value" id="hdr-streak">0</span>
+      </span>
+      <button class="btn-stats-toggle" id="btn-toggle-stats" title="切换统计面板">📈 统计</button>
+    </div>
+  </header>
+
+  <!-- ==================== Filter Bar ==================== -->
+  <div class="filter-bar" id="filter-bar">
+    <div class="filter-group">
+      <label>策略</label>
+      <select id="filter-strategy">
+        <option value="">全部策略</option>
+        <option value="STRATEGY_GAP_PINBAR">GAP_PINBAR</option>
+        <option value="STRATEGY_GAP_H2">GAP_H2</option>
+        <option value="STRATEGY_STRUCTURAL_GAP">STRUCTURAL_GAP</option>
+        <option value="STRATEGY_MTR">MTR</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>状态</label>
+      <select id="filter-status">
+        <option value="WIN,LOSS">已结算 (WIN+LOSS)</option>
+        <option value="WIN">仅胜</option>
+        <option value="LOSS">仅负</option>
+        <option value="">全部</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- ==================== Main Wrap ==================== -->
+  <div class="main-wrap">
+    <!-- Main Content -->
+    <div class="main-content" id="main-content">
+      <!-- Content injected by JS -->
+    </div>
+
+    <!-- Stats Sidebar -->
+    <aside class="stats-sidebar hidden" id="stats-sidebar">
+      <div class="stats-card glass">
+        <h3>📊 练习统计</h3>
+
+        <div class="accuracy-big">
+          <div class="big-num gradient-text" id="stats-accuracy">0%</div>
+          <div class="big-label">正确率</div>
+        </div>
+
+        <div class="stat-row">
+          <span class="s-label">总练习数</span>
+          <span class="s-value" id="stats-total">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="s-label">正确数</span>
+          <span class="s-value" style="color:var(--success)" id="stats-correct">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="s-label">当前连胜</span>
+          <span class="s-value" style="color:var(--warning)" id="stats-streak">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="s-label">最长连胜</span>
+          <span class="s-value" id="stats-max-streak">0</span>
+        </div>
+
+        <div class="recent-label" style="margin-top:16px;">最近 10 次</div>
+        <div class="recent-bar" id="recent-bar">
+          <!-- JS fills 10 items -->
+        </div>
+
+        <div class="calibration-section" id="calibration-section" style="display:none;">
+          <h4>评级校准</h4>
+          <table class="cal-table">
+            <thead><tr><th>系统评级</th><th>优质占比</th><th>样本</th></tr></thead>
+            <tbody id="cal-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+/* =============================================================
+   State
+   ============================================================= */
+const state = {
+  phase: 'IDLE',
+  currentSignal: null,
+  userDirection: null,
+  judgeResult: null,
+  revealData: null,
+  filters: { strategy: '', status: 'WIN,LOSS' },
+  session: { total: 0, correct: 0, streak: 0, max_streak: 0, accuracy: 0 },
+  recentResults: [],
+  statsVisible: false,
+  totalAvailable: 0,
+  annotationSubmitted: false
+};
+
+/* =============================================================
+   DOM refs
+   ============================================================= */
+const $ = (sel) => document.querySelector(sel);
+const $main = $('#main-content');
+
+/* =============================================================
+   Helpers
+   ============================================================= */
+function formatStrategy(name) {
+  if (!name) return '—';
+  return name.replace(/^STRATEGY_/, '').replace(/_/g, ' ');
+}
+
+function formatRating(r) {
+  if (!r) return '—';
+  return r.replace(/[\u{1F300}-\u{1FAFF}]/gu, '').trim();
+}
+
+function formatTimeframe(tf) {
+  const map = { daily: '日线', weekly: '周线', '60min': '60分钟' };
+  return map[tf] || tf || '—';
+}
+
+function showToast(msg, type = 'success') {
+  const old = document.querySelector('.toast');
+  if (old) old.remove();
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { t.classList.add('removing'); setTimeout(() => t.remove(), 300); }, 2200);
+}
+
+async function api(url, options = {}) {
+  try {
+    const resp = await fetch(url, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.json();
+  } catch (e) {
+    showToast(`请求失败: ${e.message}`, 'error');
+    throw e;
+  }
+}
+
+/* =============================================================
+   Session Display Update
+   ============================================================= */
+function updateSessionDisplay() {
+  const s = state.session;
+  $('#hdr-total').textContent = s.total;
+  $('#hdr-accuracy').textContent = s.total > 0 ? `${Math.round(s.accuracy)}%` : '0%';
+  $('#hdr-streak').textContent = s.streak;
+
+  // Sidebar
+  $('#stats-total').textContent = s.total;
+  $('#stats-correct').textContent = s.correct;
+  $('#stats-accuracy').textContent = s.total > 0 ? `${Math.round(s.accuracy)}%` : '0%';
+  $('#stats-streak').textContent = s.streak;
+  $('#stats-max-streak').textContent = s.max_streak;
+
+  // Recent bar
+  const bar = $('#recent-bar');
+  bar.innerHTML = '';
+  for (let i = 0; i < 10; i++) {
+    const d = document.createElement('div');
+    d.className = 'bar-item';
+    if (i < state.recentResults.length) {
+      d.className += state.recentResults[i] ? ' correct' : ' wrong';
+    } else {
+      d.className += ' empty';
+    }
+    bar.appendChild(d);
+  }
+}
+
+/* =============================================================
+   Stats Panel
+   ============================================================= */
+async function loadStats() {
+  try {
+    const data = await api('/api/quiz/stats');
+    if (data.session) {
+      state.session = { ...state.session, ...data.session };
+      updateSessionDisplay();
+    }
+    // Calibration
+    const calSection = $('#calibration-section');
+    const tbody = $('#cal-tbody');
+    if (data.total_annotations > 0 && data.calibration) {
+      calSection.style.display = '';
+      tbody.innerHTML = '';
+      for (const [rating, info] of Object.entries(data.calibration)) {
+        const pct = Math.round(info.agreement_pct);
+        let cls = 'low';
+        if (pct >= 70) cls = 'high';
+        else if (pct >= 40) cls = 'mid';
+        tbody.innerHTML += `
+          <tr>
+            <td>${rating}</td>
+            <td><span class="cal-pct ${cls}">${pct}%</span></td>
+            <td>${info.total}</td>
+          </tr>`;
+      }
+    } else {
+      calSection.style.display = 'none';
+    }
+  } catch (_) { /* silent */ }
+}
+
+/* =============================================================
+   Load Dynamic Filters
+   ============================================================= */
+async function loadFilters() {
+  try {
+    const data = await api('/api/quiz/filters');
+    const sel = $('#filter-strategy');
+    if (data.strategies && data.strategies.length) {
+      sel.innerHTML = '<option value="">全部策略</option>';
+      data.strategies.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = formatStrategy(s);
+        sel.appendChild(opt);
+      });
+    }
+  } catch (_) { /* use defaults */ }
+}
+
+/* =============================================================
+   Render: IDLE
+   ============================================================= */
+function renderIdle() {
+  state.phase = 'IDLE';
+  state.currentSignal = null;
+  state.userDirection = null;
+  state.judgeResult = null;
+  state.revealData = null;
+  state.annotationSubmitted = false;
+
+  $main.innerHTML = `
+    <div class="idle-card glass fade-enter">
+      <div class="idle-icon">📊</div>
+      <h2 class="gradient-text">准备开始训练</h2>
+      <p class="idle-desc">系统将随机展示一张 K 线图，你需要判断这是否为有效的做多信号</p>
+      <button class="btn-start" onclick="startQuiz()">🚀 开始练习</button>
+      <div class="pool-count" id="pool-count">${state.totalAvailable > 0 ? `题库: ${state.totalAvailable} 条信号` : '加载题库中...'}</div>
+    </div>`;
+}
+
+/* =============================================================
+   Render: LOADING
+   ============================================================= */
+function renderLoading() {
+  state.phase = 'LOADING';
+  $main.innerHTML = `
+    <div class="fade-enter">
+      <div class="skeleton-chart"></div>
+      <div class="skeleton-bar med"></div>
+      <div class="skeleton-bar short"></div>
+    </div>`;
+}
+
+/* =============================================================
+   Render: QUESTION
+   ============================================================= */
+function renderQuestion() {
+  state.phase = 'QUESTION';
+  const sig = state.currentSignal;
+  $main.innerHTML = `
+    <div class="fade-enter">
+      <div class="chart-container">
+        <img src="data:image/png;base64,${sig.blind_chart}" alt="K线图" />
+      </div>
+      <div class="signal-info-bar">
+        <div class="info-item">
+          <span class="info-label">策略</span>
+          <span class="info-value">${formatStrategy(sig.strategy)}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">周期</span>
+          <span class="info-value">${formatTimeframe(sig.timeframe)}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">信号日期</span>
+          <span class="info-value">${sig.signal_date}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">标的</span>
+          <span class="info-value">${sig.code} ${sig.name || ''}</span>
+        </div>
+      </div>
+      <div class="action-buttons">
+        <button class="btn-action btn-long" onclick="submitDirection('LONG')">🟢 做多 <span class="kbd-hint">Enter</span></button>
+        <button class="btn-action btn-skip" onclick="submitDirection('SKIP')">⚪ 观望 <span class="kbd-hint">Space</span></button>
+      </div>
+    </div>`;
+}
+
+/* =============================================================
+   Render: REVEAL
+   ============================================================= */
+function renderReveal() {
+  state.phase = 'REVEAL';
+  const j = state.judgeResult;
+  const r = state.revealData;
+  const isCorrect = j && j.correct;
+
+  // Status badge
+  let statusBadge = '—';
+  if (r) {
+    const s = (r.status || '').toUpperCase();
+    if (s === 'WIN') statusBadge = '<span class="badge-status win">WIN</span>';
+    else if (s === 'LOSS') statusBadge = '<span class="badge-status loss">LOSS</span>';
+    else statusBadge = `<span class="badge-status expired">${s || 'N/A'}</span>`;
+  }
+
+  // MFE / MAE
+  let mfeHtml = '';
+  if (r && r.max_favorable != null) {
+    mfeHtml += `
+      <div class="detail-item">
+        <span class="d-label">最大有利 (MFE)</span>
+        <span class="d-value" style="color:var(--success)">${Number(r.max_favorable).toFixed(2)}</span>
+      </div>`;
+  }
+  if (r && r.max_adverse != null) {
+    mfeHtml += `
+      <div class="detail-item">
+        <span class="d-label">最大不利 (MAE)</span>
+        <span class="d-value" style="color:var(--danger)">${Number(r.max_adverse).toFixed(2)}</span>
+      </div>`;
+  }
+  if (r && r.bars_to_resolve != null) {
+    mfeHtml += `
+      <div class="detail-item">
+        <span class="d-label">结算K线数</span>
+        <span class="d-value">${r.bars_to_resolve}</span>
+      </div>`;
+  }
+
+  $main.innerHTML = `
+    <div class="fade-enter">
+      ${j ? `<div class="result-banner ${isCorrect ? 'correct' : 'incorrect'}">${isCorrect ? '✅ 判断正确！' : '❌ 判断错误'}</div>` : ''}
+      
+      ${r && r.answer_chart ? `
+      <div class="chart-container">
+        <img src="data:image/png;base64,${r.answer_chart}" alt="答案图" />
+      </div>` : ''}
+
+      ${r ? `
+      <div class="details-card glass" style="animation-delay:0.1s;">
+        <div class="details-grid">
+          <div class="detail-item">
+            <span class="d-label">入场价</span>
+            <span class="d-value">${r.entry_price != null ? Number(r.entry_price).toFixed(2) : '—'}</span>
+          </div>
+          <div class="detail-item">
+            <span class="d-label">止损价</span>
+            <span class="d-value" style="color:var(--danger)">${r.sl_price != null ? Number(r.sl_price).toFixed(2) : '—'}</span>
+          </div>
+          <div class="detail-item">
+            <span class="d-label">止盈价</span>
+            <span class="d-value" style="color:var(--success)">${r.tp_price != null ? Number(r.tp_price).toFixed(2) : '—'}</span>
+          </div>
+          <div class="detail-item">
+            <span class="d-label">盈亏比</span>
+            <span class="d-value">${r.rr_ratio != null ? Number(r.rr_ratio).toFixed(2) : '—'}</span>
+          </div>
+          <div class="detail-item">
+            <span class="d-label">系统评级</span>
+            <span class="d-value">${formatRating(r.ev_rating) || '—'}</span>
+          </div>
+          <div class="detail-item">
+            <span class="d-label">实际结果</span>
+            <span class="d-value">${statusBadge}</span>
+          </div>
+          ${mfeHtml}
+        </div>
+      </div>` : ''}
+
+      <!-- Annotation Panel -->
+      <div class="annotation-panel glass" style="animation-delay:0.2s;" id="anno-panel">
+        <h3>📝 人工标注</h3>
+        
+        <div class="anno-section">
+          <div class="anno-label">信号质量</div>
+          <div class="toggle-group" id="quality-group">
+            <button class="toggle-btn" data-val="good" onclick="setQuality(this, 'good')">✅ 优质</button>
+            <button class="toggle-btn" data-val="average" onclick="setQuality(this, 'average')">⚠️ 一般</button>
+            <button class="toggle-btn" data-val="bad" onclick="setQuality(this, 'bad')">❌ 垃圾</button>
+          </div>
+        </div>
+
+        <div class="anno-section">
+          <div class="anno-label">你的评级</div>
+          <div class="toggle-group" id="rating-group">
+            <button class="toggle-btn" data-val="A+" onclick="setRating(this)">A+</button>
+            <button class="toggle-btn" data-val="A" onclick="setRating(this)">A</button>
+            <button class="toggle-btn" data-val="B" onclick="setRating(this)">B</button>
+            <button class="toggle-btn" data-val="C" onclick="setRating(this)">C</button>
+            <button class="toggle-btn" data-val="D" onclick="setRating(this)">D</button>
+          </div>
+        </div>
+
+        <div class="anno-section">
+          <div class="anno-label">经验标签（可多选）</div>
+          <div class="toggle-group" id="tags-group">
+            <button class="chip-btn" data-tag="FOMO" onclick="toggleTag(this)">FOMO</button>
+            <button class="chip-btn" data-tag="PATIENCE" onclick="toggleTag(this)">PATIENCE</button>
+            <button class="chip-btn" data-tag="PERFECT_EXECUTION" onclick="toggleTag(this)">PERFECT_EXECUTION</button>
+            <button class="chip-btn" data-tag="EARLY_EXIT" onclick="toggleTag(this)">EARLY_EXIT</button>
+            <button class="chip-btn" data-tag="LATE_ENTRY" onclick="toggleTag(this)">LATE_ENTRY</button>
+            <button class="chip-btn" data-tag="IGNORED_SIGNAL" onclick="toggleTag(this)">IGNORED_SIGNAL</button>
+            <button class="chip-btn" data-tag="SYSTEM_FOLLOW" onclick="toggleTag(this)">SYSTEM_FOLLOW</button>
+            <button class="chip-btn" data-tag="OTHER" onclick="toggleTag(this)">OTHER</button>
+          </div>
+        </div>
+
+        <div class="anno-section">
+          <div class="anno-label">备注</div>
+          <textarea class="anno-textarea" id="anno-notes" placeholder="写下你对这个信号的思考..."></textarea>
+        </div>
+
+        <button class="btn-submit-anno" id="btn-submit-anno" onclick="submitAnnotation()" disabled>提交标注</button>
+      </div>
+
+      <button class="btn-next" onclick="startQuiz()">下一题 →  <span class="kbd-hint">N</span></button>
+    </div>`;
+}
+
+/* =============================================================
+   Annotation State
+   ============================================================= */
+let annoState = { quality: null, rating: null, tags: new Set() };
+
+function resetAnnoState() {
+  annoState = { quality: null, rating: null, tags: new Set() };
+}
+
+function setQuality(btn, val) {
+  const group = btn.parentElement;
+  group.querySelectorAll('.toggle-btn').forEach(b => {
+    b.classList.remove('active-good', 'active-warn', 'active-bad');
+  });
+  const cls = val === 'good' ? 'active-good' : val === 'average' ? 'active-warn' : 'active-bad';
+  btn.classList.add(cls);
+  annoState.quality = val;
+  checkAnnoReady();
+}
+
+function setRating(btn) {
+  const group = btn.parentElement;
+  group.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  annoState.rating = btn.dataset.val;
+}
+
+function toggleTag(btn) {
+  const tag = btn.dataset.tag;
+  if (annoState.tags.has(tag)) {
+    annoState.tags.delete(tag);
+    btn.classList.remove('selected');
+  } else {
+    annoState.tags.add(tag);
+    btn.classList.add('selected');
+  }
+}
+
+function checkAnnoReady() {
+  const btn = $('#btn-submit-anno');
+  if (btn) btn.disabled = !annoState.quality;
+}
+
+async function submitAnnotation() {
+  if (state.annotationSubmitted) return;
+  if (!state.currentSignal || !annoState.quality) return;
+
+  const body = {
+    signal_id: state.currentSignal.signal_id,
+    user_direction: state.userDirection || 'SKIP',
+    user_quality: annoState.quality,
+    human_rating: annoState.rating || '',
+    lesson_tag: [...annoState.tags].join(','),
+    notes: ($('#anno-notes') ? $('#anno-notes').value : '')
+  };
+
+  try {
+    await api('/api/quiz/annotate', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+    state.annotationSubmitted = true;
+    showToast('✅ 标注已提交', 'success');
+    const btn = $('#btn-submit-anno');
+    if (btn) {
+      btn.textContent = '已提交 ✓';
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+    }
+    loadStats();
+  } catch (_) { /* toast shown by api() */ }
+}
+
+/* =============================================================
+   Quiz Flow
+   ============================================================= */
+async function startQuiz() {
+  renderLoading();
+  resetAnnoState();
+
+  const params = new URLSearchParams();
+  if (state.filters.strategy) params.set('strategy', state.filters.strategy);
+  if (state.filters.status) params.set('status', state.filters.status);
+
+  try {
+    const data = await api(`/api/quiz/random?${params.toString()}`);
+    state.currentSignal = data;
+    state.totalAvailable = data.total_available || state.totalAvailable;
+    renderQuestion();
+  } catch (_) {
+    renderIdle();
+  }
+}
+
+async function submitDirection(dir) {
+  if (state.phase !== 'QUESTION') return;
+  state.userDirection = dir;
+
+  // Disable buttons
+  document.querySelectorAll('.btn-action').forEach(b => {
+    b.disabled = true;
+    b.style.opacity = '0.5';
+    b.style.pointerEvents = 'none';
+  });
+
+  try {
+    const judgeData = await api('/api/quiz/judge', {
+      method: 'POST',
+      body: JSON.stringify({ signal_id: state.currentSignal.signal_id, direction: dir })
+    });
+    state.judgeResult = judgeData;
+
+    // Update session
+    if (judgeData.session) {
+      state.session = { ...state.session, ...judgeData.session };
+    }
+    state.recentResults.push(!!judgeData.correct);
+    if (state.recentResults.length > 10) state.recentResults.shift();
+    updateSessionDisplay();
+
+    // Fetch reveal
+    const revealData = await api(`/api/quiz/reveal?signal_id=${encodeURIComponent(state.currentSignal.signal_id)}`);
+    state.revealData = revealData;
+
+    renderReveal();
+  } catch (_) {
+    // Re-enable buttons on error
+    document.querySelectorAll('.btn-action').forEach(b => {
+      b.disabled = false;
+      b.style.opacity = '1';
+      b.style.pointerEvents = '';
+    });
+  }
+}
+
+/* =============================================================
+   Event Listeners
+   ============================================================= */
+
+// Filter changes
+$('#filter-strategy').addEventListener('change', (e) => {
+  state.filters.strategy = e.target.value;
+});
+$('#filter-status').addEventListener('change', (e) => {
+  state.filters.status = e.target.value;
+});
+
+// Stats toggle
+$('#btn-toggle-stats').addEventListener('click', () => {
+  state.statsVisible = !state.statsVisible;
+  const sidebar = $('#stats-sidebar');
+  if (state.statsVisible) {
+    sidebar.classList.remove('hidden');
+    loadStats();
+  } else {
+    sidebar.classList.add('hidden');
+  }
+});
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  // Don't intercept when typing in textarea
+  if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+
+  if (e.key === 'Enter' && state.phase === 'QUESTION') {
+    e.preventDefault();
+    submitDirection('LONG');
+  } else if (e.key === ' ' && state.phase === 'QUESTION') {
+    e.preventDefault();
+    submitDirection('SKIP');
+  } else if ((e.key === 'n' || e.key === 'N') && state.phase === 'REVEAL') {
+    e.preventDefault();
+    startQuiz();
+  } else if (e.key === 'Enter' && state.phase === 'IDLE') {
+    e.preventDefault();
+    startQuiz();
+  }
+});
+
+/* =============================================================
+   Init
+   ============================================================= */
+(async function init() {
+  renderIdle();
+  updateSessionDisplay();
+  loadFilters();
+
+  // Prefetch total available
+  try {
+    const data = await api('/api/quiz/random?strategy=&status=WIN,LOSS');
+    state.totalAvailable = data.total_available || 0;
+    state.currentSignal = data;
+    const pc = $('#pool-count');
+    if (pc) pc.textContent = `题库: ${state.totalAvailable} 条信号`;
+    // Go directly to question if we got a signal
+    // Actually, stay idle — let user click start
+    state.currentSignal = null;
+  } catch (_) {
+    // Try just getting the count another way — silent fail
+    const pc = $('#pool-count');
+    if (pc) pc.textContent = '点击开始加载题目';
+  }
+})();
+</script>
+</body>
+</html>

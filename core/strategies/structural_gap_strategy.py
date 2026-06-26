@@ -410,8 +410,9 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
     try:
         strat_cls = type(StrategyRegistry.get_strategy(strategy_type))
         meta = strat_cls.get_metadata()
-    except Exception:
+    except Exception as e:
         # 兼容回退：如果不能获取 metadata，跳过标注
+        logger.debug(f"[{strategy_type}] 获取策略 metadata 失败，跳过标注: {e}")
         return
     
     sig_col = meta.get('signal_column', '')
@@ -598,7 +599,66 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                         arrowprops=dict(arrowstyle="-", color='#D32F2F', alpha=0),
                         fontsize=9, color='#D32F2F', fontweight='bold', ha='right', va='center',
                         bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='#D32F2F', alpha=0.7))
+
+        # ==================================================================
+        # 标注 5. 可视范围内开放缺口标记 + 历史战绩汇总 (V9.17 精简)
+        # ==================================================================
+        # 5a. 检测并标注可视范围内所有未被回补的多头缺口 (薄虚线, TradingView 风格)
+        open_gap_count = 0
+        try:
+            bo_col = None
+            for col_name in ['is_breakout', 'is_breakout_gp', 'is_breakout_h2']:
+                if col_name in plot_df.columns and plot_df[col_name].any():
+                    bo_col = col_name
+                    break
+            
+            if bo_col:
+                _gf_vis = plot_df['high'].rolling(min_periods=1, window=60).max().shift(2)
+                all_breakouts = plot_df.index[plot_df[bo_col] == True]
+                # 🟢 排除最新一个突破 (即当前信号对应的缺口), 只看更早的"前序"缺口
+                prior_breakouts = all_breakouts[:-1] if len(all_breakouts) > 1 else pd.DatetimeIndex([])
+                
+                for bo_date in prior_breakouts:
+                    gf = _gf_vis.loc[bo_date]
+                    if pd.isna(gf) or gf <= 0:
+                        continue
+                    # 跳过当前信号已标注的缺口 (蓝色矩形已展示)
+                    if abs(gf - final_gap_low) / max(final_gap_low, 1) < 0.01:
+                        continue
+                    # 检查缺口是否仍然开放 (后续无任何 K 线低点击穿)
+                    post = plot_df.loc[bo_date:].iloc[1:]
+                    if post.empty or post['low'].min() > (gf - 1e-3):
+                        try:
+                            gx = date_list.index(bo_date)
+                            ax.hlines(y=gf, xmin=gx, xmax=len(date_list) - 1,
+                                      colors='#26A69A', linestyles=':', linewidth=0.9, alpha=0.5)
+                            ax.text(len(date_list) - 1, gf, f" {gf:.0f}",
+                                    fontsize=6.5, color='#26A69A', va='center', ha='left', alpha=0.7)
+                            open_gap_count += 1
+                        except ValueError:
+                            pass
+        except Exception as e:
+            logger.debug(f"前序开放缺口标注失败: {e}")
+
+        # 5b. 历史战绩查询 (仅取计数)
+        hist_win_count = 0
+        stock_code = kwargs.get('code', '')
+        if stock_code:
+            try:
+                from core.signal_tracker import get_resolved_gaps
+                hist_wins = get_resolved_gaps(stock_code, strategy_pattern='GAP')
+                hist_win_count = len(hist_wins) if hist_wins else 0
+            except Exception as e:
+                logger.debug(f"历史战绩查询失败 {stock_code}: {e}")
+
+        # 5c. 面板下方追加一行简要汇总 (始终显示, 0 也是有效信息)
+        summary_line = f"前序开放缺口: {open_gap_count}个 | 历史达标: {hist_win_count}次"
+        ax.text(0.02, 0.66, summary_line, transform=ax.transAxes, fontsize=8,
+                    color='#2E7D32', verticalalignment='top',
+                    bbox=dict(boxstyle='round,pad=0.15', facecolor='#E8F5E9',
+                              edgecolor='#A5D6A7', alpha=0.8))
                         
     except Exception as e:
         if str(e) != "SILENT_SKIP":
             logger.warning(f"Gap Strategy Annotation Failed: {e}")
+
