@@ -817,10 +817,9 @@ def update_daily_data_batch(max_workers=settings.MAX_WORKERS):
         writer_thread.join()
         return
 
-    # 5. Parallel Downloading
-    download_count = 0
     # 5. Parallel Downloading (Multiprocessing)
     download_count = 0
+    skip_count = 0
     
     # 🟢 Multiprocessing: 4 workers = 4 independent connections
     # Baostock is stable with 4 processes.
@@ -848,6 +847,8 @@ def update_daily_data_batch(max_workers=settings.MAX_WORKERS):
                     symbol, df = result
                     data_queue.put((symbol, df))
                     download_count += 1
+                else:
+                    skip_count += 1
             except concurrent.futures.TimeoutError:
                 logger.warning(f"⚠️ 单任务超时 ({SINGLE_TASK_TIMEOUT}s)，跳过")
             except BsBlacklistedError:
@@ -892,7 +893,8 @@ def update_daily_data_batch(max_workers=settings.MAX_WORKERS):
         pass
 
     logger.info("💾 Database sync complete.")
-    logger.info(f"🎉 Data Sync Completed! (Downloaded: {download_count})")
+    logger.info(f"🎉 Data Sync Completed! (Downloaded: {download_count}/{len(to_update)}, Skipped: {skip_count})")
+    return (download_count, len(to_update))
 
 
 def _fast_local_weekly_aggregation(symbols_to_agg: List[str]):
@@ -1059,6 +1061,7 @@ def update_weekly_data_batch(max_workers=settings.MAX_WORKERS):
         return
 
     download_count = 0
+    skip_count = 0
     mp_workers = max(1, max_workers) 
     if mp_workers > 6: mp_workers = 6 
     
@@ -1077,6 +1080,8 @@ def update_weekly_data_batch(max_workers=settings.MAX_WORKERS):
                     symbol, df = result
                     data_queue.put((symbol, df))
                     download_count += 1
+                else:
+                    skip_count += 1
             except BsBlacklistedError:
                 logger.error("🚫 Baostock 黑名单封禁！立即终止周线同步...")
                 for f in futures:
@@ -1106,7 +1111,8 @@ def update_weekly_data_batch(max_workers=settings.MAX_WORKERS):
     except ImportError:
         pass
 
-    logger.info(f"🎉 Weekly Data Sync Completed! (Records modified: {download_count})")
+    logger.info(f"🎉 Weekly Data Sync Completed! (Downloaded: {download_count}/{len(to_update)}, Skipped: {skip_count})")
+    return (download_count, len(to_update))
 
 # ==========================================
 # 🔀 混合数据策略 (Hybrid Data Strategy)

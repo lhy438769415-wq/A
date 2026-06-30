@@ -779,9 +779,16 @@ def _run_data_sync():
         t0 = time.time()
         try:
             from core.data_provider import update_daily_data_batch
-            update_daily_data_batch()
+            result = update_daily_data_batch()
             elapsed = time.time() - t0
-            print(f"✅ 日线同步完成 (耗时 {elapsed:.0f}秒)")
+            if result:
+                downloaded, total = result
+                if downloaded < total:
+                    print(f"⚠️ 日线同步部分完成 (耗时 {elapsed:.0f}秒, 成功 {downloaded}/{total})")
+                else:
+                    print(f"✅ 日线同步完成 (耗时 {elapsed:.0f}秒, {downloaded}/{total})")
+            else:
+                print(f"✅ 日线同步完成 (耗时 {elapsed:.0f}秒)")
         except Exception as e:
             print(f"❌ 日线同步失败: {e}")
     
@@ -790,9 +797,16 @@ def _run_data_sync():
         t0 = time.time()
         try:
             from core.data_provider import update_weekly_data_batch
-            update_weekly_data_batch()
+            result = update_weekly_data_batch()
             elapsed = time.time() - t0
-            print(f"✅ 周线同步完成 (耗时 {elapsed:.0f}秒)")
+            if result:
+                downloaded, total = result
+                if downloaded < total:
+                    print(f"⚠️ 周线同步部分完成 (耗时 {elapsed:.0f}秒, 成功 {downloaded}/{total})")
+                else:
+                    print(f"✅ 周线同步完成 (耗时 {elapsed:.0f}秒, {downloaded}/{total})")
+            else:
+                print(f"✅ 周线同步完成 (耗时 {elapsed:.0f}秒)")
         except Exception as e:
             print(f"❌ 周线同步失败: {e}")
     
