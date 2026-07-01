@@ -650,11 +650,23 @@ def get_all_last_dates_from_weekly_db() -> Dict[str, str]:
         return {}
 
 
+# 进程级会话死亡标志 (process-local，各子进程独立)
+_session_dead = False
+
+
 def _fetch_worker(full_code, target_date, last_date_cache=None):
     """
     [Producer] Downloads data (Process Worker).
     Returns: (symbol, df) or None
     """
+    global _session_dead
+
+    # 🛡️ 若本进程 session 已死，快速返回，零网络活动
+    # sleep(0.5) 防止死亡 Worker 抢占共享任务队列中其他健康 Worker 的任务
+    if _session_dead:
+        time.sleep(0.5)
+        return None
+
     symbol = full_code.split('.')[-1]
     
     # 1. Check local cache (CPU ops)
@@ -685,8 +697,13 @@ def _fetch_worker(full_code, target_date, last_date_cache=None):
     except BsBlacklistedError:
         raise  # 黑名单封禁必须穿透到主循环
     except Exception as e:
-        # Logger might not work perfectly in MP on Windows without config, but try best effort
-        print(f"Worker Error {symbol}: {e}")
+        err_str = str(e)
+        # 🛡️ 检测连接级致命错误：登录超时 / socket 断开
+        if '登录超时' in err_str or '10057' in err_str or '连接失败' in err_str:
+            _session_dead = True
+            print(f"⚠️ Worker session 已损坏，本进程后续任务将跳过: {e}")
+        else:
+            print(f"Worker Error {symbol}: {e}")
         
     return None
 
@@ -694,6 +711,13 @@ def _fetch_weekly_worker(full_code, target_date, last_date_cache=None):
     """
     [Producer] Downloads weekly data.
     """
+    global _session_dead
+
+    # 🛡️ 若本进程 session 已死，快速返回
+    if _session_dead:
+        time.sleep(0.5)
+        return None
+
     symbol = full_code.split('.')[-1]
     
     if last_date_cache and symbol in last_date_cache:
@@ -719,7 +743,12 @@ def _fetch_weekly_worker(full_code, target_date, last_date_cache=None):
     except BsBlacklistedError:
         raise
     except Exception as e:
-        print(f"Weekly Worker Error {symbol}: {e}")
+        err_str = str(e)
+        if '登录超时' in err_str or '10057' in err_str or '连接失败' in err_str:
+            _session_dead = True
+            print(f"⚠️ Weekly Worker session 已损坏，本进程后续任务将跳过: {e}")
+        else:
+            print(f"Weekly Worker Error {symbol}: {e}")
         
     return None
 
