@@ -28,12 +28,14 @@ try:
         bs_fetch_weekly_history,
         bs_logout,
         BsBlacklistedError,
+        BsConnectionDeadError,
     )
     BAOSTOCK_AVAILABLE = True
 except ImportError as e:
     logger.error(f"❌ Baostock 不可用: {e}")
     BAOSTOCK_AVAILABLE = False
     BsBlacklistedError = Exception  # fallback 以免 except 报错
+    BsConnectionDeadError = Exception
 
 # =========================================================================
 # 🚀 数据获取接口 (Baostock Only)
@@ -86,8 +88,8 @@ def fetch_daily_history_active(symbol: str, start_date: str, end_date: str) -> O
         if result is not None and not result.empty:
             logger.debug(f"[Baostock] {symbol}: {len(result)} 条日线")
             return result
-    except BsBlacklistedError:
-        raise  # 黑名单封禁直接上抛
+    except (BsBlacklistedError, BsConnectionDeadError):
+        raise  # 黑名单封禁/登录超时直接上抛
     except Exception as e:
         logger.warning(f"[Baostock] {symbol} 获取失败: {e}")
     
@@ -114,7 +116,7 @@ def fetch_weekly_history_active(symbol: str, start_date: str, end_date: str) -> 
         if result is not None and not result.empty:
             logger.debug(f"[Baostock] {symbol}: {len(result)} 条周线")
             return result
-    except BsBlacklistedError:
+    except (BsBlacklistedError, BsConnectionDeadError):
         raise
     except Exception as e:
         logger.warning(f"[Baostock] {symbol} 周线获取失败: {e}")
