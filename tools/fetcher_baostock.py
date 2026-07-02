@@ -86,7 +86,9 @@ def _run_with_timeout(func, args=(), kwargs=None, timeout=30, desc="operation"):
     return result_container[0]
 
 # 🟢 Baostock 网络操作的默认超时 (秒)
-BS_LOGIN_TIMEOUT = 20
+# 登录超时与查询超时对齐：6 Worker 并发建立 VPN 连接时，
+# 最后一个 Worker 的 TCP 握手可能需要 20-31 秒（含重传），20 秒会误杀健康连接
+BS_LOGIN_TIMEOUT = 45
 BS_QUERY_TIMEOUT = 45
 
 def _ensure_login(force=False):
