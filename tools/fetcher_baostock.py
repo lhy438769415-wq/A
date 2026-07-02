@@ -24,6 +24,12 @@ class BsBlacklistedError(Exception):
     """Baostock 服务端返回黑名单封禁时抛出，上层应立即终止同步。"""
     pass
 
+
+class BsConnectionDeadError(Exception):
+    """Baostock 登录超时/连接断开时抛出，表示本进程的 session 不可恢复。
+    与 BsBlacklistedError 同等对待：穿透 @retry_on_failure，不做重试。"""
+    pass
+
 # =========================================================================
 # 连接管理
 # 🟢 Baostock Mechanism Note:
@@ -112,7 +118,8 @@ def _ensure_login(force=False):
             msg = f"Baostock 登录超时: {e}"
             logger.error(msg)
             print(f"❌ {msg}")
-            raise ConnectionError(msg)
+            # 🛡️ 登录超时是不可恢复的连接级故障，必须穿透 retry 装饰器
+            raise BsConnectionDeadError(msg)
         
         if lg.error_code != '0':
             msg = f"Baostock 登录失败: {lg.error_msg}"
@@ -154,8 +161,8 @@ def retry_on_failure(max_retries=3, delay=1.0):
             for attempt in range(1, max_retries + 1):
                 try:
                     return func(*args, **kwargs)
-                except BsBlacklistedError:
-                    raise  # 黑名单封禁不可重试，直接向上传播
+                except (BsBlacklistedError, BsConnectionDeadError):
+                    raise  # 黑名单封禁/登录超时不可重试，直接向上传播
                 except Exception as e:
                     logger.warning(f"⚠️ {func.__name__} 失败 (尝试 {attempt}/{max_retries}): {e}")
                     if attempt < max_retries:

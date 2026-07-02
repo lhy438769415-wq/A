@@ -12,7 +12,7 @@ from typing import Optional, List, Dict, Any
 from config import settings
 from core.database import get_db_connection, init_db
 from tools import fetcher
-from tools.fetcher_baostock import BsBlacklistedError
+from tools.fetcher_baostock import BsBlacklistedError, BsConnectionDeadError
 
 logger = logging.getLogger(__name__)
 
@@ -696,14 +696,12 @@ def _fetch_worker(full_code, target_date, last_date_cache=None):
             
     except BsBlacklistedError:
         raise  # 黑名单封禁必须穿透到主循环
+    except BsConnectionDeadError as e:
+        # 🛡️ 登录超时/socket 断开，现在能穿透 @retry_on_failure 装饰器
+        _session_dead = True
+        print(f"⚠️ Worker session 已损坏，本进程后续任务将跳过: {e}")
     except Exception as e:
-        err_str = str(e)
-        # 🛡️ 检测连接级致命错误：登录超时 / socket 断开
-        if '登录超时' in err_str or '10057' in err_str or '连接失败' in err_str:
-            _session_dead = True
-            print(f"⚠️ Worker session 已损坏，本进程后续任务将跳过: {e}")
-        else:
-            print(f"Worker Error {symbol}: {e}")
+        print(f"Worker Error {symbol}: {e}")
         
     return None
 
@@ -742,13 +740,11 @@ def _fetch_weekly_worker(full_code, target_date, last_date_cache=None):
             return (symbol, df)
     except BsBlacklistedError:
         raise
+    except BsConnectionDeadError as e:
+        _session_dead = True
+        print(f"⚠️ Weekly Worker session 已损坏，本进程后续任务将跳过: {e}")
     except Exception as e:
-        err_str = str(e)
-        if '登录超时' in err_str or '10057' in err_str or '连接失败' in err_str:
-            _session_dead = True
-            print(f"⚠️ Weekly Worker session 已损坏，本进程后续任务将跳过: {e}")
-        else:
-            print(f"Weekly Worker Error {symbol}: {e}")
+        print(f"Weekly Worker Error {symbol}: {e}")
         
     return None
 
