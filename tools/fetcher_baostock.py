@@ -120,6 +120,13 @@ def _ensure_login(force=False):
             print(f"❌ {msg}")
             # 🛡️ 登录超时是不可恢复的连接级故障，必须穿透 retry 装饰器
             raise BsConnectionDeadError(msg)
+        except Exception as e:
+            # 🛡️ 路径 C: bs.login() 内部抛出 Python 异常 (OSError/ConnectionResetError 等)
+            # _run_with_timeout 会重新抛出原始异常，必须在此拦截并转换
+            msg = f"Baostock 登录异常: {e}"
+            logger.error(msg)
+            print(f"❌ {msg}")
+            raise BsConnectionDeadError(msg)
         
         if lg.error_code != '0':
             msg = f"Baostock 登录失败: {lg.error_msg}"
