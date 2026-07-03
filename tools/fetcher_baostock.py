@@ -316,8 +316,12 @@ def bs_fetch_daily_history(symbol: str, start_date: str, end_date: str) -> Optio
                 desc=f"query_daily({symbol})"
             )
         except TimeoutError as e:
-            logger.warning(f"⚠️ [Baostock] {symbol} 日线查询超时: {e}")
-            return None
+            # 🛡️ 查询超时 = 守护线程卡在 C 扩展 socket recv() 中
+            # 该线程持有 baostock 内部全局锁，同进程后续调用必死锁
+            # 必须触发 Worker 熔断，不能再用这个进程
+            msg = f"[Baostock] {symbol} 日线查询超时(连接已损坏): {e}"
+            logger.error(msg)
+            raise BsConnectionDeadError(msg)
         
         if rs.error_code != '0':
             # 🛡️ 黑名单检测：立即终止，避免继续浪费请求配额
@@ -399,8 +403,10 @@ def bs_fetch_weekly_history(symbol: str, start_date: str, end_date: str) -> Opti
                 desc=f"query_weekly({symbol})"
             )
         except TimeoutError as e:
-            logger.warning(f"⚠️ [Baostock] {symbol} 周线查询超时: {e}")
-            return None
+            # 🛡️ 同日线：查询超时 = 守护线程死锁风险，必须触发 Worker 熔断
+            msg = f"[Baostock] {symbol} 周线查询超时(连接已损坏): {e}"
+            logger.error(msg)
+            raise BsConnectionDeadError(msg)
         
         if rs.error_code != '0':
             if '黑名单' in str(rs.error_msg):
