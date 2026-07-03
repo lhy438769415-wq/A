@@ -128,7 +128,8 @@ def _ensure_login(force=False):
             # 🛡️ 黑名单时必须用 BsBlacklistedError，防止 retry 装饰器反复重试延长封禁
             if '黑名单' in str(lg.error_msg):
                 raise BsBlacklistedError(msg)
-            raise ConnectionError(msg)
+            # 🛡️ 任何登录失败（网络接收错误、套接字断开等）均为连接级故障，必须抛出 BsConnectionDeadError 触发 Worker 熔断
+            raise BsConnectionDeadError(msg)
             
         _bs_logged_in = True
         logger.info("✅ Baostock 登录成功")
