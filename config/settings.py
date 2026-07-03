@@ -38,10 +38,10 @@ DATA_SOURCE_PRIORITY = ["baostock"]  # Single Source
 
 # ================= 系统运行参数 =================
 # 扫描并发进程数
-# 扫描并发进程数
-# 🟢 Multiprocessing Config: Baostock allows multi-process (separate logins).
-# 4 workers successfully reduces sync time (approx 4x speedup vs serial).
-MAX_WORKERS = int(os.getenv("MAX_WORKERS", 6))  # 🟢 V8.6: 提升至 6 进程 (Baostock 多连接安全)
+# 🟢 Baostock 服务端对同一 IP 的并发 TCP 连接硬限制为 5
+# 实证：6 Worker 时第 6 个连接即使重试 3 次也必定超时 (2026-07 连续验证)
+# 5 Worker 与 6 Worker(1死) 有效吞吐量相同，但 5 Worker 零报错、一次完成
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", 5))
 
 # 长图拼接数量
 MAX_IMAGES_PER_BATCH = int(os.getenv("MAX_IMAGES_PER_BATCH", 10))

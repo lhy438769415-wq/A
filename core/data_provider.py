@@ -846,10 +846,10 @@ def update_daily_data_batch(max_workers=settings.MAX_WORKERS):
     download_count = 0
     skip_count = 0
     
-    # 🟢 Multiprocessing: 4 workers = 4 independent connections
-    # Baostock is stable with 4 processes.
+    # 🟢 Multiprocessing: 5 workers = 5 independent Baostock connections
+    # Baostock 服务端并发连接硬限制为 5，超出必定超时
     mp_workers = max(1, max_workers) 
-    if mp_workers > 6: mp_workers = 6 # Cap at 6 to be safe
+    if mp_workers > 5: mp_workers = 5  # Baostock 并发连接硬上限
     
     logger.info(f"🚀 Starting ProcessPool with {mp_workers} workers...")
     
@@ -1088,7 +1088,7 @@ def update_weekly_data_batch(max_workers=settings.MAX_WORKERS):
     download_count = 0
     skip_count = 0
     mp_workers = max(1, max_workers) 
-    if mp_workers > 6: mp_workers = 6 
+    if mp_workers > 5: mp_workers = 5  # Baostock 并发连接硬上限
     
     logger.info(f"🚀 Starting ProcessPool with {mp_workers} workers for Weekly...")
     
