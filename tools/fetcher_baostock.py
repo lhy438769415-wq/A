@@ -97,49 +97,67 @@ def _run_with_timeout(func, args=(), kwargs=None, timeout=30, desc="operation"):
 BS_LOGIN_TIMEOUT = 45
 BS_QUERY_TIMEOUT = 45
 
+# 🟢 登录重试参数
+# 6 Worker 并发 bs.login() 时，最后 1-2 个可能因服务端/VPN 并发限制失败
+# 等其他 Worker 登录完成后重试，竞争消失，成功率大幅提升
+BS_LOGIN_MAX_RETRIES = 3     # 最大重试次数
+BS_LOGIN_RETRY_DELAY = 5.0   # 首次重试等待秒数 (后续按 attempt 递增: 5s, 10s)
+
 def _ensure_login(force=False):
     """
     确保 Baostock 已登录（惰性连接）
     
-    🛡️ 增加超时保护：VPN 环境下 bs.login() 可能无限挂起
+    🛡️ 带退避重试的登录机制：
+    - 6 Worker 并发登录时，部分 Worker 可能因服务端并发限制失败
+    - 等待其他 Worker 完成登录后重试，利用网络空闲窗口恢复连接
+    - 黑名单立即穿透，不做重试
     
     Args:
         force: 是否强制重连
+    
+    Raises:
+        BsBlacklistedError: 黑名单封禁，不可重试
+        BsConnectionDeadError: 所有重试均失败，连接不可恢复
     """
     global _bs_logged_in
     if force and _bs_logged_in:
         logger.info("强制重置 Baostock 连接...")
         bs_logout()
     
-    if not _bs_logged_in:
+    if _bs_logged_in:
+        return
+    
+    last_error = None
+    for attempt in range(1, BS_LOGIN_MAX_RETRIES + 1):
         try:
             lg = _run_with_timeout(bs.login, timeout=BS_LOGIN_TIMEOUT, desc="login")
         except TimeoutError as e:
-            msg = f"Baostock 登录超时: {e}"
-            logger.error(msg)
-            print(f"❌ {msg}")
-            # 🛡️ 登录超时是不可恢复的连接级故障，必须穿透 retry 装饰器
-            raise BsConnectionDeadError(msg)
+            last_error = f"登录超时: {e}"
         except Exception as e:
-            # 🛡️ 路径 C: bs.login() 内部抛出 Python 异常 (OSError/ConnectionResetError 等)
-            # _run_with_timeout 会重新抛出原始异常，必须在此拦截并转换
-            msg = f"Baostock 登录异常: {e}"
-            logger.error(msg)
-            print(f"❌ {msg}")
-            raise BsConnectionDeadError(msg)
-        
-        if lg.error_code != '0':
-            msg = f"Baostock 登录失败: {lg.error_msg}"
-            logger.error(msg)
-            print(f"❌ {msg}")
-            # 🛡️ 黑名单时必须用 BsBlacklistedError，防止 retry 装饰器反复重试延长封禁
+            # bs.login() 内部 Python 异常 (OSError/ConnectionResetError 等)
+            last_error = f"登录异常: {e}"
+        else:
+            # bs.login() 正常返回，检查 error_code
+            if lg.error_code == '0':
+                _bs_logged_in = True
+                logger.info("✅ Baostock 登录成功")
+                return
+            # 黑名单立即穿透，不做重试
             if '黑名单' in str(lg.error_msg):
-                raise BsBlacklistedError(msg)
-            # 🛡️ 任何登录失败（网络接收错误、套接字断开等）均为连接级故障，必须抛出 BsConnectionDeadError 触发 Worker 熔断
+                raise BsBlacklistedError(f"Baostock 黑名单封禁: {lg.error_msg}")
+            last_error = f"登录失败: {lg.error_msg}"
+        
+        # 本次登录未成功，决定是否重试
+        if attempt < BS_LOGIN_MAX_RETRIES:
+            delay = BS_LOGIN_RETRY_DELAY * attempt  # 5s, 10s
+            logger.warning(f"⚠️ Baostock {last_error} (尝试 {attempt}/{BS_LOGIN_MAX_RETRIES}), {delay:.0f}s 后重试...")
+            time.sleep(delay)
+        else:
+            # 所有重试均失败，抛出不可恢复异常触发 Worker 熔断
+            msg = f"Baostock 登录彻底失败 ({BS_LOGIN_MAX_RETRIES}次均失败): {last_error}"
+            logger.error(f"❌ {msg}")
+            print(f"❌ {msg}")
             raise BsConnectionDeadError(msg)
-            
-        _bs_logged_in = True
-        logger.info("✅ Baostock 登录成功")
 
 def bs_logout():
     """显式登出（可选，程序结束时自动调用）"""
