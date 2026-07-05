@@ -783,8 +783,10 @@ def _run_data_sync():
             elapsed = time.time() - t0
             if result:
                 downloaded, total = result
-                if downloaded < total:
-                    print(f"⚠️ 日线同步部分完成 (耗时 {elapsed:.0f}秒, 成功 {downloaded}/{total})")
+                if downloaded == 0 and total > 0:
+                    print(f"✅ 日线数据已全量最新 (耗时 {elapsed:.0f}秒, 活跃股票均已最新, {total}只退市/无新数据已跳过)")
+                elif downloaded < total:
+                    print(f"✅ 日线同步完成 (耗时 {elapsed:.0f}秒, 成功更新 {downloaded}/{total} 只, 其余为退市/无新数据)")
                 else:
                     print(f"✅ 日线同步完成 (耗时 {elapsed:.0f}秒, {downloaded}/{total})")
             else:
@@ -801,8 +803,10 @@ def _run_data_sync():
             elapsed = time.time() - t0
             if result:
                 downloaded, total = result
-                if downloaded < total:
-                    print(f"⚠️ 周线同步部分完成 (耗时 {elapsed:.0f}秒, 成功 {downloaded}/{total})")
+                if downloaded == 0 and total > 0:
+                    print(f"✅ 周线数据已全量最新 (耗时 {elapsed:.0f}秒, 活跃股票均已最新, {total}只退市/无新数据已跳过)")
+                elif downloaded < total:
+                    print(f"✅ 周线同步完成 (耗时 {elapsed:.0f}秒, 成功更新 {downloaded}/{total} 只, 其余为退市/无新数据)")
                 else:
                     print(f"✅ 周线同步完成 (耗时 {elapsed:.0f}秒, {downloaded}/{total})")
             else:

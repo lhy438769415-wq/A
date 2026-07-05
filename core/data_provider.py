@@ -918,7 +918,7 @@ def update_daily_data_batch(max_workers=settings.MAX_WORKERS):
         pass
 
     logger.info("💾 Database sync complete.")
-    logger.info(f"🎉 Data Sync Completed! (Downloaded: {download_count}/{len(to_update)}, Skipped: {skip_count})")
+    logger.info(f"🎉 Data Sync Completed! (Downloaded: {download_count}/{len(to_update)}, Skipped/NoNewData: {skip_count})")
     return (download_count, len(to_update))
 
 
@@ -1136,7 +1136,7 @@ def update_weekly_data_batch(max_workers=settings.MAX_WORKERS):
     except ImportError:
         pass
 
-    logger.info(f"🎉 Weekly Data Sync Completed! (Downloaded: {download_count}/{len(to_update)}, Skipped: {skip_count})")
+    logger.info(f"🎉 Weekly Data Sync Completed! (Downloaded: {download_count}/{len(to_update)}, Skipped/NoNewData: {skip_count})")
     return (download_count, len(to_update))
 
 # ==========================================
