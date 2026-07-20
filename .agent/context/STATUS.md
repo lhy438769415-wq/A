@@ -1,9 +1,9 @@
 # 项目状态快照
 
 > 本文件由 Agent 在每次重大工作完成后更新。
-> 最后更新: 2026-06-26
+> 最后更新: 2026-07-20
 
-## 当前版本: V9.19
+## 当前版本: V9.20
 
 ## 已注册策略
 | 注册名 | 类 | 时间框架 | 状态 |
@@ -13,10 +13,12 @@
 | STRATEGY_STRUCTURAL_GAP | StructuralGapStrategy | 日线+周线 | ✅ |
 | STRATEGY_GAP_PINBAR | GapPinbarStrategy | 日线+周线 | ✅ |
 | STRATEGY_GAP_H2 | GapH2Strategy | 日线+周线 | ✅ |
+| STRATEGY_AWIL | AWILStrategy | 日线 | ✅ |
 
 ## 最近迭代
 | 版本 | 日期 | 摘要 |
 |:---:|:---:|:---|
+| V9.20 | 07-20 | 新增 AWIL 策略 (Always In Long H2 顺势入场) |
 | V9.19 | 06-26 | 股票中文名本地持久化 (降低黑名单风险) |
 | V9.18 | 06-25 | Baostock 黑名单防护 + 查询超时保护 |
 | V9.17 | 06-04 | 图表历史缺口标注精简 (TradingView 风格) |
@@ -39,7 +41,7 @@
 | P7 | 38 处 logging.basicConfig | ★★★★ | 待修复 |
 | P8 | 41 处 sys.path.insert | ★★★★ | 待修复 |
 | P9 | 废弃文件清理 | ★ | 待修复 |
-| P10 | signal_tracker 死代码 (5 组同名函数覆盖) | ★★★★★ | 待修复 |
+| P10 | signal_tracker 死代码 (5 组同名函数覆盖) | ★★★★★ | ✅ 已修复 (commit 9487f73) |
 | P11 | signal_tracker 职责拆分 (1649 行, 6 职责) | ★★★ | 待修复 |
 | P12 | 信号洪流保护 (Signal Flood Guard) | ★★ | 待实现 |
 

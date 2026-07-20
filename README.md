@@ -1,4 +1,4 @@
-# Brooks-AI Quant System V9.19
+# Brooks-AI Quant System V9.20
 
 > 基于 Al Brooks 价格行为理论的 A 股全自动量化扫描系统。
 > 支持日线/周线双周期扫描、多策略信号检测、AI 二次筛选、Discord 实时推送。
@@ -98,11 +98,13 @@ python hunter.py --track --report            # 追踪 + 报表
 | **MTR** (Major Trend Reversal) | 日线 | 主趋势反转信号，作为储备选项 |
 | **3K** (Three-K Momentum) | 日线 | 三K动量突破 + 缺口测试确认 |
 | **Structural Gap** | 周线 | 结构性测量缺口，V9.0 四因子积分评级 |
+| **AWIL** (Always In Long) | 日线 | EMA20上方两腿回调 H2 顺势入场，收盘顶部2%强势阳线确认 |
 
 ## 迭代版本记录
 
 | 版本 | 日期 | 主要变更 |
 |:---:|:---:|:---|
+| V9.20 | 2026-07-20 | **新增 AWIL 策略 (Always In Long H2 顺势入场)**：基于 Al Brooks PA 的 Always In Long 理论，当 EMA20 上行且价格始终运行在 EMA20 上方时，识别 40 根 K 线波段高点后的两腿回调 (L1→H1→L2→H2) 信号。H2 K 线必须为强势阳线且收盘在顶部 2% 以内 (close_loc ≥ 0.98)。数学证明 EMA20 趋势向上为冗余条件已移除。包含 10 个单元测试。 |
 | V9.19 | 2026-06-26 | **股票中文名本地持久化**：将 `get_stock_name()` 从内存空则联网拉取改造为内存缓存-本地JSON-降级返回代码的纯只读函数,彻底杜绝在扫描/推送阶段连接Baostock,大幅降低黑名单概率。`bs_fetch_stock_list()` 同时返回代码列表和中文名字典(零额外网络开销),Phase 2 同步成功后自动持久化到 `data/stock_names.json`。安全机制:原子写入防损坏、动态安全阀(旧缓存50%)防空数据抹杀、合并策略(新数据优先+保留停牌股)防误删。 |
 | V9.18 | 2026-06-25 | **Baostock 黑名单防护与查询超时保护**：(1) 新增 `BsBlacklistedError` 异常类，在 `_ensure_login()` 登录、`bs_fetch_daily_history()` / `bs_fetch_weekly_history()` 查询两层检测 Baostock 服务端返回的“黑名单”封禁，通过 `retry_on_failure` 装饰器放行、`fetcher.py` 适配层放行、`_fetch_worker` 放行、主循环捕获四层穿透，实现黑名单时立即终止同步。修复此前“每次同步产生 ≥9 次失败登录反复延长封禁”的死亡螺旋。(2) 为 `query_history_k_data_plus()` 日线/周线查询加入 `_run_with_timeout(45s)` 超时保护，与 V9.16 已有的 `login` / `query_stock_basic` 超时保护对齐，修复多进程环境下 socket 挂起导致全部 worker 卡死的问题。 |
 | V9.17 | 2026-06-04 | **图表历史缺口标注精简 (TradingView 风格)**：将 `_annotate_gap_strategy()` 中的历史止盈缺口全量叠加（绿色填充矩形+前序止盈文字框+历史TP右侧标签）精简为：(1) 可视范围 70 根 K 线内未被回补的前序多头缺口以薄虚线标注 gap floor 位置；(2) 历史达标次数汇总为面板下方一行文字。删除所有绿色填充矩形和散布文字标签，大幅提升图表可读性。 |

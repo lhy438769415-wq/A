@@ -5,6 +5,7 @@ from .strategies.three_k_strategy import ThreeKStrategy
 from .strategies.structural_gap_strategy import StructuralGapStrategy
 from .strategies.gap_pinbar_strategy import GapPinbarStrategy
 from .strategies.gap_h2_strategy import GapH2Strategy
+from .strategies.awil_strategy import AWILStrategy
 
 class StrategyRegistry:
     """
@@ -39,10 +40,14 @@ class StrategyRegistry:
             'class': GapH2Strategy,
             'metadata': GapH2Strategy.get_metadata(),
         },
+        "STRATEGY_AWIL": {
+            'class': AWILStrategy,
+            'metadata': AWILStrategy.get_metadata(),
+        },
     }
     
     # 官方对外展示列表
-    _OFFICIAL_LIST = ["MTR_MASTER", "STRATEGY_3K", "STRATEGY_STRUCTURAL_GAP", "STRATEGY_GAP_PINBAR", "STRATEGY_GAP_H2"]
+    _OFFICIAL_LIST = ["MTR_MASTER", "STRATEGY_3K", "STRATEGY_STRUCTURAL_GAP", "STRATEGY_GAP_PINBAR", "STRATEGY_GAP_H2", "STRATEGY_AWIL"]
     
     # =====================================================================
     # P1: Internal class resolution
@@ -75,6 +80,8 @@ class StrategyRegistry:
             return GapPinbarStrategy
         if "H2" in name_upper or "GAP_H2" in name_upper:
             return GapH2Strategy
+        if "AWIL" in name_upper:
+            return AWILStrategy
         
         # 3. 默认回退
         return MTRStrategy

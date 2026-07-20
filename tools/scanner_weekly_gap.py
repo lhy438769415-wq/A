@@ -458,11 +458,16 @@ def _format_and_push_results(results, total_stocks=0):
     if not sig_gap:
         print("✅ Discord 空结果推送成功！")
     else:
-        # 只为 A+/A 生成图表
+        # 🟢 A+/A 优先, 无则降级取 B/C 前 5 只 (与日线对齐)
         top_sigs = [s for s in sig_gap if 'A' in s.get('ev_rating', '')]
+        if top_sigs:
+            chart_label = "🌟 **A+/A 级 K线图**"
+        else:
+            top_sigs = sig_gap[:5]
+            chart_label = "📋 **信号 K线图**"
         
         if top_sigs:
-            print(f"\n🎨 为 {len(top_sigs)} 只 A+/A 级标的生成图表...")
+            print(f"\n🎨 为 {len(top_sigs)} 只标的生成图表...")
             chart_bufs = []
             chart_names = []
             
@@ -493,11 +498,9 @@ def _format_and_push_results(results, total_stocks=0):
                 for batch_start in range(0, len(chart_bufs), BATCH_SIZE):
                     batch_bufs = chart_bufs[batch_start:batch_start + BATCH_SIZE]
                     batch_names = chart_names[batch_start:batch_start + BATCH_SIZE]
-                    batch_label = f"🌟 **A+/A 级 K线图** ({batch_start+1}-{batch_start+len(batch_bufs)}/{len(chart_bufs)})"
-                    send_discord_images(batch_bufs, batch_names, content=batch_label)
-                print(f"✅ {len(chart_bufs)} 张 A+/A 级图表分 {(len(chart_bufs)-1)//BATCH_SIZE+1} 批推送完成！")
-        else:
-            print("  本周无 A+/A 级标的")
+                    batch_msg = f"{chart_label} ({batch_start+1}-{batch_start+len(batch_bufs)}/{len(chart_bufs)})"
+                    send_discord_images(batch_bufs, batch_names, content=batch_msg)
+                print(f"✅ {len(chart_bufs)} 张图表分 {(len(chart_bufs)-1)//BATCH_SIZE+1} 批推送完成！")
 
 
 def main():

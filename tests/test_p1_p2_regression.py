@@ -325,7 +325,8 @@ class TestStrategyRegistryTimeframe(unittest.TestCase):
         self.assertIn('STRATEGY_STRUCTURAL_GAP', daily)
         self.assertIn('STRATEGY_GAP_PINBAR', daily)
         self.assertIn('STRATEGY_GAP_H2', daily)
-        self.assertEqual(len(daily), 5)
+        self.assertIn('STRATEGY_AWIL', daily)
+        self.assertEqual(len(daily), 6)
 
     def test_case_insensitive(self):
         """时间周期参数应不区分大小写"""
