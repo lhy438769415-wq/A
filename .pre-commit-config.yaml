@@ -1,0 +1,21 @@
+# 质量门禁 pre-commit 钩子
+# 作用：每次 git commit 前自动跑 .agent/quality_gate.py，拦截纸面红线的新增违反。
+#
+# 启用方式（需先安装框架）：
+#   pip install pre-commit
+#   pre-commit install
+#
+# 红线指定的 core/paths.py / core/log_config.py 已建立（见本次 feat 护栏提交）。
+# 本钩子只防"新增"红线违例，不阻断存量（当前约 31 处 sys.path.insert 为已知架构债）。
+
+repos:
+  - repo: local
+    hooks:
+      - id: quality-gate
+        name: Quality Gate (工程红线检查)
+        entry: python .agent/quality_gate.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        # 存量违规较多，默认只警告不阻断；确认无新增违例后可改 stages 强制
+        # 若要硬性阻断提交，去掉下方 fail_on_warning 注释并设 strict
