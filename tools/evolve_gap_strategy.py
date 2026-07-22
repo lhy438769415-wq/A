@@ -13,9 +13,9 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from core.api_client import query_deepseek
+from core.log_config import get_logger
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 RULES_FILE = os.path.join(project_root, 'config', 'gap_optimized_rules.json')
 DATA_FILE = os.path.join(project_root, 'data', 'struct_gap_features.csv')

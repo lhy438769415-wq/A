@@ -322,8 +322,7 @@ class StructuralGapStrategy(BaseStrategy):
   <SETUP_STATUS>{status_str}</SETUP_STATUS>
 </STRUCT_GAP_CONTEXT>
 """
-        except:
-            return "<STRUCT_GAP_CONTEXT_ERROR/>"
+        except Exception:            return "<STRUCT_GAP_CONTEXT_ERROR/>"
 
     def format_prompt(self, context_data: Dict) -> str:
         code = context_data.get('code', 'Unknown')

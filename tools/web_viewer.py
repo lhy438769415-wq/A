@@ -99,7 +99,7 @@ def draw_chart(code, name, entry, sl, tp, is_pending, ev_rating, sig_quality, be
             fm.fontManager.addfont(FONT_PATH)
             prop = fm.FontProperties(fname=FONT_PATH)
             rc_params['font.family'] = prop.get_name()
-        except: pass
+        except Exception:pass
 
     mc = mpf.make_marketcolors(up='red', down='green', edge='inherit', wick='inherit', volume='in')
     my_style = mpf.make_mpf_style(marketcolors=mc, gridstyle=':', y_on_right=True, rc=rc_params)

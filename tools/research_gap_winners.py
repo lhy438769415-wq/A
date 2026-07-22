@@ -21,9 +21,9 @@ from collections import defaultdict
 from core.calculator import add_indicators
 from core.strategies.structural_gap_strategy import StructuralGapStrategy
 import core.data_provider as dp
+from core.log_config import get_logger
 
-logging.basicConfig(level=logging.WARNING)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 def run_reverse_analysis():
     """主分析逻辑"""
@@ -247,8 +247,7 @@ def run_reverse_analysis():
         
         try:
             working[f'{col}_bin'] = pd.qcut(working[col], q=n_bins, duplicates='drop')
-        except:
-            return
+        except Exception:            return
         
         print(f"\n  --- {name} ({col}) ---")
         for bin_label, group in working.groupby(f'{col}_bin', observed=True):

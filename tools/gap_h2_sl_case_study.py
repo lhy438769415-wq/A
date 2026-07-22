@@ -37,9 +37,9 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
 from config.settings import DISCORD_BOT_TOKEN, DISCORD_CHANNEL_ID, FONT_PATH, DB_PATH
+from core.log_config import get_logger
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 TRADES_CSV = os.path.join(PROJECT_ROOT, "gap_h2_trades.csv")
 SAMPLE_SIZE = 10
@@ -153,8 +153,7 @@ def plot_weekly_sl_case(weekly_df, trade_info, case_idx):
             fm.fontManager.addfont(FONT_PATH)
             prop = fm.FontProperties(fname=FONT_PATH)
             rc_params['font.family'] = prop.get_name()
-        except:
-            pass
+        except Exception:            pass
     
     # --- mplfinance 样式 (Al Brooks 红涨绿跌) ---
     mc = mpf.make_marketcolors(

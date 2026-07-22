@@ -371,7 +371,7 @@ class DatabaseWriter(threading.Thread):
                     try:
                         self.conn.rollback()
                         pending_count = 0
-                    except: pass
+                    except Exception:pass
                 finally:
                     self.data_queue.task_done()
                         
@@ -382,7 +382,7 @@ class DatabaseWriter(threading.Thread):
             if self.conn_ctx:
                 try:
                     self.conn_ctx.__exit__(None, None, None)
-                except: pass
+                except Exception:pass
             logger.info(f"🏁 [DB Writer] Stopped. Stats: {self.stats}")
 
     def stop(self):
@@ -448,7 +448,7 @@ class WeeklyDatabaseWriter(threading.Thread):
         finally:
             if self.conn_ctx:
                 try: self.conn_ctx.__exit__(None, None, None)
-                except: pass
+                except Exception:pass
             logger.info(f"🏁 [Weekly DB Writer] Stopped. Stats: {self.stats}")
 
     def stop(self):
@@ -500,8 +500,7 @@ def get_last_date(symbol: str) -> Optional[str]:
             cursor.execute("SELECT MAX(trade_date) FROM daily_bars WHERE symbol=?", (symbol,))
             res = cursor.fetchone()
             return res[0] if res else None
-    except:
-        return None
+    except Exception:        return None
 
 def _read_sql_safe(query: str, conn, params: tuple = None) -> pd.DataFrame:
     """

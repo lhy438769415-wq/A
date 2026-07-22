@@ -3,10 +3,10 @@ import logging
 import time
 from config.settings import DEEPSEEK_API_KEY, API_URL, DEEPSEEK_MODEL
 from typing import Optional
+from core.log_config import get_logger
 
 # 配置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # 🟢 优化：添加重试机制和超时控制
 _MAX_RETRIES = 3

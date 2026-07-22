@@ -13,11 +13,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pandas as pd
 import numpy as np
 import logging
-logging.basicConfig(level=logging.WARNING)
 
 from core.data_provider import get_stock_data
 from core.calculator import add_indicators
 from core.strategies.three_k_strategy import ThreeKStrategy
+from core.log_config import get_logger
+logger = get_logger(__name__)
 
 
 # ===== 3K 多维度评分 (100分满分, 参考MTR五维度体系) =====

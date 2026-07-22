@@ -261,8 +261,7 @@ class GapH2Strategy(BaseStrategy):
   <SETUP_STATUS>{status_str}</SETUP_STATUS>
 </GAP_H2_CONTEXT>
 """
-        except:
-            return "<GAP_H2_CONTEXT_ERROR/>"
+        except Exception:            return "<GAP_H2_CONTEXT_ERROR/>"
 
     def format_prompt(self, context_data: Dict) -> str:
         code = context_data.get('code', 'Unknown')

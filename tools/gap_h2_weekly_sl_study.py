@@ -43,9 +43,9 @@ from core.data_provider import get_stock_data_weekly, get_stock_list, get_stock_
 from core.calculator import add_indicators
 from core.strategies.gap_h2_strategy import GapH2Strategy
 from config.settings import DISCORD_BOT_TOKEN, DISCORD_CHANNEL_ID, FONT_PATH
+from core.log_config import get_logger
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 SAMPLE_SIZE = 10
 LIFECYCLE_TIMEOUT_BARS = 30  # 与 backtest_gap_h2.py 一致
@@ -294,8 +294,7 @@ def plot_weekly_case(code, trade, case_idx, total):
                 fm.fontManager.addfont(FONT_PATH)
                 prop = fm.FontProperties(fname=FONT_PATH)
                 rc_params['font.family'] = prop.get_name()
-            except:
-                pass
+            except Exception:                pass
 
         # --- mplfinance 样式 (Al Brooks 红涨绿跌) ---
         mc = mpf.make_marketcolors(up='red', down='green', edge='inherit', wick='inherit', volume='in')

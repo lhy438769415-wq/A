@@ -66,9 +66,9 @@ def _get_strategy_cols(strategy_name: str) -> dict:
 
     return cols
 from tools.notifier import generate_chart_bytes, stitch_images, send_discord_image, send_discord_message, send_discord_images
+from core.log_config import get_logger
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # =====================================================
 # 从本地周线数据库极速提取数据
@@ -521,8 +521,7 @@ def main():
                 print(f"\n❌ 周线数据库表 weekly_bars 不存在 ({DB_PATH})")
                 print("👉 请先执行此命令同步数据: python tools/update_weekly_db.py\n")
                 return
-    except:
-        pass
+    except Exception:        pass
         
     try:
         all_codes = dp.get_stock_list()

@@ -316,7 +316,7 @@ class MTRStrategy(BaseStrategy):
                 'sl': latest.get('sl_price', 0),
                 'is_confirmed': latest.get('is_confirmed', False)
             }
-        except: return {}
+        except Exception:return {}
 
     def format_prompt(self, context_data: Dict) -> str:
         df = context_data['df']

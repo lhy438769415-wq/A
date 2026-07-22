@@ -4,7 +4,6 @@ import io
 import logging
 
 # 配置日志输出到控制台
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # 添加根目录到包路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -20,6 +19,8 @@ os.environ['all_proxy'] = ''
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 from core.data_provider import update_weekly_data_batch
+from core.log_config import get_logger
+logger = get_logger(__name__)
 
 if __name__ == '__main__':
     print("==================================================")

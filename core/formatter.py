@@ -78,8 +78,7 @@ def _extract_tag(text, tag):
         if match:
              return match.group(1).strip()
         return None
-    except:
-        return None
+    except Exception:        return None
 
 def get_common_context(df, window_size=60):
     """提取 CSV 数据 (Reverted to 60 days, Raw Data Only)"""

@@ -4,13 +4,13 @@ import json
 import logging
 from openai import OpenAI
 from dotenv import load_dotenv
+from core.log_config import get_logger
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 load_dotenv(os.path.join(project_root, '.env'))
 
-logging.basicConfig(level=logging.INFO, format='%(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 def consult_al_brooks():
     # Attempt to load DeepSeek API key from environment

@@ -13,12 +13,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pandas as pd
 import numpy as np
 import logging
-logging.basicConfig(level=logging.WARNING)
 
 from core.data_provider import get_stock_data, get_stock_list
 from core.calculator import add_indicators
 from core.strategies.three_k_strategy import ThreeKStrategy
 from tools.backtest_3k_002046 import score_3k_signal, score_gap_test
+from core.log_config import get_logger
+logger = get_logger(__name__)
 
 
 def scan_recent_signals(lookback_days: int = 60, limit_stocks: int = None):

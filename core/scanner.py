@@ -13,10 +13,10 @@ from core.calculator import add_indicators, calculate_targets
 from core.strategy_registry import StrategyRegistry
 from typing import Optional, Dict, Any
 from config import settings
+from core.log_config import get_logger
 
 # 配置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 def run_scanner(code: str, strategy_name: str = 'MTR_MASTER') -> Optional[Dict[str, Any]]:
     """

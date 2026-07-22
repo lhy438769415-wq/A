@@ -13,9 +13,9 @@ from core.calculator import add_indicators
 from core.strategies.structural_gap_strategy import StructuralGapStrategy
 from config import settings
 from tools.backtest_struct_gap import evaluate_trade
+from core.log_config import get_logger
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 def backtest_single_stock_weekly(code: str, bars_limit=1500) -> list:
     """ 回测单支股票并返回所有交易结果 """

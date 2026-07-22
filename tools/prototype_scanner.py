@@ -12,10 +12,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.data_provider import get_stock_list, get_stock_data, get_stock_data_weekly
 from core.calculator import add_indicators
 from core.patterns import PatternRegistry
+from core.log_config import get_logger
 
 # 配置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 def load_gold_standards(file_path: str = "data/gold_standards.json") -> dict:
     """加载黄金标准文件"""

@@ -15,8 +15,9 @@ import pandas as pd
 from datetime import datetime
 from typing import List, Optional
 import logging
+from core.log_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # =========================================================================
 # 导入 Baostock 适配器
@@ -143,7 +144,6 @@ fetch_daily_history_safe = fetch_daily_history_active
 
 if __name__ == "__main__":
     # 快速测试
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
     
     print("=" * 60)
     print("测试 Baostock Only 数据层")

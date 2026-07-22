@@ -268,8 +268,7 @@ class GapPinbarStrategy(BaseStrategy):
   <SETUP_STATUS>{status_str}</SETUP_STATUS>
 </GAP_PINBAR_CONTEXT>
 """
-        except:
-            return "<GAP_PINBAR_CONTEXT_ERROR/>"
+        except Exception:            return "<GAP_PINBAR_CONTEXT_ERROR/>"
 
     def format_prompt(self, context_data: Dict) -> str:
         code = context_data.get('code', 'Unknown')

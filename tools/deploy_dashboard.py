@@ -2,8 +2,9 @@ import os
 import subprocess
 import logging
 from datetime import datetime
+from core.log_config import get_logger
+logger = get_logger(__name__)
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 def deploy_to_github():
     """

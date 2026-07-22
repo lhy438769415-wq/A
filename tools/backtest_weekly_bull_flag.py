@@ -7,9 +7,9 @@ import logging
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.data_provider import get_stock_list, get_stock_data_weekly
+from core.log_config import get_logger
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 def backtest_pattern(limit_stocks=None, max_hold_weeks=12):
     """

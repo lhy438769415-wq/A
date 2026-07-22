@@ -296,7 +296,7 @@ class TradingSystemDashboard:
                 if row:
                     content = row[0]
                 conn.close()
-            except: pass
+            except Exception:pass
             
         self.ai_text.configure(state=NORMAL)
         self.ai_text.delete(1.0, END)
@@ -416,7 +416,7 @@ class TradingSystemDashboard:
                     self.lbl_net.configure(bootstyle="success", text=f"NET: {status['latency']}ms")
                 else:
                     self.lbl_net.configure(bootstyle="danger", text="NET: Err")
-        except: pass
+        except Exception:pass
         self.root.after(1000, self.process_status_queue)
 
     def process_log_queue(self):
@@ -426,7 +426,7 @@ class TradingSystemDashboard:
                 msg = f"[{datetime.fromtimestamp(record.created).strftime('%H:%M:%S')}] {record.getMessage()}"
                 self.log_text.insert(END, msg + "\n", record.levelname)
                 self.log_text.see(END)
-            except: break
+            except Exception:break
         self.root.after(100, self.process_log_queue)
 
     def update_time(self):

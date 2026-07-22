@@ -18,8 +18,9 @@ from core.data_provider import get_stock_data, get_stock_data_weekly, get_stock_
 from core.calculator import add_indicators
 from core.strategies.gap_h2_strategy import GapH2Strategy
 from config import settings
+from core.log_config import get_logger
+logger = get_logger(__name__)
 
-logging.basicConfig(level=logging.WARNING, format='%(levelname)s - %(message)s')
 
 LIFECYCLE_TIMEOUT_BARS = 30
 
@@ -111,8 +112,7 @@ def backtest_single(code, timeframe='daily', limit=1500):
                 trade['rr'] = profit / risk if risk > 0 else 0
             results.append(trade)
         return results
-    except:
-        return []
+    except Exception:        return []
 
 
 def _worker_daily(code):

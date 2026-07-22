@@ -16,8 +16,9 @@ import logging
 import time
 import sys
 from functools import wraps
+from core.log_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class BsBlacklistedError(Exception):
@@ -518,7 +519,6 @@ def bs_fetch_minute_history(symbol: str, start_date: str, end_date: str,
 
 if __name__ == "__main__":
     # 简单测试
-    logging.basicConfig(level=logging.DEBUG)
     
     print("测试 Baostock 适配器...")
     

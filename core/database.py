@@ -76,8 +76,7 @@ def get_db_connection():
         if conn:
             try:
                 conn.rollback()
-            except:
-                pass
+            except Exception:                pass
         raise
     finally:
         if conn:
@@ -97,8 +96,7 @@ def get_db_connection():
                 logger.error(f"归还连接到池时出错: {e}")
                 try:
                     conn.close()
-                except:
-                    pass
+                except Exception:                    pass
 
 # =========================================================================
 # 数据库初始化

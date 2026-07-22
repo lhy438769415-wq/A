@@ -4,10 +4,10 @@ import logging
 import threading
 from datetime import datetime
 from typing import Dict, Any, Optional
+from core.log_config import get_logger
 
 # 配置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # ==========================================
 # ⚙️ 配置区

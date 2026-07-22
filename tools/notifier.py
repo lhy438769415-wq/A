@@ -30,9 +30,10 @@ def strip_emoji(text):
     text = re.sub(r'[\ufe00-\ufe0f]', '', text)
     return text.strip()
 
+from core.log_config import get_logger
+
 # 配置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # 🟢 引入 V7 核心计算器
 from core.calculator import add_indicators
@@ -116,7 +117,7 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
             fm.fontManager.addfont(FONT_PATH)
             prop = fm.FontProperties(fname=FONT_PATH)
             rc_params['font.family'] = prop.get_name()
-        except: pass
+        except Exception:pass
 
     # 自定义 Al Brooks 风格 (红涨绿跌)
     mc = mpf.make_marketcolors(up='red', down='green', edge='inherit', wick='inherit', volume='in')

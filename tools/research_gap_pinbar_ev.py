@@ -36,9 +36,9 @@ except Exception:
 
 from core.calculator import add_indicators
 import core.data_provider as dp
+from core.log_config import get_logger
 
-logging.basicConfig(level=logging.WARNING)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # ==============================================================================
 # 参数配置

@@ -354,8 +354,7 @@ class ThreeKStrategy(BaseStrategy):
   <TRAP_CHECK>{"SAFE" if latest.get('trap_check_ok', False) else "DANGER"}</TRAP_CHECK>
 </3K_CONTEXT>
 """
-        except:
-            return "<3K_CONTEXT_ERROR/>"
+        except Exception:            return "<3K_CONTEXT_ERROR/>"
 
     def format_prompt(self, context_data: Dict) -> str:
         code = context_data.get('code', 'Unknown')

@@ -21,9 +21,9 @@ sys.path.insert(0, project_root)
 from core.data_provider import get_stock_data, get_stock_data_weekly, get_stock_list
 from core.calculator import add_indicators
 from config import settings
+from core.log_config import get_logger
 
-logging.basicConfig(level=logging.WARNING, format='%(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # ============================================================
 # 策略参数

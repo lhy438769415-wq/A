@@ -33,9 +33,9 @@ from core.data_provider import get_stock_data, get_stock_list
 from core.calculator import add_indicators
 from config import settings
 import logging
+from core.log_config import get_logger
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def evaluate_trade(df, signal_idx):
@@ -135,8 +135,7 @@ def evaluate_trade(df, signal_idx):
         if trade_status == 'IN_TRADE':
             return {'status': 'HOLDING'}
         return None
-    except:
-        return None
+    except Exception:        return None
 
 
 def backtest_single_stock_sweep(args_tuple):
@@ -168,8 +167,7 @@ def backtest_single_stock_sweep(args_tuple):
                 res['lookback'] = lookback
                 results.append(res)
         return results
-    except:
-        return []
+    except Exception:        return []
 
 
 def run_sweep(limit=0, bars_limit=1500):
@@ -207,8 +205,7 @@ def run_sweep(limit=0, bars_limit=1500):
                     r = f.result()
                     if r:
                         trades.extend(r)
-                except:
-                    pass
+                except Exception:                    pass
 
         elapsed = time.time() - start
         all_results[lb] = trades

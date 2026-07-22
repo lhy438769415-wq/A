@@ -14,9 +14,9 @@ from core.data_provider import get_stock_data, get_stock_list
 from core.calculator import add_indicators
 from core.strategies.structural_gap_strategy import StructuralGapStrategy
 from config import settings
+from core.log_config import get_logger
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 def evaluate_trade_and_extract(df: pd.DataFrame, signal_idx: int) -> dict:
     """

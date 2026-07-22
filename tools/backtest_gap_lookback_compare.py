@@ -35,9 +35,9 @@ from core.data_provider import get_stock_data, get_stock_list
 from core.calculator import add_indicators
 from config import settings
 import logging
+from core.log_config import get_logger
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def evaluate_trade(df: pd.DataFrame, signal_idx: int) -> dict:
@@ -410,14 +410,12 @@ if __name__ == '__main__':
         def write(self, msg):
             try:
                 self.terminal.write(msg)
-            except:
-                pass
+            except Exception:                pass
             self.file.write(msg)
         def flush(self):
             try:
                 self.terminal.flush()
-            except:
-                pass
+            except Exception:                pass
             self.file.flush()
         def close(self):
             self.file.close()

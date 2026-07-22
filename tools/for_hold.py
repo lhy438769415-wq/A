@@ -10,10 +10,10 @@ import os
 import pandas as pd
 import logging
 from typing import List, Dict, Optional
+from core.log_config import get_logger
 
 # 配置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # 1. 路径处理：当前在 tools/ 目录下，需要把项目根目录加入 sys.path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -116,8 +116,7 @@ def _get_trade_thesis(code: str) -> dict:
                         thesis['gap_status'] = '开放 ✅' if latest_low > gap_floor else '已击穿 ❌'
                     else:
                         thesis['gap_status'] = '数据不足'
-                except:
-                    thesis['gap_status'] = '检查失败'
+                except Exception:                    thesis['gap_status'] = '检查失败'
             else:
                 thesis['gap_status'] = 'N/A'
             
