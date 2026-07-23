@@ -16,7 +16,7 @@ import os
 from datetime import datetime, timedelta
 
 from config import settings
-from core.database import get_db_connection
+from core.database import get_db_connection, init_signal_archive
 import core.data_provider as dp
 
 logger = logging.getLogger(__name__)
@@ -31,54 +31,9 @@ ACTIVE_EXPIRY = {'daily': 60, 'weekly': 20}
 
 
 # =====================================================================
-# 建表 (由 database.py init_db 调用)
+# signal_archive 建表已收归 core/database.py (baostock.db 单一来源)
+# 本模块只委托调用 init_signal_archive(), 禁止在此重复定义 DDL
 # =====================================================================
-SIGNAL_ARCHIVE_DDL = """
-CREATE TABLE IF NOT EXISTS signal_archive (
-    signal_id      TEXT PRIMARY KEY,
-    code           TEXT NOT NULL,
-    name           TEXT,
-    strategy       TEXT NOT NULL,
-    timeframe      TEXT DEFAULT 'daily',
-    signal_date    TEXT NOT NULL,
-    scan_date      TEXT NOT NULL,
-    entry_price    REAL,
-    sl_price       REAL,
-    tp_price       REAL,
-    rr_ratio       REAL,
-    ev_rating      TEXT,
-    ev_score       INTEGER,
-    status         TEXT DEFAULT 'PENDING',
-    activated_date TEXT,
-    resolved_date  TEXT,
-    exit_price     REAL,
-    max_favorable  REAL,
-    max_adverse    REAL,
-    bars_to_resolve INTEGER,
-    extra_json     TEXT,
-    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-"""
-SIGNAL_ARCHIVE_INDEXES = [
-    "CREATE INDEX IF NOT EXISTS idx_sa_status ON signal_archive (status);",
-    "CREATE INDEX IF NOT EXISTS idx_sa_code ON signal_archive (code);",
-    "CREATE INDEX IF NOT EXISTS idx_sa_strategy ON signal_archive (strategy);",
-]
-
-
-def init_signal_archive():
-    """初始化 signal_archive 表 (幂等, 重复调用无副作用)"""
-    try:
-        with get_db_connection() as conn:
-            conn.execute(SIGNAL_ARCHIVE_DDL)
-            for idx_sql in SIGNAL_ARCHIVE_INDEXES:
-                conn.execute(idx_sql)
-            conn.commit()
-            logger.debug("✅ signal_archive 表初始化完成")
-    except Exception as e:
-        logger.error(f"signal_archive 初始化失败: {e}")
-
 
 # =====================================================================
 # 1. 信号归档

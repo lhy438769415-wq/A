@@ -22,73 +22,6 @@ from core.database import get_db_connection
 
 logger = logging.getLogger(__name__)
 
-# =====================================================================
-# 建表 DDL — 基于真实复盘报告结构设计
-# 覆盖 Al Brooks PA 五阶段复盘: 结构扫描→信号触发→过滤器→执行→持仓管理
-# =====================================================================
-TRADE_REVIEWS_DDL = """
-CREATE TABLE IF NOT EXISTS trade_reviews (
-    review_id       TEXT PRIMARY KEY,
-    signal_id       TEXT,
-    code            TEXT NOT NULL,
-    market          TEXT DEFAULT 'CN',
-    trade_date      TEXT NOT NULL,
-    strategy        TEXT DEFAULT 'STRUCTURAL_GAP',
-    direction       TEXT DEFAULT 'LONG',
-
-    -- 阶段1: 结构扫描 (盘面地图)
-    market_state    TEXT,
-    structure_tf    TEXT,
-    key_levels      TEXT,
-    vacuum_check    TEXT,
-
-    -- 阶段2: 信号与触发
-    entry_tf        TEXT,
-    signal_bar_note TEXT,
-    micro_pattern   TEXT,
-    pattern_tags    TEXT,
-    pattern_combo   TEXT,
-    momentum_type   TEXT,
-
-    -- 阶段3: 过滤器 (裁判)
-    always_in_dir   TEXT,
-    trap_check      TEXT,
-    planned_rr      REAL,
-
-    -- 阶段4: 执行
-    order_type      TEXT,
-    entry_price     REAL,
-    sl_price        REAL,
-    tp_price        REAL,
-    open_time       TEXT,
-
-    -- 阶段5: 持仓管理
-    exit_price      REAL,
-    exit_type       TEXT,
-    result          TEXT,
-    final_r         REAL,
-    close_time      TEXT,
-    is_correct      TEXT,
-
-    -- 元数据 (通用)
-    context_tag     TEXT,
-    entry_reason    TEXT,
-    skip_reason     TEXT,
-    execution_score INTEGER,
-    lesson_tag      TEXT,
-    review_report   TEXT,
-    notes           TEXT,
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-"""
-TRADE_REVIEWS_INDEXES = [
-    "CREATE INDEX IF NOT EXISTS idx_tr_code ON trade_reviews (code);",
-    "CREATE INDEX IF NOT EXISTS idx_tr_date ON trade_reviews (trade_date);",
-    "CREATE INDEX IF NOT EXISTS idx_tr_strategy ON trade_reviews (strategy);",
-    "CREATE INDEX IF NOT EXISTS idx_tr_direction ON trade_reviews (direction);",
-    "CREATE INDEX IF NOT EXISTS idx_tr_market_state ON trade_reviews (market_state);",
-    "CREATE INDEX IF NOT EXISTS idx_tr_result ON trade_reviews (result);",
-]
 
 # =====================================================================
 # 常量: 可选字段的合法值 (CLI 提示用)
@@ -128,20 +61,6 @@ VALID_LESSON_TAGS = [
 ]
 
 
-# =====================================================================
-# 1. 初始化
-# =====================================================================
-def init_review_db():
-    """初始化 trade_reviews 表 (幂等)"""
-    try:
-        with get_db_connection() as conn:
-            conn.execute(TRADE_REVIEWS_DDL)
-            for idx_sql in TRADE_REVIEWS_INDEXES:
-                conn.execute(idx_sql)
-            conn.commit()
-            logger.debug("✅ trade_reviews 表初始化完成")
-    except Exception as e:
-        logger.error(f"trade_reviews 初始化失败: {e}")
 
 
 # =====================================================================

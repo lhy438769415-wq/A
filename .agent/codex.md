@@ -13,7 +13,7 @@
 | AI 审计开关 | **三层结构**：①全局开关 `use_ai`（hunter.py:1026 input，每次选完日线策略都弹，对所有策略出现）②硬编码快速通道名单（hunter.py:385）强制 5 策略跳过 AI，与开关无关 ③仅 AWIL 受开关控制 | 亲读 hunter.py:383-413, 1022-1046 |
 | 测试基线 | 实测 **143** 个 `def test_`；`test_p1_p2_regression.py` 含 **98** 个 → **98/98 真，25/25 陈旧** | 亲跑 + grep 统计 |
 | 红线替代物 | `core/paths.py` / `core/log_config.py` **确认不存在** | find 核验 |
-| DDL 单一来源 | 违例 **4 处**：signal_tracker / review_bridge / journal×2 各自建表 | 门禁实跑 |
+| DDL 单一来源 | **已收敛(2026-07-23)**：baostock.db←core/database.py，ai_journal.db←tools/journal.py；原 signal_tracker/review_bridge 的重复定义已委托回主人 | 实改+门禁复核 |
 | 双扫描引擎 | 日线 `core/scanner.run_scanner`；周线 `tools/scanner_weekly_gap`（独立）；`scanner_weekly_3k` 写好人未接 | 多路报告一致 |
 
 ---
@@ -60,7 +60,7 @@
 - `feature_pipeline.py` — **死代码**（abu_indicators 无写入方）
 - `monitor.py` — 仅GUI用监控线程
 - `backtest.py` — 仅GUI用占位VectorBacktester
-- `review_bridge.py` — 复盘数据桥（CREATE TABLE 违例）
+- `review_bridge.py` — 复盘数据桥（trade_reviews 委托 core/database.py 建表，自身无 DDL）
 
 ### 策略 / 形态 `core/strategies` + `core/patterns`
 - `base.py` — 自描述基类（get_metadata/get_signal_info/annotate_chart）；**无 ai_audit 字段**
@@ -83,7 +83,7 @@
 - `scanner_weekly_gap.py` — 周线缺口扫描（活跃）；stitch_images死导入
 - `scanner_weekly_3k.py` — 周线3K扫描（**未接主流程**）
 - `data_manager.py` — 旧数据Facade（仅GUI/strategy_lab）
-- `journal.py` — AI决策日志DB（CREATE TABLE 违例×2）
+- `journal.py` — AI决策日志DB（**ai_journal.db 唯一 schema 主人**，hunter_journal/guardian_journal）
 - `web_viewer.py` / `quiz_server.py` / `prototype_scanner.py` / `sync_notion_reviews.py` / `research_gap_pinbar_ev.py` — 独立运行模块
 
 ### 工具脚本类 `tools/`（约39个疑似死代码，见 §3）
@@ -143,7 +143,7 @@ calculator/3K/AWIL/MTR flow/phase1/weekly+noai/split_msg/p1_p2回归(98) + bs_ne
 
 - **双引擎**：日线 `core/scanner` 干净元数据驱动；周线 `tools/scanner_weekly_gap` 独立且列映射用后缀hack；`scanner_weekly_3k` 游离。
 - **自描述 P1 已落地**：scanner/notifier/hunter 经 StrategyRegistry 取 metadata，但**周线引擎未完全复用**；`ai_audit` 字段不存在（AI仅prompt概念）。
-- **红线全纸面**：sys.path.insert/basicConfig 几十处无替代物兜底；DDL 4处重复。
+- **红线已补替代物(2026-07-23)**：sys.path.insert→core/paths.py、basicConfig→core/log_config.py（仍 31 处存量待根治，非运行阻断）；**DDL 已收敛为双库单一来源白名单**（core/database.py + tools/journal.py），由 quality_gate 阻断 + core/schema_guard.py 运行时守护。
 - **AI 真实战场在 Guardian**（for_hold），扫描侧日线 AI 受硬编码名单钳制。
 
 ---
@@ -155,3 +155,23 @@ calculator/3K/AWIL/MTR flow/phase1/weekly+noai/split_msg/p1_p2回归(98) + bs_ne
 3. **paths.py / log_config.py 补建**：清理红线违规的前置条件，是否现在建？
 4. **双引擎收敛**：周线改用日线P1范式，消除后缀hack（最复杂，排最后）。
 5. **文档矛盾**：C1–C13 是否立项统一（建 SSOT）？
+
+---
+
+## 7. 数据库结构冻结（Schema 保护）— 2026-07-23 生效
+
+系统第一性 = 数据完整性 / 可用性。库结构（SQLite）是经多版沉淀的稳定地基，被**冻结**并由护栏强制执行：
+
+| 数据库 | 唯一 schema 主人 | 拥有的表 |
+|---|---|---|
+| `data/baostock.db` | `core/database.py` | daily_bars / weekly_bars / abu_indicators / signal_archive / trade_reviews |
+| `data/ai_journal.db` | `tools/journal.py` | hunter_journal / guardian_journal |
+
+**护栏两层**：
+1. **代码层（quality_gate）**：白名单外任何文件出现 `CREATE/ALTER TABLE` → 阻断提交。
+   - 收敛动作：signal_archive 曾于 database.py 与 signal_tracker.py 各定义一份（列一致，已委托回 database.py）；trade_reviews 由 review_bridge 委托回 database.py。
+2. **运营层（core/schema_guard.py）**：直接打开真实库文件，跑 `PRAGMA integrity_check`（抓损坏）+ 实际表/列与"实时解析自主人源码的声明 schema"比对（抓带外漂移）。
+   - 期望 schema 从主人源码解析，单一来源、不会脱节。
+   - `tests/test_schema_integrity.py`：真实库应通过 + 人为加列必被抓（已验证）。
+
+**改库结构正确流程**：只在主人文件改 DDL → 跑 schema_guard + pytest → 评审 → 提交。禁止绕过代码手改线上库。

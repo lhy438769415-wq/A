@@ -32,6 +32,10 @@ _pool_stats = {
     'closed': 0     # 关闭连接数
 }
 
+# init_db 进程内幂等: 仅首次调用执行建表与日志 (多策略扫描会多次调用 init_db)
+_INIT_LOCK = threading.Lock()
+_INIT_DONE = False
+
 # =========================================================================
 # 连接池上下文管理器
 # =========================================================================
@@ -103,8 +107,9 @@ def get_db_connection():
 # =========================================================================
 def init_db():
     """
-    初始化数据库表结构
-    
+    初始化数据库表结构（进程内幂等: 仅首次调用执行建表与日志,
+    后续调用直接返回, 避免多策略扫描时重复刷屏 / 重复 DDL）。
+
     表结构 (daily_bars):
     - symbol: 股票代码 (如 '600000')
     - trade_date: 交易日期 (YYYY-MM-DD)
@@ -112,6 +117,10 @@ def init_db():
     - volume: 成交量
     - adjust: 复权标识 ('qfq'/'hfq'/'none')
     """
+    global _INIT_DONE
+    with _INIT_LOCK:
+        if _INIT_DONE:
+            return
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -192,12 +201,84 @@ def init_db():
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_sa_status ON signal_archive (status);")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_sa_code ON signal_archive (code);")
-            
+
+            # [Review Bridge] 复盘报告表 (baostock.db 单一来源, 由 core.database 拥有)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS trade_reviews (
+                review_id       TEXT PRIMARY KEY,
+                signal_id       TEXT,
+                code            TEXT NOT NULL,
+                market          TEXT DEFAULT 'CN',
+                trade_date      TEXT NOT NULL,
+                strategy        TEXT DEFAULT 'STRUCTURAL_GAP',
+                direction       TEXT DEFAULT 'LONG',
+                market_state    TEXT,
+                structure_tf    TEXT,
+                key_levels      TEXT,
+                vacuum_check    TEXT,
+                entry_tf        TEXT,
+                signal_bar_note TEXT,
+                micro_pattern   TEXT,
+                pattern_tags    TEXT,
+                pattern_combo   TEXT,
+                momentum_type   TEXT,
+                always_in_dir   TEXT,
+                trap_check      TEXT,
+                planned_rr      REAL,
+                order_type      TEXT,
+                entry_price     REAL,
+                sl_price        REAL,
+                tp_price        REAL,
+                open_time       TEXT,
+                exit_price      REAL,
+                exit_type       TEXT,
+                result          TEXT,
+                final_r         REAL,
+                close_time      TEXT,
+                is_correct      TEXT,
+                context_tag     TEXT,
+                entry_reason    TEXT,
+                skip_reason     TEXT,
+                execution_score INTEGER,
+                lesson_tag      TEXT,
+                review_report   TEXT,
+                notes           TEXT,
+                created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tr_code ON trade_reviews (code);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tr_date ON trade_reviews (trade_date);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tr_strategy ON trade_reviews (strategy);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tr_direction ON trade_reviews (direction);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tr_market_state ON trade_reviews (market_state);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tr_result ON trade_reviews (result);")
+
             conn.commit()
-            logger.info("✅ 数据库初始化成功 (Tables: daily_bars, abu_indicators, signal_archive)")
+        with _INIT_LOCK:
+            _INIT_DONE = True
+        logger.info("✅ 数据库初始化成功 (Tables: daily_bars, weekly_bars, abu_indicators, signal_archive, trade_reviews)")
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")
         raise
+
+
+def init_signal_archive():
+    """初始化 signal_archive 表 (委托 baostock.db 单一来源, 幂等)。
+
+    历史: signal_archive 曾同时在 core/signal_tracker.py 与 core/database.py
+    各定义一份, 构成 schema 漂移隐患。现已统一由本模块拥有, signal_tracker
+    仅委托调用, 禁止在其它文件重复定义。
+    """
+    init_db()
+
+
+def init_review_db():
+    """初始化 trade_reviews 表 (委托 baostock.db 单一来源, 幂等)。
+
+    trade_reviews 归 core/database.py (baostock.db) 单一所有, review_bridge
+    仅委托调用, 禁止在其它文件重复定义。
+    """
+    init_db()
 
 
 def close_all_connections():
