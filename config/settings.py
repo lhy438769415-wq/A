@@ -46,6 +46,10 @@ MAX_WORKERS = int(os.getenv("MAX_WORKERS", 5))
 # 长图拼接数量
 MAX_IMAGES_PER_BATCH = int(os.getenv("MAX_IMAGES_PER_BATCH", 10))
 
+# 信号洪流保护 (P1⑧): 单次扫描最多推送的图表数, 超出部分聚合为一条文字摘要,
+# 防止某日 A+/A 级信号过多时 Discord 被图表刷屏淹没真实机会。
+MAX_CHARTS_PER_RUN = int(os.getenv("MAX_CHARTS_PER_RUN", 10))
+
 # ================= 策略参数配置 =================
 # 通用
 STRATEGY_MIN_DATA_LENGTH = 125  # Increased for MTR V35 safety

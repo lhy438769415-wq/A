@@ -608,7 +608,7 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
     """
     [V9.16 重构] 阶段 4: 仅为 A+/A 级信号生成图表并推送 (与周线对齐)
     """
-    from tools.notifier import generate_chart_bytes, send_discord_images
+    from tools.notifier import generate_chart_bytes, send_discord_images, send_discord_message
     
     # 🟢 [V9.16] 只推 A+/A 级图表 (与周线统一)
     if top_picks is None:
@@ -648,20 +648,42 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
             chart_pool.append(p['chart_buf'])
 
     if chart_pool:
-        BATCH_SIZE = 10 
+        # 🟢 [P1⑧] 信号洪流保护: 超出上限的图表候选聚合为文字摘要, 不刷屏
+        MAX_CHARTS = settings.MAX_CHARTS_PER_RUN
+        overflow_candidates = []
+        if len(chart_pool) > MAX_CHARTS:
+            overflow_candidates = all_chart_candidates[MAX_CHARTS:]
+            chart_pool = chart_pool[:MAX_CHARTS]
+            logger.warning(
+                f"⚠️ 信号洪流保护: 本次 {len(all_chart_candidates)} 个图表候选, "
+                f"仅推送 Top {len(chart_pool)} 张, 其余 {len(overflow_candidates)} 个汇总为文字"
+            )
+
+        BATCH_SIZE = 10
         logger.info(f"🎨 Discord 图表推送: {len(chart_pool)} 张 A+/A 级 ({BATCH_SIZE} 张/批)")
-        
+
         # 🟢 根据候选级别动态调整附言
         has_a_level = any('🌟' in p.get('info', {}).get('ev_rating', '') or 'A' in p.get('info', {}).get('ev_rating', '')
                          for p in all_chart_candidates)
         label = "🌟 **A+/A 级 K线图**" if has_a_level else "📋 **信号 K线图**"
-        
+
         for batch_start in range(0, len(chart_pool), BATCH_SIZE):
             batch = chart_pool[batch_start:batch_start + BATCH_SIZE]
             send_discord_images(
-                batch, 
+                batch,
                 content=f"{label} ({len(chart_pool)} 张)"
             )
+
+        # 超量信号聚合为一条文字摘要 (不丢信号, 不刷图)
+        if overflow_candidates:
+            lines = [f"📝 **其余 {len(overflow_candidates)} 个 A+/A 级信号 (图表已折叠)**"]
+            for p in overflow_candidates:
+                info = p.get('info', {})
+                name = p.get('name_cn') or fetch_stock_name(p['code'])
+                ev = info.get('ev_rating', 'N/A')
+                stype = p.get('type', 'MTR').replace('STRATEGY_', '')
+                lines.append(f"• `{p['code']}` {name} | {stype} | 评级 {ev}")
+            send_discord_message("\n".join(lines))
 
 
 def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set = None, use_ai: bool = True) -> set:
