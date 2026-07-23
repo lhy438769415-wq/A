@@ -257,10 +257,11 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
         if tp1 > 0: axlist[0].text(label_x, tp1, f"TP1: {tp1:.2f}", color='red', fontsize=8, va='center', ha='right')
         if tp2 > 0: axlist[0].text(label_x, tp2, f"TP2: {tp2:.2f}", color='purple', fontsize=8, va='center', ha='right')
 
-        # === 🟢 大幅提升画质 ===
-        # Discord 平台支持 25MB 巨物文件，故将原有的 dpi 大幅拉升至 300 (4K超清级)
-        # 以确保拼接长图在手机和电脑端放大时 K 线极其锐利清晰
-        fig.savefig(buf, dpi=300, bbox_inches='tight')
+        # === 画质与 Discord 内联预览的折中 ===
+        # 曾用 dpi=300 (3300x2400 / ~3MB)，但 Discord 客户端对超大尺寸附件常不生成
+        # 内联预览缩略图，导致图片退化为"文件附件"无法点开。
+        # dpi=150 -> 约 1650x1200 / ~0.8MB，手机放大足够锐利，且 Discord 必现内联预览。
+        fig.savefig(buf, dpi=150, bbox_inches='tight')
         plt.close(fig) # 释放内存
         buf.seek(0)
         return buf
