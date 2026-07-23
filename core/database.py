@@ -55,10 +55,23 @@ def get_db_connection():
         with _pool_lock:
             if not _db_pool.empty():
                 # 从池中获取已有连接
-                conn = _db_pool.get_nowait()
-                logger.debug("从连接池复用连接")
-                _pool_stats['reused'] += 1
-            else:
+                candidate = _db_pool.get_nowait()
+                # 复用时健康自检 (P1⑦): 长时运行(盘后扫描)连接可能在池中变 stale,
+                # 复用前 ping, 失效则丢弃并新建, 避免静默失败
+                try:
+                    candidate.execute("SELECT 1")
+                    conn = candidate
+                    logger.debug("从连接池复用连接")
+                    _pool_stats['reused'] += 1
+                except Exception:
+                    logger.warning("连接池复用连接健康检查失败, 丢弃并新建")
+                    try:
+                        candidate.close()
+                    except Exception:
+                        pass
+                    _pool_stats['closed'] += 1
+                    conn = None
+            if conn is None:
                 # 创建新连接
                 os.makedirs(os.path.dirname(settings.DB_PATH), exist_ok=True)
                 # 允许跨线程使用（由队列保证线程安全）
