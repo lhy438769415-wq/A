@@ -25,6 +25,21 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     # ==========================================
+    # 0. 停牌边界保护 (P1④b) — 相邻 bar 日历间隔
+    # 复牌首日 vs 数周前旧 bar 的"缺口"是恢复性缺口, 非突破缺口,
+    # 不应计入突破判定 (否则产生假缺口信号)。阈值可配, 默认 10 天
+    # (与实测"缺口>10天=停牌"对齐, 避免误伤长假后真实跳空)。
+    # ==========================================
+    try:
+        _dt = pd.to_datetime(df['trade_date'], errors='coerce')
+        _day_gap = _dt.diff().dt.days.fillna(0)
+    except Exception:
+        _day_gap = pd.Series([0] * len(df))
+    _susp_days = getattr(settings, 'SUSPENSION_RESUME_DAYS', 10)
+    df['date_gap_days'] = _day_gap.astype(int)
+    df['is_suspension_resume'] = _day_gap > _susp_days
+
+    # ==========================================
     # 1. 基础指标计算 (Indicators)
     # ==========================================
     
@@ -147,6 +162,12 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     prev_low = df['low'].shift(1)
     df['gap_upside'] = (df['low'] - prev_high).apply(lambda x: max(0.0, x))
     df['has_gap'] = df['gap_upside'] > 0
+
+    # 停牌复牌首日保护: 前一根 bar 来自数周前, 其"缺口"是恢复性缺口,
+    # 非突破缺口, 不计入突破判定 (P1④b)
+    _resume = df['is_suspension_resume']
+    df.loc[_resume, 'gap_upside'] = 0.0
+    df.loc[_resume, 'has_gap'] = False
     
     # B. 影线比例 (Tail Ratio) - Step 4 Signal Bar Quality
     # 上影线/Range, 下影线/Range
@@ -195,6 +216,9 @@ def add_momentum_features(df: pd.DataFrame) -> pd.DataFrame:
     # Gap Down Definition: High < Prev_Low
     prev_low = df['low'].shift(1)
     gap_down = (df['high'] < prev_low).astype(int)
+    # 停牌复牌首日: 与数周前旧 bar 的"下跌缺口"是恢复性缺口, 不计入动能 (P1④b)
+    if 'is_suspension_resume' in df.columns:
+        gap_down = gap_down.where(~df['is_suspension_resume'], 0)
     # Rolling Sum of Gaps (Last 20 bars)
     df['gap_down_count_20'] = gap_down.rolling(window=20).sum()
     

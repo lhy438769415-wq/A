@@ -75,6 +75,13 @@ STRUCT_GAP_MAX_WINDOW = 40  # 回调确认最大跟踪窗口 (突破后最多等
 MTR_WICK_RATIO = 0.25 # Relaxed from 0.40 (Digital Abu Consensus)
 MTR_CLOSE_POS_RATIO = 0.50 # Relaxed from 0.80 (Top Half)
 
+# ================= 数据质量 / 鲁棒性 =================
+# 停牌边界保护 (P1④b): 相邻日线 bar 日历间隔超过此天数, 视为"停牌后复牌",
+# 该 bar 与前一根(数周前)旧 bar 之间的"缺口"判定为恢复性缺口而非突破缺口,
+# 不计入 has_gap / gap_upside / gap_down_count_20。
+# 默认 10 天: 与实测"缺口>10天=停牌"对齐, 同时避免误伤长假(春节/国庆≈9天)后真实跳空。
+SUSPENSION_RESUME_DAYS = int(os.getenv("SUSPENSION_RESUME_DAYS", 10))
+
 # ================= 数据库与数据配置 =================
 DB_POOL_SIZE = 10
 DB_TIMEOUT = 60
