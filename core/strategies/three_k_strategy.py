@@ -58,6 +58,7 @@ class ThreeKStrategy(BaseStrategy):
             'signal_column': 'signal_3k_gap_test',
             'supported_timeframes': ['daily'],
             'tp_multiplier': 1.0,
+            'ai_audit': False,
         }
 
     @classmethod

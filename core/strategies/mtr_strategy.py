@@ -56,6 +56,7 @@ class MTRStrategy(BaseStrategy):
             'signal_column': 'signal_mtr',
             'supported_timeframes': ['daily'],
             'tp_multiplier': 2.0,
+            'ai_audit': False,
         }
 
     @classmethod

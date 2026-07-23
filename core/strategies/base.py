@@ -69,6 +69,8 @@ class BaseStrategy(ABC):
                 - score_column: str        — Quality/score column name (empty string if none)
                 - signal_column: str       — Signal flag column name (e.g., 'signal_mtr')
                 - supported_timeframes: List[str] — e.g., ['daily'] or ['daily', 'weekly']
+                - ai_audit: bool           — 是否需经 AI 二次审计 (False=结构/动能信号,
+                                              跳过 AI 直接入池; True=送 AI 审计。默认 True)
         """
         return {
             'display_name': '策略',
@@ -78,6 +80,7 @@ class BaseStrategy(ABC):
             'score_column': '',
             'signal_column': '',
             'supported_timeframes': ['daily'],
+            'ai_audit': True,
         }
 
     @classmethod

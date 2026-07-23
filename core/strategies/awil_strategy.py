@@ -73,6 +73,7 @@ class AWILStrategy(BaseStrategy):
             'signal_column': 'signal_awil',
             'supported_timeframes': ['daily'],
             'tp_multiplier': 2.0,
+            'ai_audit': True,
         }
 
     @classmethod

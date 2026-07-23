@@ -54,6 +54,7 @@ class StructuralGapStrategy(BaseStrategy):
             'signal_column': 'signal_struct_gap_confirm',
             'supported_timeframes': ['daily', 'weekly'],
             'tp_multiplier': 2.0,
+            'ai_audit': False,
         }
 
     @classmethod

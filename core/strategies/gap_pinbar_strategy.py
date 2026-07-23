@@ -67,6 +67,7 @@ class GapPinbarStrategy(BaseStrategy):
             'signal_column': 'signal_gap_pinbar',
             'supported_timeframes': ['daily', 'weekly'],
             'tp_multiplier': 2.0,
+            'ai_audit': False,
         }
 
     @classmethod

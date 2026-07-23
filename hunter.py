@@ -316,6 +316,7 @@ def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_thr
     """
     # 🟢 阶段 2.5: Watchlist 生命周期管理 (同步更新)
     from tools.watchlist import WatchlistManager
+    from core.strategy_registry import StrategyRegistry
     watchlist = WatchlistManager()
     
     status_changes = []
@@ -382,8 +383,14 @@ def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_thr
     direct_picks = []
 
     for res in all_hits:
-        strat_type = res.get('type', '').upper()
-        if '3K' in strat_type or 'STRUCTURAL_GAP' in strat_type or 'MTR' in strat_type or 'GAP_PINBAR' in strat_type or 'GAP_H2' in strat_type:
+        strat_type = res.get('type', '')
+        # 🟢 [P1⑤] 元数据驱动 AI 跳过逻辑: 各策略在 get_metadata 声明 ai_audit,
+        # 取代硬编码策略名子串匹配 (消除新增策略忘改 hunter + 子串误匹配风险)
+        try:
+            _ai_audit = StrategyRegistry.get_metadata(strat_type).get('ai_audit', True)
+        except Exception:
+            _ai_audit = True
+        if not _ai_audit:
             if 'MTR' in strat_type:
                 score = res.get('info', {}).get('score', 0)
                 if score >= 80: ev_rating = '🌟🌟 极品 (A+)'

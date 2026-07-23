@@ -66,6 +66,7 @@ class GapH2Strategy(BaseStrategy):
             'signal_column': 'signal_gap_h2',
             'supported_timeframes': ['daily', 'weekly'],
             'tp_multiplier': 2.0,
+            'ai_audit': False,
         }
 
     @classmethod
