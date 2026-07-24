@@ -34,7 +34,9 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
         _dt = pd.to_datetime(df['trade_date'], errors='coerce')
         _day_gap = _dt.diff().dt.days.fillna(0)
     except Exception:
-        _day_gap = pd.Series([0] * len(df))
+        # 兜底: 无 trade_date 列时 (如图表重拉路径仅含 'date'),
+        # 必须用 df.index 对齐, 否则默认 0..n-1 与切片后非0起点索引错位 -> 全 NaN
+        _day_gap = pd.Series(0, index=df.index)
     _susp_days = getattr(settings, 'SUSPENSION_RESUME_DAYS', 10)
     df['date_gap_days'] = _day_gap.astype(int)
     df['is_suspension_resume'] = _day_gap > _susp_days

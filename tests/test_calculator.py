@@ -190,5 +190,25 @@ class TestEdgeCases:
         assert 'atr' in result.columns
 
 
+class TestSuspensionGuardIndexAlign:
+    """回归: P1④b 停牌边界保护在图表重拉路径 (无 trade_date 列 + 非0起点索引) 下不应产生 NaN 掩码"""
+
+    def test_no_nan_in_suspension_mask_when_no_trade_date(self):
+        """get_stock_data 返回的切片 df 索引起点非0且无 trade_date 列时,
+        is_suspension_resume / date_gap_days 必须无 NaN, 否则 .loc 赋值会崩"""
+        df = _make_ohlcv(120)
+        # 模拟图表重拉路径: 仅有 'date' 列 (无 trade_date), 且索引为切片后的非0起点 RangeIndex
+        df = df.rename(columns={'date': 'trade_date'})
+        df = df.iloc[50:].reset_index(drop=True)  # 仍 RangeIndex 0..69 但制造非默认起点场景
+        df = df.rename(columns={'trade_date': 'date'})  # 去掉 trade_date, 仅留 'date'
+        assert 'trade_date' not in df.columns
+        # 强制制造非0起点索引 (图表真实场景: get_stock_data 返回的是全量切片, 索引保留原值)
+        df.index = pd.RangeIndex(start=1523, stop=1523 + len(df))
+        result = add_indicators(df)
+        assert result['is_suspension_resume'].isna().sum() == 0, "is_suspension_resume 含 NaN -> .loc 赋值会崩"
+        assert result['date_gap_days'].isna().sum() == 0, "date_gap_days 含 NaN"
+        assert result['is_suspension_resume'].dtype == bool
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '--maxfail=3'])
