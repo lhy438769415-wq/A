@@ -37,13 +37,13 @@
 |:---:|:---|:---:|:---:|
 | P4 | DDL 双重定义 | ★★★ | ✅ 已修复 (质量门禁 DDL 白名单约束, core/database.py + tools/journal.py 为唯一 schema 主人, 扫描 0 违例) |
 | P5 | 裸 except | ★★ | ✅ 已修复 (门禁 0; 残留均在已归档 strategy_lab/) |
-| P6 | 连接池无健康检查 | ★★ | ❌ 待修复 (无变化) |
+| P6 | 连接池无健康检查 | ★★ | ✅ 已修复 (连接池复用 + 健康自检 ping, commit 29265fa) |
 | P7 | logging.basicConfig | ★★★★ | ✅ 已修复 (门禁 0; 统一 get_logger) |
 | P8 | sys.path.insert | ★★★★ | ✅ 已修复 (门禁 0; 仅 core/paths.py ensure_importable 为唯一豁免注入点) |
 | P9 | 废弃文件清理 | ★ | ✅ 已修复 (strategy_lab/ + 39 个 tools 研究脚本归档至 archive/, git mv 可逆) |
 | P10 | signal_tracker 死代码 | ★★★★★ | ✅ 已修复 (commit 9487f73) |
 | P11 | signal_tracker 职责拆分 (1649 行, 6 职责) | ★★★ | ✅ 已修复 (拆分为 8 子模块) |
-| P12 | 信号洪流保护 (Signal Flood Guard) | ★★ | ❌ 待实现 (无变化) |
+| P12 | 信号洪流保护 (Signal Flood Guard) | ★★ | ✅ 已修复 (限量推送 + 溢出聚合, commit 0a305a2) |
 
 ## 回归测试基线
 - 命令: `.venv\Scripts\python.exe -m pytest tests/ -v --tb=short` (按文件分批跑，绕过 pytest capture bug)
