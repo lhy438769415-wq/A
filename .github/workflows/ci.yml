@@ -37,29 +37,16 @@ jobs:
       # 跑全套测试，但 --ignore 本地库 schema 守护测试（test_schema_integrity.py）：
       # 那两个测试真打 data/baostock.db（570MB，不入库），CI 云端无此库必失败。
       # 它们是「本地数据完整性护栏」，本地有库照常跑；云端无数据本就跑不了，故排除。
-      - name: Collect tests first (diagnose import issues)
+      - name: Run tests (exclude local-DB schema tests)
         run: |
           set -o pipefail
-          python -m pytest tests/ --ignore=tests/test_schema_integrity.py --collect-only -v 2>&1 | tee collect.log
+          python -m pytest tests/ --ignore=tests/test_schema_integrity.py -q --tb=short 2>&1 | tee pytest-ci.log
 
-      # 把 collect-only / pytest 的关键失败信息写入 GitHub step summary，无需登录即可查看。
+      # 失败时在 step summary 贴出尾部日志，无需登录即可快速看到原因（轻量诊断保险）。
       - name: Summarize pytest output
-        if: always()
+        if: failure()
         run: |
-          echo "## Collect-only output (last 150 lines)" >> $GITHUB_STEP_SUMMARY
+          echo "## Pytest failure tail (last 80 lines)" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -n 150 collect.log >> $GITHUB_STEP_SUMMARY || true
+          tail -n 80 pytest-ci.log >> $GITHUB_STEP_SUMMARY || true
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Pytest output (last 120 lines)" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -n 120 pytest-ci.log >> $GITHUB_STEP_SUMMARY || true
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-      # 无论测试成败，把详细日志上传为 artifact，方便排查 CI 与本地行为差异。
-      - name: Upload pytest log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pytest-ci-log
-          path: pytest-ci.log
