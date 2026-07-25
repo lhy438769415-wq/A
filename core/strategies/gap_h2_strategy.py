@@ -70,6 +70,8 @@ class GapH2Strategy(BaseStrategy):
             'supported_timeframes': ['daily', 'weekly'],
             'tp_multiplier': 2.0,
             'ai_audit': False,
+            'bars_since_breakout_column': 'bars_since_breakout_h2',
+            'gap_top_exact_column': 'gap_h2_top_exact',
         }
 
     @classmethod

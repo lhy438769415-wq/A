@@ -58,6 +58,8 @@ class StructuralGapStrategy(BaseStrategy):
             'supported_timeframes': ['daily', 'weekly'],
             'tp_multiplier': 2.0,
             'ai_audit': False,
+            'bars_since_breakout_column': 'bars_since_breakout',
+            'gap_top_exact_column': 'struct_gap_top_exact',
         }
 
     @classmethod

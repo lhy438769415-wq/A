@@ -47,7 +47,8 @@ def _get_strategy_cols(strategy_name: str) -> dict:
     声明 get_metadata()，此处自动适配。
 
     对于 bars_since_breakout 和 gap_top_exact 等周线扫描专用列，
-    根据 strategy_name 后缀匹配来补充 (这些列不属于 metadata 标准字段)。
+    优先从 metadata 的 bars_since_breakout_column / gap_top_exact_column 读取
+    (P2 消除后缀 hack)；未声明的策略回退到按策略名后缀推导。
     """
     try:
         meta = StrategyRegistry.get_metadata(strategy_name)
@@ -64,18 +65,25 @@ def _get_strategy_cols(strategy_name: str) -> dict:
         'quality': meta.get('score_column', ''),
     }
 
-    # 🟢 [P1] 周线扫描专用列: bars_since_breakout / gap_top_exact
-    # 这些列名含策略后缀，无法从标准 metadata 推导，根据策略名后缀匹配
-    name_upper = strategy_name.upper()
-    if 'PINBAR' in name_upper:
-        cols['bars_since_breakout'] = 'bars_since_breakout_gp'
-        cols['gap_top_exact'] = 'gap_pinbar_top_exact'
-    elif 'H2' in name_upper:
-        cols['bars_since_breakout'] = 'bars_since_breakout_h2'
-        cols['gap_top_exact'] = 'gap_h2_top_exact'
+    # 🟢 [P2] 周线扫描专用列: 优先从 metadata 读取，消除后缀 hack
+    # bars_since_breakout_column / gap_top_exact_column 由策略在 get_metadata 声明；
+    # 未声明的策略回退到原后缀推导逻辑（兼容）。
+    bsb = meta.get('bars_since_breakout_column', '')
+    gte = meta.get('gap_top_exact_column', '')
+    if bsb and gte:
+        cols['bars_since_breakout'] = bsb
+        cols['gap_top_exact'] = gte
     else:
-        cols['bars_since_breakout'] = 'bars_since_breakout'
-        cols['gap_top_exact'] = 'struct_gap_top_exact'
+        name_upper = strategy_name.upper()
+        if 'PINBAR' in name_upper:
+            cols['bars_since_breakout'] = 'bars_since_breakout_gp'
+            cols['gap_top_exact'] = 'gap_pinbar_top_exact'
+        elif 'H2' in name_upper:
+            cols['bars_since_breakout'] = 'bars_since_breakout_h2'
+            cols['gap_top_exact'] = 'gap_h2_top_exact'
+        else:
+            cols['bars_since_breakout'] = 'bars_since_breakout'
+            cols['gap_top_exact'] = 'struct_gap_top_exact'
 
     return cols
 from tools.notifier import generate_chart_bytes, stitch_images, send_discord_image, send_discord_message, send_discord_images, format_push_brief

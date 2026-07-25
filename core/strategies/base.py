@@ -73,6 +73,8 @@ class BaseStrategy(ABC):
                 - supported_timeframes: List[str] — e.g., ['daily'] or ['daily', 'weekly']
                 - ai_audit: bool           — 是否需经 AI 二次审计 (False=结构/动能信号,
                                               跳过 AI 直接入池; True=送 AI 审计。默认 True)
+                - bars_since_breakout_column: str — 周线专用: 突破后经过的 bar 数 列名 (空=未声明)
+                - gap_top_exact_column: str      — 周线专用: 测量缺口精确顶 列名 (空=未声明)
         """
         return {
             'display_name': '策略',
@@ -83,6 +85,8 @@ class BaseStrategy(ABC):
             'signal_column': '',
             'supported_timeframes': ['daily'],
             'ai_audit': True,
+            'bars_since_breakout_column': '',
+            'gap_top_exact_column': '',
         }
 
     @classmethod

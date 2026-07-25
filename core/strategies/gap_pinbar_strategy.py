@@ -71,6 +71,8 @@ class GapPinbarStrategy(BaseStrategy):
             'supported_timeframes': ['daily', 'weekly'],
             'tp_multiplier': 2.0,
             'ai_audit': False,
+            'bars_since_breakout_column': 'bars_since_breakout_gp',
+            'gap_top_exact_column': 'gap_pinbar_top_exact',
         }
 
     @classmethod
