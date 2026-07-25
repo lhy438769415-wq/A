@@ -278,7 +278,7 @@ def main():
     
     signals = load_watchlist(json_path)
     if not signals:
-        st.warning("⚠️ 找不到监控数据，请先运行 `python tools/scanner_weekly_gap.py`")
+        st.warning("⚠️ 找不到监控数据，请先运行 `python hunter.py --timeframe weekly`")
         return
         
     df_sig = pd.DataFrame(signals)

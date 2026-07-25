@@ -121,11 +121,11 @@ Facade `tools/watchlist.py` → 此子包。组成：`__init__` / `_shared` / `a
 
 - 日线全量：`list_strategies()`（6 项全扫）。
 - 周线：`get_strategies_by_timeframe('weekly')` → 后 3 项（STRUCTURAL_GAP / GAP_PINBAR / GAP_H2）。
-- **注册表顺序风险**：`scanner_weekly_gap.py` 用 `get_strategies_by_timeframe('weekly')[:1]` 取默认策略。3K 的 `supported_timeframes` 保持 `['daily']`（**未补 weekly 元数据**），否则会让 gap scanner 默认误扫 3K。
+- **注册表顺序风险**：`hunter.py` 周线委托用 `get_strategies_by_timeframe('weekly')[:1]` 取默认策略。3K 的 `supported_timeframes` 保持 `['daily']`（**未补 weekly 元数据**），否则会让 gap 默认误扫 3K。
 
 ---
 
-## 6. tools/ 保留模块（13 文件 / 3,792 行）
+## 6. tools/ 保留模块（11 文件 / 3,221 行）
 
 | 文件 | 行数 | 职责 |
 |:---|---:|:---|
@@ -134,8 +134,6 @@ Facade `tools/watchlist.py` → 此子包。组成：`__init__` / `_shared` / `a
 | `fetcher_baostock.py` | 539 | Baostock 数据抓取 |
 | `web_viewer.py` | 324 | 本地 Web 查看器（读 `weekly_gap_watchlist.json`） |
 | `for_hold.py` | 296 | 持仓/持有辅助 |
-| `scanner_weekly_3k.py` | 287 | 周线 3K 扫描器（薄封装 + R-A 接入 `compute_rating`） |
-| `scanner_weekly_gap.py` | 284 | 周线缺口扫描器（薄封装，委托 `scan_engine`） |
 | `watchlist.py` | 204 | Facade → SignalTracker |
 | `journal.py` | — | **schema 主人**：`ai_journal.db`（hunter_journal/guardian_journal） |
 | `deploy_dashboard.py` | — | 仪表盘部署 |
@@ -144,6 +142,8 @@ Facade `tools/watchlist.py` → 此子包。组成：`__init__` / `_shared` / `a
 | `__init__.py` | — | — |
 
 > 其余 32 个 `tools/*.py/html` 研究/回测脚本已于 2026-07-25 归档至 `archive/tools/`（commit `84e6dc0`），不再参与生产。
+
+> 周线扫描器 `scanner_weekly_gap.py` / `scanner_weekly_3k.py` 已于 2026-07-25 Phase 3 并入 `core/scan_engine.py` + `hunter.py`（彻底单引擎），生产入口统一为 `python hunter.py --timeframe weekly [--strategy STRATEGY_3K]`。
 
 ---
 
@@ -185,7 +185,7 @@ Facade `tools/watchlist.py` → 此子包。组成：`__init__` / `_shared` / `a
 
 **日线流水线**（`hunter.run_scanner`）：一次取数(`data_provider`) → 一次算指标(`calculator.add_indicators`) → 多策略 `calculate_signals` 命中最新 K 线 → `compute_rating` → `formatter` → `notifier`(Discord+图表) → `watchlist`/SignalTracker 归档。
 
-**周线流水线**（两脚本）：`scanner_weekly_gap.py` & `scanner_weekly_3k.py` 均委托 `core/scan_engine.py`；3K scanner 额外调用 `compute_rating` 接入 R-A。产出 JSON（`weekly_gap_watchlist.json` / `weekly_watchlist.json`）+ MD 计划 + Discord。
+**周线流水线**（Phase 3 彻底单引擎）：`hunter.py --timeframe weekly`（CLI 直通 / 交互菜单）统一调用 `core/scan_engine.run_weekly_scan`，按家族路由——gap 家族（STRUCTURAL_GAP/PINBAR/H2，含 Signal Tracker 归档）走 `scan_weekly_gap_signals`+`format_push_weekly_gap`；3K（`--strategy STRATEGY_3K` 或菜单项，不归档）走 `scan_weekly_3k_signals`+`format_push_weekly_3k`。产出 JSON（`weekly_gap_watchlist.json` / `weekly_watchlist.json`）+ MD 计划 + Discord。原 `scanner_weekly_gap.py` / `scanner_weekly_3k.py` 已并入 `scan_engine` + `hunter`（2026-07-25）。
 
 **评级校准回测**：`tools/rating_calibration_backtest.py` + `core/backtest_engine.py` → `config/rating_factors.json` + `calibration_report.txt`（含训练/测试切分、Wilson 95% CI、净 EV）。
 

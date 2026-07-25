@@ -47,9 +47,7 @@ hunter.py (主入口)
 │
 ├── tools/                   ← 工具集
 │   ├── notifier.py          Discord 推送 + K线图绘制
-│   ├── scanner_weekly_gap.py    周线缺口扫描器 (V9.0 四因子评级)
-│   ├── scan_gap_pinbar_weekly.py  周线 Gap+Pinbar 实战机会扫描器
-│   ├── research_gap_pinbar_ev.py  Gap+Pinbar 组合形态 EV 研究
+│   ├── (周线扫描已并入根目录 hunter.py --timeframe weekly + core/scan_engine)
 │   ├── watchlist.py             信号生命周期管理
 │   ├── journal.py           AI 决策日志
 │   ├── fetcher_baostock.py  Baostock 数据同步

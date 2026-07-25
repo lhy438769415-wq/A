@@ -12,14 +12,14 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
-from tools.scanner_weekly_gap import _scan_single_code, scan_weekly_gap
+from core.scan_engine import scan_single_code_weekly, scan_weekly_gap_signals
 from hunter import run_pipeline_once
 
 
 class TestWeeklyGapScannerMultiStrategy:
     """测试周线多策略扫描与解耦逻辑"""
 
-    @patch('tools.scanner_weekly_gap.fetch_weekly_data')
+    @patch('core.scan_engine.fetch_weekly_data')
     @patch('core.data_provider.get_stock_name')
     def test_scan_single_code_structural_gap(self, mock_get_name, mock_fetch):
         """测试周线扫描单个代码 (Structural Gap)"""
@@ -41,10 +41,10 @@ class TestWeeklyGapScannerMultiStrategy:
         mock_fetch.return_value = df
 
         # 调用 _scan_single_code，传入单个策略
-        results = _scan_single_code('sh.600000', recent_weeks=4, strategies=['STRATEGY_STRUCTURAL_GAP'])
+        results = scan_single_code_weekly('sh.600000', recent_weeks=4, strategies=['STRATEGY_STRUCTURAL_GAP'])
         assert isinstance(results, list)
 
-    @patch('tools.scanner_weekly_gap.fetch_weekly_data')
+    @patch('core.scan_engine.fetch_weekly_data')
     @patch('core.data_provider.get_stock_name')
     def test_scan_single_code_gap_h2(self, mock_get_name, mock_fetch):
         """测试周线扫描单个代码 (Gap H2 策略字段反射读取)"""
@@ -63,7 +63,7 @@ class TestWeeklyGapScannerMultiStrategy:
         mock_fetch.return_value = df
 
         # 调用 _scan_single_code，指定 STRATEGY_GAP_H2
-        results = _scan_single_code('sh.600000', recent_weeks=4, strategies=['STRATEGY_GAP_H2'])
+        results = scan_single_code_weekly('sh.600000', recent_weeks=4, strategies=['STRATEGY_GAP_H2'])
         assert isinstance(results, list)
 
 

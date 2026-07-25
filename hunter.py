@@ -902,13 +902,13 @@ def main():
     if args.timeframe:
         if args.timeframe == 'weekly':
             print(f"\n🌙 周线模式启动 (检查最近 {args.weeks} 周)")
-            from tools.scanner_weekly_gap import scan_weekly_gap, _format_and_push_results
+            from core.strategy_registry import StrategyRegistry
+            from core.scan_engine import run_weekly_scan
             all_codes = data_provider.get_stock_list()
             if not all_codes: print("❌ 获取股票列表失败"); return
             if args.limit > 0: all_codes = all_codes[:args.limit]
-            
+
             # 🟢 [P1] 使用 StrategyRegistry 动态获取支持周线的策略列表
-            from core.strategy_registry import StrategyRegistry
             weekly_supported = StrategyRegistry.get_strategies_by_timeframe('weekly')
             active_strategies = None
             if args.strategy:
@@ -919,8 +919,7 @@ def main():
             else:
                 active_strategies = [weekly_supported[0]] if weekly_supported else []
 
-            results = scan_weekly_gap(all_codes, strategies=active_strategies, recent_weeks=args.weeks)
-            _format_and_push_results(results, total_stocks=len(all_codes))
+            run_weekly_scan(active_strategies, weeks=args.weeks, limit=args.limit, all_codes=all_codes)
             return
         # daily: 继续往下进入策略选择
     else:
@@ -978,47 +977,51 @@ def main():
             tf_choice = '1'
         
         if tf_choice == '2':
-            print(f"\n🌙 周线模式启动 (扫描有效缺口结构)")
-            from tools.scanner_weekly_gap import scan_weekly_gap, _format_and_push_results
+            print(f"\n🌙 周线模式启动 (扫描有效缺口结构 / 3K 埋伏)")
+            from core.strategy_registry import StrategyRegistry
+            from core.scan_engine import run_weekly_scan
             all_codes = data_provider.get_stock_list()
             if not all_codes: print("❌ 获取股票列表失败"); return
             if args.limit > 0: all_codes = all_codes[:args.limit]
-            
+
             # 🟢 [P1] 使用 StrategyRegistry 动态获取支持周线的策略列表
-            from core.strategy_registry import StrategyRegistry
             weekly_supported = StrategyRegistry.get_strategies_by_timeframe('weekly')
+            # 🟢 [Phase 3] 3K 也纳入周线菜单 (经 run_weekly_scan 路由, 不归档)
+            menu_options = list(weekly_supported) + ['STRATEGY_3K']
             print("\n" + "="*40)
             print("🔍 周线扫描策略选择")
             print("="*40)
-            for i, s in enumerate(weekly_supported):
+            for i, s in enumerate(menu_options):
                 print(f"  {i+1}. {s}")
-            print(f"  {len(weekly_supported)+1}. ALL (全量扫描)")
+            print(f"  {len(menu_options)+1}. ALL (全量扫描, 仅缺口家族)")
             print("="*40)
-            
+
             try:
                 choice = input(f"请输入选择序号 (默认 1 - {weekly_supported[0]}): ").strip()
                 if not choice:
                     active_strategies = [weekly_supported[0]]
                 elif choice.isdigit():
                     idx = int(choice)
-                    if idx == len(weekly_supported) + 1:
+                    if idx == len(menu_options) + 1:
                         active_strategies = weekly_supported
-                    elif 1 <= idx <= len(weekly_supported):
-                        active_strategies = [weekly_supported[idx-1]]
+                    elif 1 <= idx <= len(menu_options):
+                        active_strategies = [menu_options[idx-1]]
                     else:
                         active_strategies = [weekly_supported[0]]
                 else:
-                    if choice.upper() in weekly_supported:
-                        active_strategies = [choice.upper()]
+                    _up = choice.upper()
+                    if _up in menu_options:
+                        active_strategies = [_up]
+                    elif _up in weekly_supported:
+                        active_strategies = [_up]
                     else:
                         active_strategies = [weekly_supported[0]]
             except (EOFError, KeyboardInterrupt):
                 active_strategies = [weekly_supported[0]]
-                
+
             print(f"\n🚀 已激活周线策略: {', '.join(active_strategies)}")
-            
-            results = scan_weekly_gap(all_codes, strategies=active_strategies, recent_weeks=args.weeks)
-            _format_and_push_results(results, total_stocks=len(all_codes))
+
+            run_weekly_scan(active_strategies, weeks=args.weeks, limit=args.limit, all_codes=all_codes)
             return
 
     # ============================================================

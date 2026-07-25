@@ -16,7 +16,7 @@
 ### 2.1 主入口控制 (`hunter.py`)
 整个系统的核心总控，支持交互式命令行菜单与定时任务 CLI 直通：
 - **日线扫描 (`daily`)**：`_scan_market` 获取数据计算指标 -> `_classify_signals` 更新观察池并进行 AI 审计/分流 -> `_compose_report` 整合结果 -> `_dispatch_charts` 推送 Discord。
-- **周线扫描 (`weekly`)**：直通高胜率缺口及形态扫描（如 `tools/scanner_weekly_gap.py`）。
+- **周线扫描 (`weekly`)**：`hunter.py --timeframe weekly` 统一经 `core/scan_engine.run_weekly_scan` 路由 gap 家族 / 3K 扫描（原 `scanner_weekly_gap.py` / `scanner_weekly_3k.py` 已并入）。
 - **信号追踪 (`track & report`)**：运行系统内置的 Watchlist / 仪表盘，推送持仓与信号状态。
 
 ### 2.2 核心模块划分 (`core/`)
@@ -30,7 +30,7 @@
 ### 2.3 工具层 (`tools/`)
 - **`notifier.py`**：核心的消息推送层，负责将包含 K 线与标注信息的图表进行渲染（matplotlib/mplfinance）并发送到 Discord。包含图片大小优化、重试限制（解决 Rate Limit API 问题）。
 - **`watchlist.py`**：在盘中/盘后持续跟踪未被触发或已触发信号的生命状态。
-- **各类扫描工具与分析脚本**：例如 `scanner_weekly_gap.py`（周线缺口形态）、`evolve_gap_strategy.py`、`backtest_*.py`（各类回测脚本）。
+- **各类扫描工具与分析脚本**：例如 `evolve_gap_strategy.py`、`backtest_*.py`（各类回测脚本，多数已归档至 `archive/tools/`）。
 
 ---
 

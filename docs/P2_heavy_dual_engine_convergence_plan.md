@@ -147,3 +147,29 @@ def scan_strategies(codes, strategies, timeframe='daily', limit=300,
 
 ### 评审结论
 方向对（策略层确已元数据化统一），但 v1 **低估「薄封装」真实工作量**（周线特有扫描语义须搬进引擎，3K 须先接入评级）；Phase 1 引擎草图会丢信号（已修）；D1 仅 Phase 1+2、D2 补 weekly、D3 锁 JSON 形状——与修订后方案一致。
+
+---
+
+## 9. Phase 3 执行记录（2026-07-25，彻底单引擎）
+
+### 9.1 决策 (3a)
+- **3K 保持不归档 signal_tracker**：保留与旧 `scanner_weekly_3k.py` 一致的行为差异（gap 家族才在 `format_push_weekly_gap` 内归档；3K 路径 `format_push_weekly_3k` 刻意不调 `archive_signal`）。
+- **3K 产物保持独立形状**：`weekly_watchlist.json` = `{'signals_3k':..., 'signals_gap_test':...}`、`weekly_ambush_plan.md`、专属 Discord 分组（按 phase 缺口确认/新雏形）——不与 gap 的 `weekly_gap_watchlist.json`（`{'signals_gap':[...]}`）混用。
+- **不补 3K weekly 元数据**：`ThreeKStrategy.supported_timeframes` 仍为 `['daily']`，故 `get_strategies_by_timeframe('weekly')[:1]` 默认仍是 STRUCTURAL_GAP，未被 3K 污染。3K 经 `run_weekly_scan` 显式路由（CLI `--strategy STRATEGY_3K` 或交互菜单新增项）抵达。
+- **日线 `_scan_market` 热路径不动**：本次仅收敛周线/3K 入口，日线引擎未触碰（零行为变化）。
+
+### 9.2 改动 (3b / 3c)
+- `core/scan_engine.py` 新增：`scan_weekly_3k_signals`（原 `scanner_weekly_3k.scan_weekly_3k` 原样搬入）、`format_push_weekly_gap`（原 `scanner_weekly_gap._format_and_push_results`）、`format_push_weekly_3k`（原 `scanner_weekly_3k.main` 格式化段）、`run_weekly_scan(active_strategies, weeks, limit, all_codes)` 统一编排（按家族路由 + 周线表存在性 UX 守护）。
+- `hunter.py` 两处周线委托（CLI `--timeframe weekly` 902-924 + 交互菜单 980-1020）统一改为调用 `scan_engine.run_weekly_scan`；交互菜单新增 `STRATEGY_3K` 选项，使 3K 也可经 hunter 单一入口触发。
+- 删除 `tools/scanner_weekly_gap.py` + `tools/scanner_weekly_3k.py`（零外部 import：仅 2 个测试文件 + hunter 曾引用，已全部迁移）。
+- 测试迁移：`test_weekly_and_noai_flow.py`（`_scan_single_code`→`scan_single_code_weekly`、`scan_weekly_gap`→`scan_weekly_gap_signals`、patch 目标改 `core.scan_engine`）、`test_p1_p2_regression.py`（`_get_strategy_cols` import 改 `core.scan_engine`）。
+- `tools/web_viewer.py:281` 提示文案改为 `python hunter.py --timeframe weekly`。
+
+### 9.3 验证
+- **等价 diff**：gap 扫描 `_scan_single_code`↔`scan_single_code_weekly` 177 行仅函数名/docstring 差异；3K `scan_weekly_3k`↔`scan_weekly_3k_signals` 仅函数名/注释/import 位置差异（ThreeKStrategy 由模块顶层改为函数内惰性 import，行为一致）→ 零逻辑漂移。
+- **质量门禁**：0 红线 / 156 测试守卫通过（扫描 .py 由 90→88）。
+- **全流程 pytest**：156 passed。
+- **安全冒烟**（真实数据 40 样本，monkeypatch Discord 发送+归档为 no-op，备份还原产物）：gap 与 3K 两路径经 `run_weekly_scan` 全链路无崩溃，真实 Discord 发送 0 次，纯扫描函数返回结构正确。
+
+### 9.4 结论
+周线/3K 入口已收敛到 `hunter.py` 单一 CLI + `core.scan_engine` 共享编排，**彻底单引擎（入口/编排层）达成**；3K 行为差异（不归档、独立产物）刻意保留；日线热路径零变化。

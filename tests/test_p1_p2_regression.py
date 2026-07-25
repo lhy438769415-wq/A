@@ -476,10 +476,10 @@ class TestAnnotateChart(unittest.TestCase):
 
 
 class TestWeeklyScannerHelper(unittest.TestCase):
-    """验证 scanner_weekly_gap._get_strategy_cols() 辅助函数"""
+    """验证 scan_engine._get_strategy_cols() 辅助函数"""
 
     def test_structural_gap_cols(self):
-        from tools.scanner_weekly_gap import _get_strategy_cols
+        from core.scan_engine import _get_strategy_cols
         cols = _get_strategy_cols('STRATEGY_STRUCTURAL_GAP')
         self.assertEqual(cols['signal'], 'signal_struct_gap_confirm')
         self.assertEqual(cols['entry'], 'entry_struct_gap')
@@ -490,7 +490,7 @@ class TestWeeklyScannerHelper(unittest.TestCase):
         self.assertEqual(cols['gap_top_exact'], 'struct_gap_top_exact')
 
     def test_gap_pinbar_cols(self):
-        from tools.scanner_weekly_gap import _get_strategy_cols
+        from core.scan_engine import _get_strategy_cols
         cols = _get_strategy_cols('STRATEGY_GAP_PINBAR')
         self.assertEqual(cols['signal'], 'signal_gap_pinbar')
         self.assertEqual(cols['entry'], 'entry_gap_pinbar')
@@ -501,7 +501,7 @@ class TestWeeklyScannerHelper(unittest.TestCase):
         self.assertEqual(cols['gap_top_exact'], 'gap_pinbar_top_exact')
 
     def test_gap_h2_cols(self):
-        from tools.scanner_weekly_gap import _get_strategy_cols
+        from core.scan_engine import _get_strategy_cols
         cols = _get_strategy_cols('STRATEGY_GAP_H2')
         self.assertEqual(cols['signal'], 'signal_gap_h2')
         self.assertEqual(cols['entry'], 'entry_gap_h2')
@@ -513,7 +513,7 @@ class TestWeeklyScannerHelper(unittest.TestCase):
 
     def test_unknown_strategy_returns_mtr_fallback(self):
         """未知策略名由于 _resolve_class 回退到 MTR，应返回 MTR 的列映射"""
-        from tools.scanner_weekly_gap import _get_strategy_cols
+        from core.scan_engine import _get_strategy_cols
         cols = _get_strategy_cols('NON_EXISTENT')
         # _resolve_class 对未知策略回退到 MTR，所以返回 MTR 的列
         self.assertEqual(cols['signal'], 'signal_mtr')

@@ -16,6 +16,8 @@ core/scan_engine.py — 共享扫描编排核心 (P2-heavy Phase 1)
 """
 import logging
 import sys
+import os
+import json
 
 import pandas as pd
 import numpy as np
@@ -25,6 +27,9 @@ from core.strategy_registry import StrategyRegistry
 import core.data_provider as dp
 from core.rating import band, clamp
 from core.log_config import get_logger
+from tools.notifier import (
+    generate_chart_bytes, send_discord_message, send_discord_images, format_push_brief
+)
 
 logger = get_logger(__name__)
 
@@ -339,3 +344,459 @@ def scan_weekly_gap_signals(all_codes: list, strategies: list = None, recent_wee
 
     print(f"\n  ✅ 扫描完成! 共命中 {len(results_gap)} 只")
     return {'signals_gap': results_gap}
+
+
+# =====================================================
+# 周线 3K 扫描 (原 scanner_weekly_3k.scan_weekly_3k, 原样搬入)
+# =====================================================
+def scan_weekly_3k_signals(all_codes: list, recent_weeks: int = 4) -> dict:
+    """
+    周线 3K 策略扫描 (原 scanner_weekly_3k.scan_weekly_3k, 原样搬入 scan_engine).
+
+    Returns:
+        {'signals_3k': [...], 'signals_gap_test': [...]}  — 与旧 scanner 结构一致
+    """
+    from core.strategies.three_k_strategy import ThreeKStrategy
+    strategy = ThreeKStrategy()
+    results_3k = []
+    results_gt = []
+
+    for i, code in enumerate(all_codes):
+        if (i + 1) % 200 == 0:
+            print(f"  进度: {i+1}/{len(all_codes)}...")
+
+        try:
+            df = prepare_weekly_df(code, weeks=200)
+            if df is None or len(df) < 60:
+                continue
+
+            df = strategy.calculate_signals(df)
+
+            # 检查最近 N 周是否有信号
+            recent = df.tail(recent_weeks)
+
+            # 3K 信号
+            sig_rows = recent[recent['signal_3k'] == True]
+            for _, row in sig_rows.iterrows():
+                results_3k.append({
+                    'code': code,
+                    'name': dp.get_stock_name(code),
+                    'date': row['trade_date'] if 'trade_date' in row else (row['date'] if 'date' in row else str(row.name)),
+                    'close': row['close'],
+                    'sl': row.get('sl_3k', np.nan),
+                })
+
+            # 缺口测试确认
+            gt_rows = recent[recent.get('signal_3k_gap_test', pd.Series(dtype=bool)) == True]
+            for _, row in gt_rows.iterrows():
+                entry = row.get('entry_3k_gap_test', np.nan)
+                sl = row.get('sl_3k_gap_test', np.nan)
+                tp = row.get('tp_3k_gap_test', np.nan)
+                risk = entry - sl if not np.isnan(entry) and not np.isnan(sl) else 0
+                reward = tp - entry if not np.isnan(tp) and not np.isnan(entry) else 0
+                rr = round(reward / risk, 1) if risk > 0 else 0
+
+                # 🟢 [R-A] 接入策略层 compute_rating, 与 gap 扫描器统一评级
+                try:
+                    _rating = strategy.compute_rating(df)
+                except Exception as _e:
+                    logging.warning(f"compute_rating failed for STRATEGY_3K {code}: {_e}")
+                    _rating = None
+                if _rating is not None:
+                    ev_score = _rating.raw_score
+                    ev_rating = _letter_to_ev_text(_rating.letter)
+                    rating_dict = _rating.to_dict()
+                else:
+                    ev_score = 0
+                    ev_rating = ''
+                    rating_dict = None
+
+                results_gt.append({
+                    'code': code,
+                    'name': dp.get_stock_name(code),
+                    'date': row['trade_date'] if 'trade_date' in row else (row['date'] if 'date' in row else str(row.name)),
+                    'entry': entry,
+                    'sl': sl,
+                    'tp': tp,
+                    'rr': rr,
+                    'ev_score': ev_score,
+                    'ev_rating': ev_rating,
+                    'rating': rating_dict,
+                })
+
+        except Exception as e:
+            continue
+
+    return {'signals_3k': results_3k, 'signals_gap_test': results_gt}
+
+
+# =====================================================
+# 周线 gap 家族格式化 / 推送 (原 scanner_weekly_gap._format_and_push_results)
+# =====================================================
+def format_push_weekly_gap(results, total_stocks=0):
+    """控制台输出 + JSON/MD 导出 + Discord 推送 + Signal Tracker 归档 (周线 gap 家族)."""
+
+    # === 控制台输出 ===
+    sig_gap = results['signals_gap']
+
+    # 🟢 根据实际命中信号动态生成策略标签（不再硬编码单一策略名）
+    _active_strats = sorted(set(s.get('strategy_name', '') for s in sig_gap if s.get('strategy_name')))
+    _strat_labels = []
+    for _sn in _active_strats:
+        try:
+            _dn = StrategyRegistry.get_metadata(_sn).get('display_name', _sn.replace('STRATEGY_', ''))
+        except Exception as e:
+            logger.debug(f"获取策略 {_sn} display_name 失败: {e}")
+            _dn = _sn.replace('STRATEGY_', '')
+        _strat_labels.append(_dn)
+    strat_display = ' / '.join(_strat_labels) if _strat_labels else '缺口策略'
+
+    print("\n" + "=" * 80)
+    print(f"  周线 {strat_display} 信号汇总")
+    print("=" * 80)
+
+    sg_best = [s for s in sig_gap if '🌟' in s.get('ev_rating', '') and not s.get('is_pending')]
+    sg_good = [s for s in sig_gap if '👍' in s.get('ev_rating', '') and not s.get('is_pending')]
+    sg_warn = [s for s in sig_gap if '⚠️' in s.get('ev_rating', '') and not s.get('is_pending')]
+    sg_pend = [s for s in sig_gap if s.get('is_pending')]
+
+    # 确保按评级重新排序
+    sig_gap = sg_best + sg_good + sg_warn + sg_pend
+    results['signals_gap'] = sig_gap
+
+    # 📥 Signal Tracker: 归档周线信号 (仅确认信号, 不含 pending)
+    try:
+        from core.signal_tracker import archive_signal, init_signal_archive
+        init_signal_archive()
+        confirmed = [s for s in sig_gap if not s.get('is_pending')]
+        for s in confirmed:
+            sig_date = s['date'].strftime('%Y-%m-%d') if hasattr(s['date'], 'strftime') else str(s['date'])
+            archive_signal(
+                code=s['code'], strategy=s.get('strategy_name', 'STRUCTURAL_GAP'), timeframe='weekly',
+                entry=s['entry'], sl=s['sl'], tp=s['tp'] if not np.isnan(s['tp']) else 0,
+                ev_rating=s.get('ev_rating', ''), signal_date=sig_date,
+                ev_score=s.get('ev_score', 0), rr=s.get('rr', 0), name=s.get('name', ''),
+                gap_size_pct=s.get('gap_size_pct', 0), pb_bars=s.get('pb_bars', 0),
+                sig_quality=s.get('sig_quality', 0)
+            )
+        if confirmed:
+            logger.info(f"📥 {len(confirmed)} 个周线信号已归档到 Signal Tracker")
+    except Exception as e:
+        logger.warning(f"周线信号归档失败: {e}")
+
+    print(f"\n📌 重点埋伏区 - 周线结构跨越+神级洗盘已确认 (共 {len(sig_gap)} 个):")
+    print("-" * 60)
+
+    def _print_sg_console(group, title):
+        if group:
+            print(f"\n[{title}] ({len(group)}只):")
+            for s in group:
+                tp_str = f"{s['tp']:.2f}" if not np.isnan(s['tp']) else "N/A"
+                rr_str = f"1:{s['rr']:.1f}" if s['rr'] > 0 else "N/A"
+                gap_str = f" | 缺口={s.get('gap_size_pct', 0):.1f}%" if 'gap_size_pct' in s else ""
+                pb_str = f" | 回调={s.get('pb_bars', '?')}周" if 'pb_bars' in s else ""
+                strat_short = s.get('strategy_name', '').replace('STRATEGY_', '')
+                print(f"  {s['code']:>12s} {s['name']:<6s} | 策略:{strat_short:<10s} | 买入:>={s['entry']:.2f} | 止损:{s['sl']:.2f} | 止盈:{tp_str} | R:R={rr_str}{gap_str}{pb_str}")
+
+    _print_sg_console(sg_best, "🌟 高预期")
+    _print_sg_console(sg_good, "👍 常态")
+    _print_sg_console(sg_warn, "⚠️ 低预期")
+    _print_sg_console(sg_pend, "🔎 潜在追踪缺口 (尚未出现日历翻转信号)")
+
+    print("\n" + "=" * 80)
+
+    # === 导出报告与数据 ===
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # 1. 导出 JSON 数据
+    data_dir = os.path.join(project_root, 'data')
+    os.makedirs(data_dir, exist_ok=True)
+    json_path = os.path.join(data_dir, 'weekly_gap_watchlist.json')
+    def default_serializer(obj):
+        if hasattr(obj, 'isoformat'):
+            return obj.isoformat()
+        return str(obj)
+
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(results, f, indent=4, ensure_ascii=False, default=default_serializer)
+    print(f"✅ 生成监控名单: {json_path}")
+
+    # 2. 导出 Markdown 报告
+    lab_dir = os.path.join(project_root, 'strategy_lab')
+    os.makedirs(lab_dir, exist_ok=True)
+    md_path = os.path.join(lab_dir, 'weekly_struct_gap_plan.md')
+
+    report_md = f"# 下周交易埋伏计划 (基于周线 {strat_display})\n\n"
+    report_md += f"**生成时间**: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+    if total_stocks > 0:
+        report_md += f"**扫描范围**: 全市场 {total_stocks} 只个股\n\n"
+
+    report_md += f"## 🎯 神级波段埋伏区 (待挂单)\n\n"
+    if not sig_gap:
+        report_md += "本周无符合条件的突破标的。\n\n"
+    else:
+        report_md += "| 代码 | 名称 | 策略 | 信号特征 | 下周买点 (Buy Stop) | 绝对止损 (Gap Floor) | 测距翻倍 (TP) | 盈亏比预估 |\n"
+        report_md += "|:---:|:---|:---|:---|:---|:---|:---|:---|\n"
+        for s in sig_gap:
+            tp_str = f"{s['tp']:.2f}" if not np.isnan(s['tp']) else "N/A"
+            rr_str = f"1:{s['rr']:.1f}" if s['rr'] > 0 else "N/A"
+            date_str = s['date'].strftime('%Y-%m-%d') if hasattr(s['date'], 'strftime') else str(s['date'])
+            strat_short = s.get('strategy_name', '').replace('STRATEGY_', '')
+            report_md += f"| `{s['code']}` | **{s['name']}** | {strat_short} | {s['ev_rating']} | **>={s['entry']:.2f}** | *{s['sl']:.2f}* | {tp_str} | {rr_str} |\n"
+
+    with open(md_path, 'w', encoding='utf-8') as f:
+        f.write(report_md)
+    print(f"✅ 生成本周末复盘报告: {md_path}")
+
+    # === Discord 图文推送 ===
+    print("\n🚀 正在生成 Discord 图文全量推送...")
+
+    msg = f"🔔 **【周线 {strat_display} 雷达扫描完成】**\n"
+    msg += f"时间: {pd.Timestamp.now().strftime('%Y-%m-%d')}\n"
+    if total_stocks > 0:
+        msg += f"池子: 全市场 {total_stocks} 只个股\n"
+    msg += f"----------------------\n"
+    msg += f"🎯 **命中结果**: 共 {len(sig_gap)} 只\n"
+
+    if not sig_gap:
+        msg += f"\n💤 【周线/{strat_display}】，本次未发现信号"
+    else:
+        msg += format_push_brief(sig_gap)
+        msg += f"\n\n🌟 A+/A 级图表即将推送..."
+
+    send_discord_message(msg)
+
+    if not sig_gap:
+        print("✅ Discord 空结果推送成功！")
+    else:
+        top_sigs = [s for s in sig_gap if 'A' in s.get('ev_rating', '')]
+        if top_sigs:
+            chart_label = "🌟 **A+/A 级 K线图**"
+        else:
+            top_sigs = sig_gap[:5]
+            chart_label = "📋 **信号 K线图**"
+
+        if top_sigs:
+            print(f"\n🎨 为 {len(top_sigs)} 只标的生成图表...")
+            chart_bufs = []
+            chart_names = []
+
+            for s in top_sigs:
+                try:
+                    df = fetch_weekly_data(s['code'], weeks=300)
+                    if df is not None:
+                        df = add_indicators(df)
+                        strat = StrategyRegistry.get_strategy(s.get('strategy_name', 'STRATEGY_STRUCTURAL_GAP'))
+                        df = strat.calculate_signals(df)
+                        buf = generate_chart_bytes(
+                            code=s['code'], stock_name=s['name'],
+                            strategy_type=s.get('strategy_name', 'STRATEGY_STRUCTURAL_GAP'),
+                            sl_price=s['sl'], tp1=s['tp'] if not np.isnan(s['tp']) else 0,
+                            reason=f"周线大底确认 | {s['ev_rating']}", df_override=df,
+                            ev_rating=s['ev_rating'], sig_quality=s.get('sig_quality'), bears=s.get('bears'),
+                            entry=s.get('entry', 0), rating=s.get('rating'), timeframe='周K'
+                        )
+                        if buf:
+                            chart_bufs.append(buf)
+                            chart_names.append(f"{s['code']}.png")
+                            print(f"  ✅ {s['code']} {s['name']} [{s['ev_rating'][:10]}]")
+                except Exception as e:
+                    logger.warning(f"绘图失败 {s['code']}: {e}")
+
+            if chart_bufs:
+                BATCH_SIZE = 5
+                for batch_start in range(0, len(chart_bufs), BATCH_SIZE):
+                    batch_bufs = chart_bufs[batch_start:batch_start + BATCH_SIZE]
+                    batch_names = chart_names[batch_start:batch_start + BATCH_SIZE]
+                    batch_msg = f"{chart_label} ({batch_start+1}-{batch_start+len(batch_bufs)}/{len(chart_bufs)})"
+                    send_discord_images(batch_bufs, batch_names, content=batch_msg)
+                print(f"✅ {len(chart_bufs)} 张图表分 {(len(chart_bufs)-1)//BATCH_SIZE+1} 批推送完成！")
+
+
+# =====================================================
+# 周线 3K 格式化 / 推送 (原 scanner_weekly_3k.main 格式化段; 不归档 signal_tracker)
+# =====================================================
+def format_push_weekly_3k(results: dict, total_stocks: int = 0, weeks: int = 4):
+    """控制台输出 + JSON/MD 导出 + Discord 推送 (周线 3K).
+
+    注意: 3K **不归档** signal_tracker (与 gap 路径的行为差异刻意保留).
+    """
+    from core.strategies.three_k_strategy import ThreeKStrategy
+    pd_ts = pd.Timestamp.now()
+
+    # === 控制台输出 ===
+    print("\n" + "=" * 80)
+    print(f"  周线 3K 信号汇总")
+    print("=" * 80)
+
+    sig_3k = results['signals_3k']
+    sig_gt = results['signals_gap_test']
+
+    print(f"\n📌 重点观察区 - 周线 3K 形态刚确认 (共 {len(sig_3k)} 个):")
+    print("-" * 60)
+    for s in sig_3k:
+        print(f"{s['code']:>12s} {s['name']:<6s} 周线日期:{s['date']}  最新收盘:{s['close']:.2f}  破位参考(SL):{s['sl']:.2f}")
+
+    print(f"\n📌 下周埋伏区 - 周线缺口测试已确认，待触发 Buy Stop (共 {len(sig_gt)} 个):")
+    print("-" * 60)
+    for s in sig_gt:
+        tp_str = f"{s['tp']:.2f}" if not np.isnan(s['tp']) else "N/A"
+        rr_str = f"1:{s['rr']:.1f}" if s['rr'] > 0 else "N/A"
+        print(f"{s['code']:>12s} {s['name']:<6s} 周线日期:{s['date']}  下周买入(Buy Stop):>={s['entry']:.2f}  防守(SL):{s['sl']:.2f}  目标:{tp_str}  R:R={rr_str}")
+
+    print("\n" + "=" * 80)
+
+    # === 导出报告与数据 ===
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # 1. 导出 JSON 数据 (用于盘中监控)
+    data_dir = os.path.join(project_root, 'data')
+    os.makedirs(data_dir, exist_ok=True)
+    json_path = os.path.join(data_dir, 'weekly_watchlist.json')
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(results, f, indent=4, ensure_ascii=False)
+    print(f"✅ 生成监控名单: {json_path}")
+
+    # 2. 导出 Markdown 报告 (供人工审阅)
+    lab_dir = os.path.join(project_root, 'strategy_lab')
+    os.makedirs(lab_dir, exist_ok=True)
+    md_path = os.path.join(lab_dir, 'weekly_ambush_plan.md')
+
+    report_md = f"# 下周交易埋伏计划 (基于周线 3K V2.3)\n\n"
+    report_md += f"**生成时间**: {pd_ts.strftime('%Y-%m-%d %H:%M:%S')}\n"
+    if total_stocks > 0:
+        report_md += f"**扫描范围**: 全市场 {total_stocks} 只个股\n\n"
+
+    report_md += f"## 🎯 下周重点埋伏区 (待挂单)\n\n"
+    report_md += f"> [!IMPORTANT]\n> 以下标的在最近 {weeks} 周内已走出 `缺口测试确认(Gap Test) 阳线`。**一旦下周冲破测缺K线高点，即可按规则挂单追涨或平开现价买入。**\n\n"
+    if not sig_gt:
+        report_md += "本周无符合【缺口测试确认】的埋伏标的。\n\n"
+    else:
+        report_md += "| 代码 | 名称 | 周线信号日期 | 下周买点 (Buy Stop) | 止损 (Gap Floor) | 目标价 (TP) | 盈亏比预估 |\n"
+        report_md += "|:---:|:---|:---|:---|:---|:---|:---|\n"
+        for s in sig_gt:
+            tp_str = f"{s['tp']:.2f}" if not np.isnan(s['tp']) else "N/A"
+            rr_str = f"1:{s['rr']:.1f}" if s['rr'] > 0 else "N/A"
+            report_md += f"| `{s['code']}` | **{s['name']}** | {s['date']} | **>={s['entry']:.2f}** | *{s['sl']:.2f}* | {tp_str} | {rr_str} |\n"
+
+    report_md += f"\n## 🔭 下周观察池 (刚出 3K 雏形)\n\n"
+    report_md += f"> [!NOTE]\n> 以下标的已出现强劲的周线 3K 突破形态。尚未进行缺口测试，不建议盲目追高。**下周可重点观察它们的周线回撤（是否能守住下方参考位并在下周或下下周收出企稳阳线）。**\n\n"
+    if not sig_3k:
+        report_md += "本周无新出的【3K 突破】观察标的。\n\n"
+    else:
+        report_md += "| 代码 | 名称 | 周线 3K 日期 | 最新收盘 | 回撤防守底线 (不宜跌破) |\n"
+        report_md += "|:---:|:---|:---|:---|:---|\n"
+        for s in sig_3k:
+            report_md += f"| `{s['code']}` | **{s['name']}** | {s['date']} | {s['close']:.2f} | *{s['sl']:.2f}* |\n"
+
+    with open(md_path, 'w', encoding='utf-8') as f:
+        f.write(report_md)
+    print(f"✅ 生成本周末复盘报告: {md_path}")
+
+    # === 微信图文推送 ===
+    print("\n🚀 正在生成微信图文推送...")
+    chart_buffers = []
+    # 优先推送 Gap Test (最多 3 个)
+    for s in sig_gt[:3]:
+        try:
+            df = fetch_weekly_data(s['code'], weeks=200)
+            if df is not None:
+                df = add_indicators(df)
+                df = ThreeKStrategy().calculate_signals(df)
+                buf = generate_chart_bytes(
+                    code=s['code'], stock_name=s['name'], strategy_type='STRATEGY_3K',
+                    sl_price=s['sl'], tp1=s['tp'] if not np.isnan(s['tp']) else 0,
+                    reason="周线缺口测试确认，待Buy Stop", df_override=df, timeframe='周K',
+                    draw_panel=False
+                )
+                if buf: chart_buffers.append(buf)
+        except Exception as e:
+            logger.warning(f"绘图失败 {s['code']}: {e}")
+
+    # 补充推送新 3K (补齐到最多 5 个)
+    remain = 5 - len(chart_buffers)
+    if remain > 0:
+        for s in sig_3k[:remain]:
+            try:
+                df = fetch_weekly_data(s['code'], weeks=200)
+                if df is not None:
+                    df = add_indicators(df)
+                    df = ThreeKStrategy().calculate_signals(df)
+                    buf = generate_chart_bytes(
+                        code=s['code'], stock_name=s['name'], strategy_type='STRATEGY_3K',
+                        sl_price=s['sl'], reason="周线刚出3K雏形，重点观察回抽", df_override=df, timeframe='周K',
+                        draw_panel=False
+                    )
+                    if buf: chart_buffers.append(buf)
+            except Exception as e:
+                logger.warning(f"绘图失败 {s['code']}: {e}")
+
+    # 推送到 Discord
+    if chart_buffers:
+        unified = []
+        for s in sig_gt:
+            unified.append({'code': s['code'], 'strategy_name': 'STRATEGY_3K', 'phase': '缺口确认'})
+        for s in sig_3k:
+            unified.append({'code': s['code'], 'strategy_name': 'STRATEGY_3K', 'phase': '新雏形'})
+        msg = "🔔 【周线 3K 雷达扫描完成】\n"
+        msg += f"时间: {pd_ts.strftime('%Y-%m-%d')}\n"
+        if total_stocks > 0:
+            msg += f"池子: 全市场 {total_stocks} 只个股\n"
+        msg += f"----------------------\n"
+        msg += format_push_brief(unified, group_key='phase', order=['缺口确认', '新雏形'])
+
+        filenames = [f"weekly_3k_{i}.png" for i in range(len(chart_buffers))]
+        send_discord_images(chart_buffers, filenames, content=msg)
+        print("✅ Discord 图文推送成功！")
+    else:
+        if not sig_gt and not sig_3k:
+            send_discord_message("💤 【周线/3K】，本次未发现信号")
+            print("✅ Discord 空结果推送成功！")
+        else:
+            print("⚠️ 没有成功生成任何图表。")
+
+
+# =====================================================
+# Phase 3 统一编排入口: 周线单引擎 (消除 hunter 两处周线委托重复 + 独立 3K 脚本)
+# =====================================================
+def run_weekly_scan(active_strategies, weeks=4, limit=0, all_codes=None):
+    """
+    周线统一编排入口 (Phase 3 彻底单引擎): 取列表 -> 按家族路由 -> 扫描 + 格式化/推送.
+
+    - 含 STRATEGY_3K -> 走 3K 路径 (不归档 signal_tracker, 产物 weekly_watchlist.json / weekly_ambush_plan.md)
+    - 否则 -> 走 gap 家族路径 (STRUCTURAL_GAP/PINBAR/H2, 含 Signal Tracker 归档)
+    - 日线 _scan_market 路径不受影响 (本函数仅服务周线)
+
+    返回: 无 (扫描 + 格式化 + 推送 + 归档 全部在此完成, 与旧 scanner 主流程行为一致)
+    """
+    if all_codes is None:
+        all_codes = dp.get_stock_list()
+    if not all_codes:
+        print("❌ 获取股票列表失败")
+        return
+    if limit > 0:
+        all_codes = all_codes[:limit]
+
+    # ⚠️ 周线数据表存在性提示 (沿用旧 scanner 的 UX 守护)
+    try:
+        from config.settings import DB_PATH
+        import sqlite3
+        with sqlite3.connect(DB_PATH) as conn:
+            c = conn.cursor()
+            c.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='weekly_bars'")
+            if c.fetchone()[0] == 0:
+                print(f"\n❌ 周线数据库表 weekly_bars 不存在 ({DB_PATH})")
+                print("👉 请先执行此命令同步数据: python tools/update_weekly_db.py\n")
+                return
+    except Exception:
+        pass
+
+    active = [s.upper() for s in (active_strategies or [])]
+    if 'STRATEGY_3K' in active:
+        print(f"\n🌙 周线 3K 扫描: {len(all_codes)} 只股票, 检查最近 {weeks} 周")
+        results = scan_weekly_3k_signals(all_codes, recent_weeks=weeks)
+        format_push_weekly_3k(results, total_stocks=len(all_codes), weeks=weeks)
+    else:
+        print(f"\n🌙 周线扫描: {len(all_codes)} 只股票, 检查最近 {weeks} 周, 策略: {', '.join(active)}")
+        results = scan_weekly_gap_signals(all_codes, strategies=active_strategies, recent_weeks=weeks)
+        format_push_weekly_gap(results, total_stocks=len(all_codes))
