@@ -5,7 +5,7 @@
 > 必须先读本文件，确保改动不违背以下铁律。本文件引用而非重复细节；细节以被引文档为准。
 
 ## 0. 项目身份
-- 系统：Brooks-AI Quant System（当前 V9.20），A 股量化扫描，**人机协作、只推信号不下单**。
+- 系统：Brooks-AI Quant System（当前 V10.0），A 股量化扫描，**人机协作、只推信号不下单**。
 - 理论根基：Al Brooks 价格行为 (Price Action)，数据源 Baostock 本地 SQLite（离线优先，T+1）。
 
 ## 1. PA 铁律 — volume 绝不进入信号/评级因子

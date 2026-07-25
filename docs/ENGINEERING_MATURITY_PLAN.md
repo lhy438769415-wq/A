@@ -1,6 +1,6 @@
 # 工程成熟度提升方案（Engineering Maturity Plan）
 
-> 背景：本项目（Brooks-AI Quant System V9.20）功能可用，但多次出现"AI/协作者未完整理解代码就给出建议/改动"的问题。
+> 背景：本项目（Brooks-AI Quant System V10.0）功能可用，但多次出现"AI/协作者未完整理解代码就给出建议/改动"的问题。
 > 本文不讨论具体功能修复，只讨论**如何让项目变得"可被可靠理解、可被安全改动"**——这是工程与"脚本式编程"的根本差距。
 > 参考：*Software Engineering at Google*（编程 vs 软件工程）、ADR（Michael Nygard）、Living Documentation（Cyrille Martraire）、Building Evolutionary Architectures（适应度函数）、DORA/Accelerate（工程效能度量）、Google Engineering Practices（代码评审）。
 
