@@ -146,3 +146,12 @@ P3 (文档/低优)   → 文档(⑬) / 门禁加固(⑭) / 告警(⑮) / 流互�
   - **现状**: `baostock_weekly.db` 保留为"已知历史孤儿 / 主库周线缺口保险", 代码不引用, 扫描不受影响。
   - **状态**: ⏸ 待办, 暂不处理。
 
+## 九、状态更正 (2026-07-25)
+
+> 本节记录已发生、但正文各节仍标记为"待处理"的已解决项，避免 stale 文档误导。
+
+- **⑰ `import *` 红线 (gui_dashboard.py:20)**: **已解决**。实测该行已改为显式元组导入 `from ttkbootstrap.constants import (BOTH, ...)`，无 `import *`；质量门禁亦已覆盖 `import *` 检查且当前 0 命中。
+- **⑧ 双引擎收敛 (P2-⑧ / #9)**: **已完成 (Phase 3 P2-heavy)**。周线重复逻辑 (hunter 两处委托 + 独立 `scanner_weekly_gap.py` / `scanner_weekly_3k.py`) 已抽入 `core/scan_engine.py` 并删除原脚本；日线 `_scan_market`/`run_scanner` 经核实**本就单源** (grep 全项目唯一)，不存在重复引擎。原方案 R3 (日线 `_scan_market` 搬入 scan_engine) 经评估为高风险低收益 (动日线热路径、半吊子状态、无重复可消)，**刻意不做**。
+- **Phase 2/Phase 3 Harness**: 见 STATUS.md —— Phase 2 ✅ (质量门禁 + `pre-commit` 自动门禁 hook 已装 + 测试基线 156)；Phase 3 🔶 (运行监控: 崩溃告警 + 成功心跳 + `tools/check_heartbeat.py` 已落地；CI 因无远程仓库暂缓)。
+- **P0 卫生项 (① dpi 修复 / ② 回测产物 gitignore / ③ .agent 版本控制)**: 已在先前批次随对应提交解决 (`.agent/` 经 `git add -f` 纳入，因 pre-commit 引用 `quality_gate.py`；现 hook 已实装，该引用成立)。
+

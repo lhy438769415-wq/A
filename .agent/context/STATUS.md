@@ -29,8 +29,8 @@
 | 阶段 | 状态 | 日期 |
 |:---:|:---:|:---|
 | Phase 1: 建围栏 | ✅ 完成 | 06-06 ~ 06-12 |
-| Phase 2: 基础设施 | 🔶 部分完成 | 质量门禁 (`.agent/quality_gate.py`) 已实现并绿通 (0 红线 / 156 测试守卫); CI 自动门禁 hook / 运行监控待建 |
-| Phase 3: 持续进化 | ❌ 待执行 | — |
+| Phase 2: 基础设施 | ✅ 完成 | 质量门禁 (`.agent/quality_gate.py`) 绿通 (0 红线 / 156 测试守卫) + 已装 `pre-commit` 自动门禁 hook (提交即拦截) + 测试基线刷新 156 |
+| Phase 3: 持续进化 | 🔶 部分完成 | 运行监控落地: hunter 崩溃 Discord 告警 + 成功心跳 (`data/last_run.json`) + `tools/check_heartbeat.py`; CI 工作流因无远程仓库暂缓 |
 
 ## 架构债务
 | 编号 | 问题 | 优先级 | 状态 |

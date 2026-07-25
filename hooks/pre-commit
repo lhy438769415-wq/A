@@ -1,0 +1,26 @@
+#!/bin/sh
+# Brooks-AI 质量门禁 pre-commit hook (Phase 3: 持续进化)
+# 每次 git commit 前自动跑 .agent/quality_gate.py；
+# 若红线 / DDL 违规或测试数跌破基线，阻断提交（退出码非0）。
+#
+# 安装（仓库已提供 hooks/pre-commit，克隆后执行一次即可）:
+#   cp hooks/pre-commit .git/hooks/pre-commit
+# 紧急绕过（不推荐）: git commit --no-verify
+
+ROOT="$(git rev-parse --show-toplevel)"
+PY="$ROOT/.venv/Scripts/python.exe"
+if [ ! -x "$PY" ]; then
+  if command -v python3 >/dev/null 2>&1; then PY="python3"
+  elif command -v python >/dev/null 2>&1; then PY="python"
+  fi
+fi
+
+"$PY" "$ROOT/.agent/quality_gate.py"
+RC=$?
+if [ "$RC" -ne 0 ]; then
+  echo ""
+  echo "🚫 提交被质量门禁阻断 (quality_gate 退出码 $RC)。"
+  echo "   修复上方红线 / DDL 违规后再提交；确需绕过用: git commit --no-verify"
+  exit 1
+fi
+exit 0

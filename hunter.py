@@ -1098,5 +1098,55 @@ def main():
             pass
         gc.collect()
 
+def _notify_crash(exc):
+    """运行监控: 扫描崩溃时发 Discord 告警 + 写崩溃日志, 避免静默死 (紧贴高可用第一性)。
+
+    仅作为最外层兜底 —— 任何 main() 未捕获的异常都会在此被捕获并告警,
+    然后原样 re-raise 保持非零退出码 (供外部调度器感知失败)。
+    """
+    import os, json, traceback, datetime
+    ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    tb = traceback.format_exc()
+    # 1) 崩溃日志 (兜底, 即使 Discord 失败也不丢信息)
+    try:
+        root = os.path.dirname(os.path.abspath(__file__))
+        log_dir = os.path.join(root, 'data')
+        os.makedirs(log_dir, exist_ok=True)
+        with open(os.path.join(log_dir, 'crash_log.txt'), 'a', encoding='utf-8') as f:
+            f.write(f"\n[{ts}] CRASH\n{tb}\n{'='*60}\n")
+    except Exception:
+        pass
+    # 2) Discord 告警 (best-effort, 失败不影响退出码)
+    try:
+        from tools.notifier import send_discord_message
+        send_discord_message(
+            f"🚨 **Brooks-AI 猎手运行崩溃**\n时间: {ts}\n```\n{tb[-1500:]}\n```"
+        )
+    except Exception:
+        pass
+
+
+def _write_heartbeat():
+    """运行监控: 记录一次成功运行的时间戳, 供心跳/过期检查 (tools/check_heartbeat.py)。"""
+    import os, json, datetime
+    try:
+        root = os.path.dirname(os.path.abspath(__file__))
+        data_dir = os.path.join(root, 'data')
+        os.makedirs(data_dir, exist_ok=True)
+        with open(os.path.join(data_dir, 'last_run.json'), 'w', encoding='utf-8') as f:
+            json.dump({'last_run': datetime.datetime.now().isoformat(timespec='seconds'),
+                       'status': 'ok'}, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except Exception as e:
+        _notify_crash(e)
+        raise
+    else:
+        _write_heartbeat()
