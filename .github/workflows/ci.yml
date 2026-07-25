@@ -37,4 +37,14 @@ jobs:
       # 那两个测试真打 data/baostock.db（570MB，不入库），CI 云端无此库必失败。
       # 它们是「本地数据完整性护栏」，本地有库照常跑；云端无数据本就跑不了，故排除。
       - name: Run tests (exclude local-DB schema tests)
-        run: python -m pytest tests/ --ignore=tests/test_schema_integrity.py -q
+        run: |
+          python -m pytest tests/ --ignore=tests/test_schema_integrity.py -v --tb=long 2>&1 | tee pytest-ci.log
+          exit ${PIPESTATUS[0]}
+
+      # 无论测试成败，把详细日志上传为 artifact，方便排查 CI 与本地行为差异。
+      - name: Upload pytest log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-ci-log
+          path: pytest-ci.log
