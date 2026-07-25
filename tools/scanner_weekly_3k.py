@@ -25,20 +25,12 @@ import baostock as bs
 from core.calculator import add_indicators
 from core.strategies.three_k_strategy import ThreeKStrategy
 import core.data_provider as dp
+# 🟢 [P2-heavy] 周线预处理管线 + 数据提取委托 core.scan_engine (去重复)
+from core.scan_engine import prepare_weekly_df, fetch_weekly_data, _letter_to_ev_text
 from tools.notifier import generate_chart_bytes, stitch_images, send_discord_image, send_discord_message, send_discord_images, format_push_brief
 from core.log_config import get_logger
 
 logger = get_logger(__name__)
-
-# =====================================================
-# 从本地周线数据库极速提取数据
-# =====================================================
-def fetch_weekly_data(full_code: str, weeks: int = 200) -> pd.DataFrame:
-    """
-    代理函数：将原有的 Baostock 联调逻辑更换为读取本地 db。
-    """
-    return dp.get_stock_data_weekly(full_code, limit=weeks)
-
 
 # =====================================================
 # 主扫描逻辑
@@ -59,11 +51,10 @@ def scan_weekly_3k(all_codes: list, recent_weeks: int = 4) -> dict:
             print(f"  进度: {i+1}/{len(all_codes)}...")
         
         try:
-            df = fetch_weekly_data(code, weeks=200)
+            df = prepare_weekly_df(code, weeks=200)
             if df is None or len(df) < 60:
                 continue
             
-            df = add_indicators(df)
             df = strategy.calculate_signals(df)
             
             # 检查最近 N 周是否有信号
@@ -89,7 +80,22 @@ def scan_weekly_3k(all_codes: list, recent_weeks: int = 4) -> dict:
                 risk = entry - sl if not np.isnan(entry) and not np.isnan(sl) else 0
                 reward = tp - entry if not np.isnan(tp) and not np.isnan(entry) else 0
                 rr = round(reward / risk, 1) if risk > 0 else 0
-                
+
+                # 🟢 [R-A P2-heavy] 接入策略层 compute_rating, 与 gap 扫描器统一评级
+                try:
+                    _rating = strategy.compute_rating(df)
+                except Exception as _e:
+                    logging.warning(f"compute_rating failed for STRATEGY_3K {code}: {_e}")
+                    _rating = None
+                if _rating is not None:
+                    ev_score = _rating.raw_score
+                    ev_rating = _letter_to_ev_text(_rating.letter)
+                    rating_dict = _rating.to_dict()
+                else:
+                    ev_score = 0
+                    ev_rating = ''
+                    rating_dict = None
+
                 results_gt.append({
                     'code': code,
                     'name': dp.get_stock_name(code),
@@ -98,6 +104,9 @@ def scan_weekly_3k(all_codes: list, recent_weeks: int = 4) -> dict:
                     'sl': sl,
                     'tp': tp,
                     'rr': rr,
+                    'ev_score': ev_score,
+                    'ev_rating': ev_rating,
+                    'rating': rating_dict,
                 })
                 
         except Exception as e:
