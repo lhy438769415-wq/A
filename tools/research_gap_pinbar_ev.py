@@ -27,7 +27,9 @@ from collections import defaultdict
 
 # 确保项目根目录在路径中
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, project_root)
+sys.path.append(project_root)
+from core.paths import ensure_importable
+ensure_importable()
 
 try:
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')

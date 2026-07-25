@@ -16,7 +16,9 @@ import os
 sys.stdout.reconfigure(encoding='utf-8')
 
 # === 项目根目录注入 (唯一一处 sys.path.insert) ===
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.paths import ensure_importable
+ensure_importable()
 
 import json
 import base64

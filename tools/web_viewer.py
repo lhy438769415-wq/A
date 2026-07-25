@@ -13,7 +13,9 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
 # Add project root to path so we can import core modules
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.paths import ensure_importable
+ensure_importable()
 import core.data_provider as dp
 from core.calculator import add_indicators
 

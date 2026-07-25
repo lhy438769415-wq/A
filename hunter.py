@@ -33,7 +33,9 @@ import matplotlib.pyplot as plt
 
 # 路径设置
 current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, current_dir)
+sys.path.append(current_dir)
+from core.paths import ensure_importable
+ensure_importable()
 
 from config import settings
 from core.api_client import query_deepseek
@@ -48,6 +50,28 @@ from tools.notifier import fetch_stock_name, generate_chart_bytes, stitch_images
 from tools.journal import init_journal_db, log_hunter_decision
 
 DEBUG_MODE = False
+
+
+# ===== RATING_PLAN Phase 0: 统一评级读取辅助 =====
+def _extract_rating(info: Dict) -> Dict:
+    """从 info['rating'] 取统一评级契约 (score/letter/factors/...); 回退 info['score'] (legacy)."""
+    rating = info.get('rating') or {}
+    if not rating:
+        # 兼容 Phase 0 之前仅 score 可用的情况 (防御性, 正常 compute_rating 必注入 rating)
+        return {'score': float(info.get('score', 0) or 0), 'letter': 'C',
+                'factors': [], 'raw_score': 0, 'toxic': False, 'calibrated': False}
+    return rating
+
+
+def _letter_to_ev_text(letter: str) -> str:
+    """字母评级 -> 兼容中文 ev_rating 文本 (与 tools/scanner_weekly_gap 保持一致)."""
+    return {
+        'A+': '🌟🌟 极品 (A+)',
+        'A': '🌟 高预期 (A)',
+        'B': '👍 常态 (B)',
+        'C': '⚠️ 低预期 (C)',
+        'D': '💀 毒性 (D)',
+    }.get(letter, '👍 常态 (B)')
 
 
 def process_ai_daily(scanner_result: Dict[str, any]) -> Tuple[bool, str]:
@@ -291,7 +315,7 @@ def _scan_market(all_codes, strategies, seen_signals):
                             code=res['code'], strategy=res['type'], timeframe='daily',
                             entry=info.get('entry', info.get('price', 0)),
                             sl=info.get('sl', 0), tp=info.get('tp1', 0),
-                            ev_rating=info.get('ev_rating', ''),
+                            ev_rating=_letter_to_ev_text(_extract_rating(info).get('letter', 'C')),
                             signal_date=info.get('signal_date', ''),
                             rr=info.get('rr', 0), name=res.get('name_cn', '')
                         )
@@ -344,7 +368,7 @@ def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_thr
         sb_idx = info.get('signal_bar_idx', -1)
         entry = info.get('entry', info.get('price', 0))
         sl = info.get('sl', 0)
-        score = info.get('score', 0)
+        score = _extract_rating(info).get('score', 0)
         date_val = str(res['df']['date'].iloc[-1].strftime('%Y-%m-%d')) if hasattr(res['df']['date'].iloc[-1], 'strftime') else str(res['df']['date'].iloc[-1]) if 'date' in res['df'] else ''
         
         strat_type = res.get('type', '').upper()
@@ -391,25 +415,16 @@ def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_thr
         except Exception:
             _ai_audit = True
         if not _ai_audit:
+            # 🟢 [RATING_PLAN] 统一从 info['rating'] 取字母评级, 不再据 score 重算 ev_rating
+            _info = res.get('info', {})
+            _letter = _extract_rating(_info).get('letter', 'C')
+            ev_rating = _letter_to_ev_text(_letter)
+            res['info']['ev_rating'] = ev_rating
+            strat_label = strat_type.replace('STRATEGY_', '')
             if 'MTR' in strat_type:
-                score = res.get('info', {}).get('score', 0)
-                if score >= 80: ev_rating = '🌟🌟 极品 (A+)'
-                elif score >= 65: ev_rating = '🌟 高预期 (A)'
-                elif score >= 50: ev_rating = '👍 常态 (B)'
-                else: ev_rating = '⚠️ 低预期 (C)'
-                res['info']['ev_rating'] = ev_rating
                 reason_txt = f"MTR 结构确认 | {ev_rating}"
             else:
-                # 🟢 [V9.16 Fix] 非 MTR 策略也需统一评级，否则推送格式无法分级展示
-                score = res.get('info', {}).get('score', 0)
-                if not res.get('info', {}).get('ev_rating'):
-                    if score >= 80: ev_rating = '🌟🌟 极品 (A+)'
-                    elif score >= 65: ev_rating = '🌟 高预期 (A)'
-                    elif score >= 50: ev_rating = '👍 常态 (B)'
-                    else: ev_rating = '⚠️ 低预期 (C)'
-                    res['info']['ev_rating'] = ev_rating
-                strat_label = strat_type.replace('STRATEGY_', '')
-                reason_txt = f"[{strat_label}] 结构信号 | {res['info']['ev_rating']}"
+                reason_txt = f"[{strat_label}] 结构信号 | {ev_rating}"
 
             res_item, chart_buf, _ = prepare_daily_chart(res, passed=True, reason=reason_txt)
             if chart_buf:
@@ -513,7 +528,7 @@ def _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_
 
     # 合并所有通过的信号 (direct + AI passed)
     all_passed = list(direct_picks) + list(passed_candidates)
-    all_passed.sort(key=lambda x: x.get('info', {}).get('score', 0), reverse=True)
+    all_passed.sort(key=lambda x: _extract_rating(x.get('info', {})).get('score', 0), reverse=True)
 
     logger.info("\n" + "="*50)
     logger.info(f"📨 阶段 3/3: 信号归档与结果推送 (Dispatch)")
@@ -523,16 +538,17 @@ def _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_
     sg_best, sg_good, sg_warn, sg_other = [], [], [], []
     
     for p in all_passed:
-        ev_rating = p.get('info', {}).get('ev_rating', '')
-        if '🌟' in ev_rating or 'A+' in ev_rating or '极品' in ev_rating:
+        # 🟢 [RATING_PLAN] 统一据 rating.letter 分组 (字母为权威, 同时补全 ev_rating 文本)
+        _rating = _extract_rating(p.get('info', {}))
+        _letter = _rating.get('letter', 'C')
+        p['info']['ev_rating'] = _letter_to_ev_text(_letter)
+        if _letter in ('A+', 'A'):
             sg_best.append(p)
-        elif '高预期' in ev_rating:
-            sg_best.append(p)
-        elif '👍' in ev_rating or '常态' in ev_rating or 'B' in ev_rating:
+        elif _letter == 'B':
             sg_good.append(p)
-        elif '⚠️' in ev_rating or '低预期' in ev_rating or 'C' in ev_rating:
+        elif _letter == 'C':
             sg_warn.append(p)
-        else:
+        else:  # D 毒性
             sg_other.append(p)
     
     total_hits = len(all_passed)
@@ -620,7 +636,7 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
     # 🟢 [V9.16] 只推 A+/A 级图表 (与周线统一)
     if top_picks is None:
         # 兼容回退: 如果没传 top_picks, 按旧逻辑取全量
-        final_picks_sorted = sorted(final_picks, key=lambda x: x.get('info', {}).get('score', 0), reverse=True)
+        final_picks_sorted = sorted(final_picks, key=lambda x: _extract_rating(x.get('info', {})).get('score', 0), reverse=True)
         all_chart_candidates = list(final_picks_sorted[:3]) + list(direct_picks)
     else:
         all_chart_candidates = list(top_picks)
@@ -670,7 +686,7 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
         logger.info(f"🎨 Discord 图表推送: {len(chart_pool)} 张 A+/A 级 ({BATCH_SIZE} 张/批)")
 
         # 🟢 根据候选级别动态调整附言
-        has_a_level = any('🌟' in p.get('info', {}).get('ev_rating', '') or 'A' in p.get('info', {}).get('ev_rating', '')
+        has_a_level = any(_extract_rating(p.get('info', {})).get('letter') in ('A+', 'A')
                          for p in all_chart_candidates)
         label = "🌟 **A+/A 级 K线图**" if has_a_level else "📋 **信号 K线图**"
 

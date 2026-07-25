@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brooks-AI 推送样式 Demo（Phase 1 三段式推送）</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #1e1f22;
+    font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    color: #dbdee1; display: flex; min-height: 100vh;
+  }
+  /* 左侧服务器/频道栏（示意） */
+  .guild { width: 72px; background: #1e1f22; padding-top: 12px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .guild .dot { width: 44px; height: 44px; border-radius: 50%; background: #5865f2; display:flex; align-items:center; justify-content:center; font-size: 20px; }
+  .guild .ch { width: 44px; height: 44px; border-radius: 50%; background: #313338; display:flex; align-items:center; justify-content:center; font-size: 18px; }
+  /* 频道列表 */
+  .sidebar { width: 220px; background: #2b2d31; padding: 14px 8px; }
+  .sidebar .cat { color:#949ba4; font-size: 11px; font-weight:700; letter-spacing:.04em; margin: 10px 6px 6px; }
+  .sidebar .item { padding: 7px 8px; border-radius: 4px; font-size: 14px; color:#949ba4; margin-bottom:2px; }
+  .sidebar .item.active { background:#404249; color:#fff; }
+  /* 主区 */
+  .main { flex: 1; background: #313338; display: flex; flex-direction: column; max-width: 920px; }
+  .topbar { height: 48px; border-bottom: 1px solid #1e1f22; display:flex; align-items:center; padding: 0 16px; font-weight:700; font-size:15px; box-shadow: 0 1px 0 rgba(0,0,0,.2); }
+  .topbar .hash { color:#949ba4; margin-right:6px; }
+  .channel { flex: 1; overflow-y: auto; padding: 16px 16px 28px; }
+  /* 规则说明条 */
+  .rules { background:#2b2d31; border:1px solid #1e1f22; border-radius:8px; padding:10px 14px; margin-bottom:18px; font-size:12.5px; color:#b5bac1; line-height:1.7; }
+  .rules b { color:#e3e5e8; }
+  .rules .k { display:inline-block; background:#1e1f22; border-radius:4px; padding:1px 7px; margin:0 2px; color:#c5cbd3; font-family: ui-monospace, monospace; }
+  /* 消息 */
+  .msg { display:flex; gap:14px; padding: 10px 4px; }
+  .msg .av { width: 40px; height: 40px; border-radius: 50%; background:#5865f2; flex:0 0 40px; display:flex; align-items:center; justify-content:center; font-size:20px; }
+  .msg .body { flex:1; min-width:0; }
+  .msg .head { font-size: 14px; margin-bottom: 4px; }
+  .msg .head .name { font-weight:700; color:#fff; }
+  .msg .head .time { color:#949ba4; font-size:11px; margin-left:6px; }
+  .briefing { background:#2b2d31; border-radius:8px; padding:10px 12px; font-size:13.5px; line-height:1.55; white-space: pre-wrap; font-family: ui-monospace, "Cascadia Code", monospace; }
+  .tag { display:inline-block; border-radius:4px; padding:1px 8px; font-weight:700; font-size:12px; margin-right:4px; }
+  .t-ap { background:#3a3410; color:#f5d547; }
+  .t-a  { background:#11331f; color:#57f287; }
+  .t-b  { background:#0e2a3a; color:#5ab0ec; }
+  .t-c  { background:#2b2d31; color:#9aa2ab; border:1px solid #3a3d44; }
+  .t-strat { background:#3a2b4d; color:#c08bf0; }
+  /* Embed 卡片（A级理由） */
+  .embed { border-left: 4px solid #57f287; background:#2b2d31; border-radius:4px; padding:10px 12px; margin-top:6px; max-width: 680px; }
+  .embed.ap { border-left-color:#f5d547; }
+  .embed.a  { border-left-color:#57f287; }
+  .embed .etitle { font-weight:700; font-size:14.5px; color:#fff; margin-bottom:6px; }
+  .embed .rating { font-size:12px; font-weight:700; padding:2px 8px; border-radius:4px; background:#1e1f22; color:#f5d547; margin-left:8px; }
+  .embed .fields { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:10px; }
+  .embed .field { flex:1 1 46%; min-width:240px; }
+  .embed .field .lbl { color:#949ba4; font-size:11px; text-transform:uppercase; letter-spacing:.04em; margin-bottom:3px; }
+  .embed .field .val { font-size:13.5px; color:#dbdee1; line-height:1.6; }
+  .factors { background:#1e1f22; border-radius:6px; padding:8px 12px; margin-bottom:8px; }
+  .factors .ft { font-size:11px; color:#949ba4; text-transform:uppercase; letter-spacing:.04em; margin-bottom:4px; }
+  .fac { display:flex; align-items:center; font-size:12.5px; line-height:1.55; }
+  .fac .ic { width:16px; }
+  .fac .fn { color:#e3e5e8; min-width:96px; }
+  .fac .fv { color:#b5bac1; }
+  .fac .fw { color:#949ba4; font-size:11.5px; margin-left:8px; }
+  .fac.hit .ic, .fac.hit .fn { color:#57f287; }
+  .fac.mid .ic, .fac.mid .fn { color:#f5d547; }
+  .fac.miss .ic, .fac.miss .fn { color:#ed4245; }
+  .note { font-size:11.5px; color:#949ba4; line-height:1.6; border-top:1px solid #1e1f22; padding-top:8px; }
+  .note b { color:#c5cbd3; }
+  .chart { margin-top:6px; }
+  .chart img { max-width:100%; border-radius:6px; border:1px solid #1e1f22; display:block; }
+  .chart .cap { font-size:11px; color:#949ba4; margin-top:4px; }
+  .sep { text-align:center; color:#949ba4; font-size:11px; margin:18px 0 6px; letter-spacing:.05em; }
+</style>
+</head>
+<body>
+  <div class="guild">
+    <div class="dot">🦅</div>
+    <div class="ch">#</div>
+    <div class="ch">📈</div>
+  </div>
+  <div class="sidebar">
+    <div class="cat">私信</div>
+    <div class="item active">🦅 Brooks-AI 信号</div>
+    <div class="cat">频道</div>
+    <div class="item"># 日线扫描</div>
+    <div class="item"># 周线扫描</div>
+    <div class="item"># 系统日志</div>
+  </div>
+  <div class="main">
+    <div class="topbar"><span class="hash">#</span> Brooks-AI 信号</div>
+    <div class="channel">
+
+      <div class="rules">
+        <b>本次确认的是「推送样式」（Phase 1 三段式推送）</b>，规则来自 RATING_PLAN §47 / 2026-07-24 计划 + 现有 notifier 多图批量设计：<br>
+        ① <span class="k">简报</span> = <b>按策略分组</b>（单策略=单组；all按策略类型排序）、组内再<b>按评级 A+/A/B/C 分组</b>（同评级多码用<b>顿号</b>间隔）、<b>无图</b>、每策略单行、<b>不带入场价</b>、代码仅 6 位；<br>
+        ② <span class="k">图表批量</span> = 沿用现有 <code>send_discord_images</code>，<b>A+/A 信号图</b>按 <b>10 张/条消息</b>打包（Discord 自动网格排列），保留多图推送能力（不逐张单推）；<br>
+        ③ <span class="k">A级理由</span> = 图表推送<b>之后</b>集中推送，仅 A+/A，文字卡仅含 <b>策略 + 因子证据</b>（图已在上一段，<b>不重复带图</b>）；<br>
+        ④ <span class="k">非A（B/C）</span> 默认<b>不出图</b>，只在简报单行列出。<br>
+        <span style="color:#f5d547">注：实现时图表标题也将简化为 6 位代码（generate_chart_bytes），与文字统一。</span>
+      </div>
+
+      <!-- ============ 第一步：简报 ============ -->
+      <div class="msg">
+        <div class="av">🦅</div>
+        <div class="body">
+          <div class="head"><span class="name">Brooks-AI</span><span class="time">今天 15:30</span></div>
+          <div class="briefing">🦅 信号简报 | 2026-07-25（周五）· 按策略分组
+<span class="tag t-strat">结构缺口 (4)</span> A+：600519 ｜ A：601012 ｜ B：002304、002415
+<span class="tag t-strat">缺口H2 (3)</span> A：600036 ｜ B：600031 ｜ C：000002
+<span class="tag t-strat">3K (3)</span> A：002594 ｜ B：000651 ｜ C：600030
+<span class="tag t-strat">MTR (3)</span> A+：300750 ｜ B：601318 ｜ C：600887
+<span class="tag t-strat">AWIL (1)</span> B：603259</div>
+        </div>
+      </div>
+
+      <!-- ============ 第二段：图表批量推送 ============ -->
+      <div class="sep">— ② 图表批量推送（A+/A 信号图，沿用 send_discord_images，10 张/条消息自动网格）—</div>
+      <div class="msg">
+        <div class="av">🦅</div>
+        <div class="body">
+          <div class="head"><span class="name">Brooks-AI</span><span class="time">今天 15:30</span></div>
+          <div class="briefing" style="background:#2b2d31; margin-bottom:8px;">A+/A 信号图表（共 5 张，按 10 张/条消息自动网格排列）</div>
+          <div class="chart">
+            <img src="push_demo_chart.png" alt="K线图">
+            <div class="cap">示意：实际为 5 张独立 K 线图（600519 / 601012 / 600036 / 002594 / 300750），Discord 在同一条消息内网格排列（最多 10 张/条）。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ 第三段：A级理由集中推送 ============ -->
+      <div class="sep">— ③ A级理由集中推送（仅文字：策略 + 因子证据；图已在第二段）—</div>
+
+      <!-- ============ A+ 理由卡片 1 ============ -->
+      <div class="msg">
+        <div class="av">🦅</div>
+        <div class="body">
+          <div class="head"><span class="name">Brooks-AI</span><span class="time">今天 15:30</span></div>
+          <div class="embed ap">
+            <div class="etitle">600519<span class="rating">🌟🌟 A+ · 91/100</span></div>
+            <div class="fields">
+              <div class="field"><div class="lbl">策略</div><div class="val">结构缺口 · 周线</div></div>
+            </div>
+            <div class="factors">
+              <div class="ft">因子证据 · 数值 · 历史胜率</div>
+              <div class="fac hit"><span class="ic">✅</span><span class="fn">信号K质量</span><span class="fv">0.92</span><span class="fw">76%</span></div>
+              <div class="fac hit"><span class="ic">✅</span><span class="fn">缺口宽度%</span><span class="fv">8.3%</span><span class="fw">70%</span></div>
+              <div class="fac hit"><span class="ic">✅</span><span class="fn">回调速度</span><span class="fv">3 根</span><span class="fw">73%</span></div>
+              <div class="fac mid"><span class="ic">⚠️</span><span class="fn">连阴数</span><span class="fv">2</span><span class="fw">55%</span></div>
+              <div class="fac hit"><span class="ic">✅</span><span class="fn">盈亏比RR</span><span class="fv">2.3</span><span class="fw">68%</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ A 理由卡片 2 ============ -->
+      <div class="msg">
+        <div class="av">🦅</div>
+        <div class="body">
+          <div class="head"><span class="name">Brooks-AI</span><span class="time">今天 15:30</span></div>
+          <div class="embed a">
+            <div class="etitle">002594<span class="rating" style="color:#57f287">⭐ A · 74/100</span></div>
+            <div class="fields">
+              <div class="field"><div class="lbl">策略</div><div class="val">3K · 日线</div></div>
+            </div>
+            <div class="factors">
+              <div class="ft">因子证据 · 数值 · 历史胜率</div>
+              <div class="fac hit"><span class="ic">✅</span><span class="fn">信号K质量</span><span class="fv">0.85</span><span class="fw">64%</span></div>
+              <div class="fac hit"><span class="ic">✅</span><span class="fn">缺口宽度%</span><span class="fv">5.1%</span><span class="fw">61%</span></div>
+              <div class="fac mid"><span class="ic">⚠️</span><span class="fn">回调速度</span><span class="fv">6 根</span><span class="fw">57%</span></div>
+              <div class="fac hit"><span class="ic">✅</span><span class="fn">盈亏比RR</span><span class="fv">2.1</span><span class="fw">66%</span></div>
+              <div class="fac hit"><span class="ic">✅</span><span class="fn">Always-In</span><span class="fv">多</span><span class="fw">63%</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

@@ -107,11 +107,15 @@ def run_scanner(code: str, strategy_name: str = 'MTR_MASTER') -> Optional[Dict[s
 
                 row = df_strat.iloc[-1]
 
-                # P1: extra_info 从 get_signal_info 获取 (策略自描述)
+                # P1: extra_info 从 get_signal_info 获取 (策略自描述), 内含统一 rating
                 extra_info = signal_info.get('extra_info', {})
-                
-                # 兼容: score 字段回退
-                if 'score' not in extra_info:
+
+                # 🟢 [RATING_PLAN] 统一评级: info['rating'] 为权威; 对齐 legacy 'score' 字段
+                _rating = extra_info.get('rating')
+                if _rating:
+                    extra_info['score'] = float(_rating.get('score', 0))
+                else:
+                    # 极端兜底 (compute_rating 失败未注入 rating): 退化 score
                     score_col = strat.get_metadata().get('score_column', '')
                     if score_col and score_col in row.index:
                         val = row.get(score_col, 0)

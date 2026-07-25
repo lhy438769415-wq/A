@@ -17,7 +17,9 @@ import pandas as pd
 
 # 3rd Party
 import ttkbootstrap as ttk
-from ttkbootstrap.constants import *
+from ttkbootstrap.constants import (BOTH, BOTTOM, DISABLED, END, HORIZONTAL, INFO,
+                                    LEFT, NORMAL, NSEW, RIGHT, SOLID, VERTICAL,
+                                    WARNING)
 from ttkbootstrap.dialogs import Messagebox
 from ttkbootstrap.widgets.scrolled import ScrolledText
 

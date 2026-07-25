@@ -10,7 +10,9 @@ import pandas as pd
 import numpy as np
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, project_root)
+sys.path.append(project_root)
+from core.paths import ensure_importable
+ensure_importable()
 
 from core.api_client import query_deepseek
 from core.log_config import get_logger

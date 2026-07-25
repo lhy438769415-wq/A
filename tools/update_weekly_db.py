@@ -6,7 +6,9 @@ import logging
 # 配置日志输出到控制台
 
 # 添加根目录到包路径
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.paths import ensure_importable
+ensure_importable()
 
 # 强制禁用代理，防止 VPN 导致 Baostock 请求超时卡死
 os.environ['HTTP_PROXY'] = ''

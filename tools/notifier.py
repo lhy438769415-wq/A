@@ -57,7 +57,66 @@ def fetch_stock_name(code: str) -> str:
     """获取股票名称 (通过 Data Provider 缓存)"""
     return get_stock_name(code)
 
-def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0, reason="", df_override=None, ev_rating=None, sig_quality=0, bears=0):
+
+def _draw_rating_panel(ax, *, code, strategy_type, plot_df, entry, sl_price, tp1,
+                       ev_rating, sig_quality, bears, factor_names):
+    """绘制左上角三层信息框 (UX 约束: 三层同字体/无颜色/无图标/灰分隔线)。
+
+    第一层: 买入点 / 极限防守 / 对称止盈(RR)
+    第二层: 动能质量 / 回调连阴 / 系统评级
+    第三层: 因子理由 (仅因子名, 不显示历史胜率)
+
+    返回面板底边的 axes y 坐标, 供调用方在主框下方追加缺口统计等独立信息。
+    """
+    # 入场价兜底: 从策略 metadata entry_column 取最后一行
+    if not entry or entry <= 0:
+        try:
+            from core.strategy_registry import StrategyRegistry
+            ec = StrategyRegistry.get_metadata(strategy_type).get('entry_column', '')
+            if ec and ec in plot_df.columns:
+                v = plot_df.iloc[-1].get(ec, np.nan)
+                if pd.notna(v):
+                    entry = float(v)
+        except Exception:
+            pass
+
+    lines = []
+    # 第一层: 入场/防守/止盈
+    if entry and entry > 0:
+        rr = 0.0
+        if tp1 > entry and sl_price > 0 and entry > sl_price:
+            rr = (tp1 - entry) / (entry - sl_price)
+        lines.append(f"买入点：{entry:.2f}")
+        lines.append(f"极限防守：{sl_price:.2f}")
+        lines.append(f"对称止盈：{tp1:.2f} ({rr:.2f}R)" if rr > 0 else f"对称止盈：{tp1:.2f}")
+    else:
+        lines.append(f"极限防守：{sl_price:.2f}")
+        lines.append(f"对称止盈：{tp1:.2f}")
+    lines.append("------------------")
+    # 第二层: 动能/连阴/评级
+    if isinstance(sig_quality, (int, float)):
+        lines.append(f"动能质量：{sig_quality:.2f}")
+    else:
+        lines.append(f"动能质量：{sig_quality}")
+    lines.append(f"回调连阴：{bears} 连阴")
+    if ev_rating:
+        lines.append(f"系统评级：{strip_emoji(ev_rating)}")
+    # 第三层: 因子理由 (纯名, 无胜率/无颜色/无图标)
+    if factor_names:
+        lines.append("------------------")
+        lines.extend(str(n) for n in factor_names)
+
+    panel = "\n".join(lines)
+    ax.text(0.02, 0.965, panel, transform=ax.transAxes, fontsize=9,
+            verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.86, edgecolor='gray'))
+
+    # 返回面板底边 y 坐标 (含 bbox 留白), 供外部在主框下方追加缺口统计
+    line_h = 0.032
+    return 0.965 - len(lines) * line_h - 0.018
+
+
+def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0, reason="", df_override=None, ev_rating=None, sig_quality=0, bears=0, entry=0, rating=None, timeframe='日K', draw_panel=True):
     """
     绘制K线图，并将 AI 理由印在标题上 (支持 SL/TP 线)
     :param df_override: 可选，传入已计算好指标且切分好时间窗口的 DataFrame
@@ -139,8 +198,8 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
         logger.debug(f"获取策略 {strategy_type} 中文名失败: {e}")
         strat_cn = '策略'
     
-    # 标题极简：中文名（代码）
-    final_title = f"{stock_name}（{code}）"
+    # 标题：中文名（代码） 策略名 · 日K/周K (UX 约束: 含名/码/策略/周期)
+    final_title = f"{stock_name}（{code}） {strat_cn} · {timeframe}"
     final_title = strip_emoji(final_title)
     
     # 1. 均线 (只保留 EMA20)
@@ -232,19 +291,20 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
         if 'is_sw_h_geometric' in plot_df.columns and plot_df['is_sw_h_geometric'].any():
              legend_elements.append(Line2D([0], [0], marker='v', color='w', label='前高', markerfacecolor='blue', markersize=8))
 
-        # 改到左边，并使用 bbox_to_anchor 稍微向下避开可能的新文字区
+        # 改到左下角，避开左上角三层信息框 (UX: 面板更高, 防重叠)
         if legend_elements:
-            axlist[0].legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(0.02, 0.82), fontsize=9, framealpha=0.7, edgecolor='gray')
+            axlist[0].legend(handles=legend_elements, loc='lower left', bbox_to_anchor=(0.02, 0.02), fontsize=9, framealpha=0.7, edgecolor='gray')
 
         # --- P1: 统一策略图表标注 (委托给策略自描述接口) ---
+        gap_open = 0
         try:
             from core.strategy_registry import StrategyRegistry
             strat_cls = type(StrategyRegistry.get_strategy(strategy_type))
             ax = axlist[0]
-            strat_cls.annotate_chart(ax, plot_df, strategy_type,
+            gap_open = strat_cls.annotate_chart(ax, plot_df, strategy_type,
                                       sl_price=sl_price, tp1=tp1, tp2=tp2,
                                       ev_rating=ev_rating, sig_quality=sig_quality, bears=bears,
-                                      code=code)
+                                      code=code) or 0
         except Exception as e:
             logger.debug(f"Strategy annotation skipped: {e}")
 
@@ -256,6 +316,39 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
         axlist[0].text(label_x, sl_price, f"SL: {sl_price:.2f}", color='green', fontsize=8, fontweight='bold', va='center', ha='right')
         if tp1 > 0: axlist[0].text(label_x, tp1, f"TP1: {tp1:.2f}", color='red', fontsize=8, va='center', ha='right')
         if tp2 > 0: axlist[0].text(label_x, tp2, f"TP2: {tp2:.2f}", color='purple', fontsize=8, va='center', ha='right')
+
+        # --- 左上角三层信息框 (UX 约束: 含 A级理由因子名, 不显示胜率) ---
+        if draw_panel:
+            try:
+                factor_names = []
+                if isinstance(rating, dict):
+                    for f in rating.get('factors', []):
+                        nm = f.get('name')
+                        if nm:
+                            factor_names.append(nm)
+                gap_stats = None
+                if 'GAP' in strategy_type.upper():
+                    hist = 0
+                    try:
+                        from core.signal_tracker import get_resolved_gaps
+                        hw = get_resolved_gaps(code, strategy_pattern='GAP')
+                        hist = len(hw) if hw else 0
+                    except Exception:
+                        pass
+                    gap_stats = (gap_open, hist)
+                panel_bottom = _draw_rating_panel(axlist[0], code=code, strategy_type=strategy_type,
+                                                  plot_df=plot_df, entry=entry, sl_price=sl_price, tp1=tp1,
+                                                  ev_rating=ev_rating, sig_quality=sig_quality, bears=bears,
+                                                  factor_names=factor_names)
+                # 缺口统计放在主面板下方独立绿框 (UX: 保持原样式, 不压进白框)
+                if gap_stats is not None:
+                    summary = f"前序开放缺口：{gap_stats[0]}个 | 历史达标：{gap_stats[1]}次"
+                    axlist[0].text(0.02, panel_bottom - 0.012, summary, transform=axlist[0].transAxes,
+                                   fontsize=8, color='#2E7D32', verticalalignment='top',
+                                   bbox=dict(boxstyle='round,pad=0.15', facecolor='#E8F5E9',
+                                             edgecolor='#A5D6A7', alpha=0.8))
+            except Exception as e:
+                logger.debug(f"Rating panel skipped: {e}")
 
         # === 画质与 Discord 内联预览的折中 ===
         # 曾用 dpi=300 (3300x2400 / ~3MB)，但 Discord 客户端对超大尺寸附件常不生成
@@ -308,6 +401,79 @@ def format_signal_line(code, name, strategy_type, entry, sl, tp1=0, ev_rating="N
     line2 = f"  ↳ 入场: ≥{entry:.2f} | 止损: {sl:.2f} | 止盈: {tp_str} | R:R={rr_str}"
     
     return f"{line1}\n{line2}"
+
+
+def _rating_letter(ev_rating):
+    """从评级标签字符串提取字母档位 (A+/A/B/C/D)。"""
+    if not ev_rating:
+        return 'C'
+    s = str(ev_rating)
+    if 'A+' in s:
+        return 'A+'
+    if s.startswith('A') or ' A' in s or s == 'A':
+        return 'A'
+    if 'B' in s:
+        return 'B'
+    if 'C' in s:
+        return 'C'
+    if 'D' in s:
+        return 'D'
+    return 'C'
+
+
+def format_push_brief(signals, group_key='ev_rating', order=None):
+    """v5 分组简报: 按策略聚合 → 组内按分组键分组 → 同组顿号间隔 → 仅6位代码。
+
+    Args:
+        signals: list of dict, 含 'code' / 'strategy_name' / 分组字段
+        group_key: 'ev_rating' (默认, 按 A+/A/B/C/D) 或 'phase' (按形态阶段, 如 3K)
+        order: 分组顺序列表; ev_rating 默认 A+/A/B/C/D, phase 默认 ['缺口确认','新雏形']
+
+    Returns:
+        str: 多行简报, 例如
+            GAP H1 (4)  A+：600519 ｜ A：601012 ｜ B：002304、002415
+            3K动能 (3)  缺口确认：600519、601012 ｜ 新雏形：002304
+    """
+    if not signals:
+        return "💤 本次未发现信号"
+
+    if group_key == 'ev_rating':
+        order = order or ['A+', 'A', 'B', 'C', 'D']
+        def key_of(s): return _rating_letter(s.get('ev_rating'))
+    else:
+        order = order or ['缺口确认', '新雏形']
+        def key_of(s): return s.get(group_key, '其他')
+
+    from collections import OrderedDict
+    groups = OrderedDict()
+    for s in signals:
+        raw_sn = s.get('strategy_name', '')
+        sn = raw_sn.replace('STRATEGY_', '') or '未知'
+        # 优先取策略注册表 display_name (如 STRUCTURAL_GAP -> GAP H1)
+        try:
+            from core.strategy_registry import StrategyRegistry
+            sn = StrategyRegistry.get_metadata(raw_sn).get('display_name', sn)
+        except Exception:
+            pass
+        groups.setdefault(sn, []).append(s)
+
+    lines = []
+    for sn, sigs in groups.items():
+        by_lvl = OrderedDict()
+        for s in sigs:
+            by_lvl.setdefault(key_of(s), []).append(str(s.get('code', '')))
+        parts = []
+        for lvl in order:
+            codes = by_lvl.pop(lvl, None)
+            if codes:
+                parts.append(f"{lvl}：{'、'.join(codes)}")
+        # 其余未列入 order 的分组 (保持出现顺序, 如 '其他')
+        for lvl, codes in by_lvl.items():
+            if codes:
+                parts.append(f"{lvl}：{'、'.join(codes)}")
+        if parts:
+            lines.append(f"{sn} ({len(sigs)})  " + " ｜ ".join(parts))
+    return "\n".join(lines)
 
 
 # =========================================================================

@@ -14,7 +14,9 @@
 """
 import sys, os, io, argparse, logging, time, json
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.paths import ensure_importable
+ensure_importable()
 
 import pandas as pd
 import numpy as np
@@ -24,6 +26,17 @@ from core.calculator import add_indicators
 from core.strategies.structural_gap_strategy import StructuralGapStrategy
 from core.strategy_registry import StrategyRegistry
 import core.data_provider as dp
+from core.rating import band, clamp
+
+def _letter_to_ev_text(letter: str) -> str:
+    """RATING_PLAN: 字母评级 -> 兼容原中文 ev_rating 文本."""
+    return {
+        'A+': '🌟🌟 极品 (A+)',
+        'A': '🌟 高预期 (A)',
+        'B': '👍 常态 (B)',
+        'C': '⚠️ 低预期 (C)',
+        'D': '💀 毒性 (D)',
+    }.get(letter, '👍 常态 (B)')
 
 # 🟢 [P1] 使用策略元数据替代硬编码 STRATEGY_COLS 映射表
 def _get_strategy_cols(strategy_name: str) -> dict:
@@ -65,7 +78,7 @@ def _get_strategy_cols(strategy_name: str) -> dict:
         cols['gap_top_exact'] = 'struct_gap_top_exact'
 
     return cols
-from tools.notifier import generate_chart_bytes, stitch_images, send_discord_image, send_discord_message, send_discord_images
+from tools.notifier import generate_chart_bytes, stitch_images, send_discord_image, send_discord_message, send_discord_images, format_push_brief
 from core.log_config import get_logger
 
 logger = get_logger(__name__)
@@ -208,29 +221,29 @@ def _scan_single_code(code: str, recent_weeks: int = 4, strategies: list = None)
                 if pd.isna(gap_top): gap_top = entry
                 gap_size_pct = round((gap_top - sl) / sl * 100, 2) if sl > 0 else 0
                         
-                # 🟢 四因子积分制 EV 评级
-                ev_score = 0
-                if pb_bars <= 4:    ev_score += 2   # 快速回调，强力加分
-                elif pb_bars > 7:   ev_score -= 2   # 拖延回调，强力减分
-                if gap_size_pct > 7:   ev_score += 2  # 宽缺口
-                elif gap_size_pct < 3: ev_score -= 1  # 窄缺口
-                if q > 0.8:         ev_score += 1
-                elif q < 0.5:       ev_score -= 1
-                if pb_consec_bear >= 3: ev_score -= 1
-                
-                ev_score += time_decay_penalty
-                
-                # 评级映射
-                if ev_score >= 3:
-                    ev_rating = '🌟🌟 极品 (A+)'
-                elif ev_score >= 2:
-                    ev_rating = '🌟 高预期 (A)'
-                elif ev_score >= 0:
-                    ev_rating = '👍 常态 (B)'
-                elif ev_score >= -2:
-                    ev_rating = '⚠️ 低预期 (C)'
+                # 🟢 [RATING_PLAN] 统一经 strategy.compute_rating 产出四因子评级 (删除内联重复)
+                try:
+                    _rating = strategy.compute_rating(df_strat)
+                except Exception as _e:
+                    logging.warning(f"compute_rating failed for {strat_name} {code}: {_e}")
+                    _rating = None
+                if _rating is not None:
+                    ev_score = _rating.raw_score
+                    ev_rating = _letter_to_ev_text(_rating.letter)
+                    rating_dict = _rating.to_dict()
                 else:
-                    ev_rating = '💀 毒性 (D)'
+                    # 兜底: 保留原四因子逻辑 (极端路径, 不应触发)
+                    ev_score = 0
+                    if pb_bars <= 4:    ev_score += 2
+                    elif pb_bars > 7:   ev_score -= 2
+                    if gap_size_pct > 7:   ev_score += 2
+                    elif gap_size_pct < 3: ev_score -= 1
+                    if q > 0.8:         ev_score += 1
+                    elif q < 0.5:       ev_score -= 1
+                    if pb_consec_bear >= 3: ev_score -= 1
+                    ev_score += time_decay_penalty
+                    ev_rating = _letter_to_ev_text(band(clamp(50 + 10 * ev_score)))
+                    rating_dict = None
                 
                 name = dp.get_stock_name(code)
                 results.append({
@@ -248,6 +261,7 @@ def _scan_single_code(code: str, recent_weeks: int = 4, strategies: list = None)
                     'gap_size_pct': gap_size_pct,
                     'ev_score': ev_score,
                     'ev_rating': ev_rating,
+                    'rating': rating_dict,
                     'is_pending': False,
                     'bars_passed': bars_passed_since_signal
                 })
@@ -420,38 +434,14 @@ def _format_and_push_results(results, total_stocks=0):
         msg += f"池子: 全市场 {total_stocks} 只个股\n"
     msg += f"----------------------\n"
     msg += f"🎯 **命中结果**: 共 {len(sig_gap)} 只\n"
-    
-    if sg_best: msg += f"   🌟 **高预期**: {len(sg_best)} 只\n"
-    if sg_good: msg += f"   👍 **常态**: {len(sg_good)} 只\n"
-    if sg_warn: msg += f"   ⚠️ **低预期**: {len(sg_warn)} 只\n"
-    if sg_pend: msg += f"   🔎 **潜在孕育期追踪**: {len(sg_pend)} 只\n"
-    
+
     if not sig_gap:
         msg += f"\n💤 【周线/{strat_display}】，本次未发现信号"
     else:
-        # A+/A 级：完整展示名字+评级（这些是核心关注标的）
-        a_sigs = [s for s in sig_gap if 'A' in s.get('ev_rating', '')]
-        if a_sigs:
-            msg += f"\n🌟 **A+/A 级 ({len(a_sigs)}只)**:\n"
-            for s in a_sigs:
-                strat_short = s.get('strategy_name', '').replace('STRATEGY_', '')
-                msg += f"• {s['name']}({s['code']}) [{strat_short}] [{s['ev_rating']}]\n"
-        
-        # B/C/D 级：只列名字汇总（节省空间）
-        bc_names = [f"{s['name']}({s['code']})[{s.get('strategy_name','').replace('STRATEGY_','')}]" for s in sig_gap 
-                    if 'A' not in s.get('ev_rating', '') and not s.get('is_pending')]
-        if bc_names:
-            msg += f"\n📋 B/C 级 ({len(bc_names)}只): "
-            msg += " / ".join(bc_names)
-        
-        # Pending 追踪
-        if sg_pend:
-            msg += f"\n\n🔎 潜在追踪 ({len(sg_pend)}只): "
-            pend_names = [f"{s['name']}({s['code']})[{s.get('strategy_name','').replace('STRATEGY_','')}]" for s in sg_pend]
-            msg += " / ".join(pend_names)
-        
+        # v5 分组简报: 按策略聚合→组内按评级分组→同评级顿号→仅6位代码
+        msg += format_push_brief(sig_gap)
         msg += f"\n\n🌟 A+/A 级图表即将推送..."
-    
+
     # send_discord_message 已支持自动分段，不会截断
     send_discord_message(msg)
     
@@ -483,7 +473,8 @@ def _format_and_push_results(results, total_stocks=0):
                             strategy_type=s.get('strategy_name', 'STRATEGY_STRUCTURAL_GAP'),
                             sl_price=s['sl'], tp1=s['tp'] if not np.isnan(s['tp']) else 0,
                             reason=f"周线大底确认 | {s['ev_rating']}", df_override=df,
-                            ev_rating=s['ev_rating'], sig_quality=s['sig_quality'], bears=s['bears']
+                            ev_rating=s['ev_rating'], sig_quality=s['sig_quality'], bears=s['bears'],
+                            entry=s.get('entry', 0), rating=s.get('rating'), timeframe='周K'
                         )
                         if buf:
                             chart_bufs.append(buf)

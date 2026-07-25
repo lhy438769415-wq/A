@@ -8,7 +8,9 @@ import pandas as pd
 import numpy as np
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, ROOT)
+sys.path.append(ROOT)
+from core.paths import ensure_importable
+ensure_importable()
 
 from core.data_provider import get_stock_list, get_stock_data
 from core.calculator import add_indicators

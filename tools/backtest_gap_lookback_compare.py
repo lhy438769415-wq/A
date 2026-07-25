@@ -29,7 +29,9 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # 确保项目根目录在 sys.path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, project_root)
+sys.path.append(project_root)
+from core.paths import ensure_importable
+ensure_importable()
 
 from core.data_provider import get_stock_data, get_stock_list
 from core.calculator import add_indicators

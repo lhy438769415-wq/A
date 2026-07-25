@@ -9,7 +9,9 @@ import sys
 import os
 import csv
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.paths import ensure_importable
+ensure_importable()
 
 from core.signal_tracker import init_signal_archive
 from core.database import get_db_connection

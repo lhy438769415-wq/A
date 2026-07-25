@@ -34,7 +34,9 @@ from datetime import datetime, timedelta
 # 路径 & 配置
 # ============================================================
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, PROJECT_ROOT)
+sys.path.append(PROJECT_ROOT)
+from core.paths import ensure_importable
+ensure_importable()
 
 from config.settings import DISCORD_BOT_TOKEN, DISCORD_CHANNEL_ID, FONT_PATH, DB_PATH
 from core.log_config import get_logger

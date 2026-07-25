@@ -21,7 +21,9 @@ import requests
 from datetime import datetime
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, project_root)
+sys.path.append(project_root)
+from core.paths import ensure_importable
+ensure_importable()
 
 from dotenv import load_dotenv
 from core.log_config import get_logger

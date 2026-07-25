@@ -175,7 +175,7 @@ class TestStructuralGapMetadata(unittest.TestCase):
         self.meta = StructuralGapStrategy.get_metadata()
 
     def test_display_name(self):
-        self.assertEqual(self.meta['display_name'], '结构缺口')
+        self.assertEqual(self.meta['display_name'], 'GAP H1')
 
     def test_sl_column(self):
         self.assertEqual(self.meta['sl_column'], 'sl_struct_gap')
@@ -205,7 +205,7 @@ class TestGapPinbarMetadata(unittest.TestCase):
         self.meta = GapPinbarStrategy.get_metadata()
 
     def test_display_name(self):
-        self.assertEqual(self.meta['display_name'], 'Gap Pinbar')
+        self.assertEqual(self.meta['display_name'], 'GAP Pinbar')
 
     def test_sl_column(self):
         self.assertEqual(self.meta['sl_column'], 'sl_gap_pinbar')
@@ -235,7 +235,7 @@ class TestGapH2Metadata(unittest.TestCase):
         self.meta = GapH2Strategy.get_metadata()
 
     def test_display_name(self):
-        self.assertEqual(self.meta['display_name'], 'Gap H2')
+        self.assertEqual(self.meta['display_name'], 'GAP H2')
 
     def test_sl_column(self):
         self.assertEqual(self.meta['sl_column'], 'sl_gap_h2')
@@ -273,17 +273,17 @@ class TestStrategyRegistryMetadata(unittest.TestCase):
     def test_get_metadata_structural_gap(self):
         from core.strategy_registry import StrategyRegistry
         meta = StrategyRegistry.get_metadata('STRATEGY_STRUCTURAL_GAP')
-        self.assertEqual(meta['display_name'], '结构缺口')
+        self.assertEqual(meta['display_name'], 'GAP H1')
 
     def test_get_metadata_gap_pinbar(self):
         from core.strategy_registry import StrategyRegistry
         meta = StrategyRegistry.get_metadata('STRATEGY_GAP_PINBAR')
-        self.assertEqual(meta['display_name'], 'Gap Pinbar')
+        self.assertEqual(meta['display_name'], 'GAP Pinbar')
 
     def test_get_metadata_gap_h2(self):
         from core.strategy_registry import StrategyRegistry
         meta = StrategyRegistry.get_metadata('STRATEGY_GAP_H2')
-        self.assertEqual(meta['display_name'], 'Gap H2')
+        self.assertEqual(meta['display_name'], 'GAP H2')
 
     def test_get_metadata_alias_mtr(self):
         """验证别名模糊匹配也能获取元数据"""

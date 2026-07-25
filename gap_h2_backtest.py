@@ -524,7 +524,7 @@ def render_dashboard(prefix):
         print(f"  WARNING: Skill reference not found at {skill_ref}, skipping dashboard")
         return None
 
-    sys.path.insert(0, skill_ref)
+    sys.path.append(skill_ref)
 
     try:
         from render_dashboard import build_dashboard_data, render_dashboard as _render

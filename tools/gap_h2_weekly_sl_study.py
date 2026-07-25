@@ -37,7 +37,9 @@ import mplfinance as mpf
 # 项目路径初始化
 # ============================================================
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, PROJECT_ROOT)
+sys.path.append(PROJECT_ROOT)
+from core.paths import ensure_importable
+ensure_importable()
 
 from core.data_provider import get_stock_data_weekly, get_stock_list, get_stock_name
 from core.calculator import add_indicators

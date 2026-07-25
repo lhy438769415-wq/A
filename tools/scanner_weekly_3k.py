@@ -14,7 +14,9 @@
 """
 import sys, os, io, argparse, logging, time, json
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.paths import ensure_importable
+ensure_importable()
 
 import pandas as pd
 import numpy as np
@@ -23,7 +25,7 @@ import baostock as bs
 from core.calculator import add_indicators
 from core.strategies.three_k_strategy import ThreeKStrategy
 import core.data_provider as dp
-from tools.notifier import generate_chart_bytes, stitch_images, send_discord_image, send_discord_message, send_discord_images
+from tools.notifier import generate_chart_bytes, stitch_images, send_discord_image, send_discord_message, send_discord_images, format_push_brief
 from core.log_config import get_logger
 
 logger = get_logger(__name__)
@@ -217,9 +219,10 @@ def main():
                     df = add_indicators(df)
                     df = ThreeKStrategy().calculate_signals(df)
                     buf = generate_chart_bytes(
-                        code=s['code'], stock_name=s['name'], strategy_type="3K WEEKLY (Gap Test)",
+                        code=s['code'], stock_name=s['name'], strategy_type='STRATEGY_3K',
                         sl_price=s['sl'], tp1=s['tp'] if not np.isnan(s['tp']) else 0,
-                        reason="周线缺口测试确认，待Buy Stop", df_override=df
+                        reason="周线缺口测试确认，待Buy Stop", df_override=df, timeframe='周K',
+                        draw_panel=False
                     )
                     if buf: chart_buffers.append(buf)
             except Exception as e:
@@ -235,8 +238,9 @@ def main():
                         df = add_indicators(df)
                         df = ThreeKStrategy().calculate_signals(df)
                         buf = generate_chart_bytes(
-                            code=s['code'], stock_name=s['name'], strategy_type="3K WEEKLY (New Forming)",
-                            sl_price=s['sl'], reason="周线刚出3K雏形，重点观察回抽", df_override=df
+                            code=s['code'], stock_name=s['name'], strategy_type='STRATEGY_3K',
+                            sl_price=s['sl'], reason="周线刚出3K雏形，重点观察回抽", df_override=df, timeframe='周K',
+                            draw_panel=False
                         )
                         if buf: chart_buffers.append(buf)
                 except Exception as e:
@@ -244,12 +248,17 @@ def main():
                     
         # 推送到 Discord
         if chart_buffers:
+            # 统一分组简报 (按策略+形态阶段, UX 约束: v5 格式)
+            unified = []
+            for s in sig_gt:
+                unified.append({'code': s['code'], 'strategy_name': 'STRATEGY_3K', 'phase': '缺口确认'})
+            for s in sig_3k:
+                unified.append({'code': s['code'], 'strategy_name': 'STRATEGY_3K', 'phase': '新雏形'})
             msg = "🔔 【周线 3K 雷达扫描完成】\n"
             msg += f"时间: {pd.Timestamp.now().strftime('%Y-%m-%d')}\n"
             msg += f"池子: 全市场 {len(all_codes)} 只个股\n"
             msg += f"----------------------\n"
-            msg += f"🎯 缺口确认 (待设Buy Stop): {len(sig_gt)} 只\n"
-            msg += f"🔭 新出3K雏形 (重点观察): {len(sig_3k)} 只\n"
+            msg += format_push_brief(unified, group_key='phase', order=['缺口确认', '新雏形'])
             
             filenames = [f"weekly_3k_{i}.png" for i in range(len(chart_buffers))]
             send_discord_images(chart_buffers, filenames, content=msg)

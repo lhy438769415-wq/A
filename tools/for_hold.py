@@ -18,7 +18,9 @@ logger = get_logger(__name__)
 # 1. 路径处理：当前在 tools/ 目录下，需要把项目根目录加入 sys.path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
-sys.path.insert(0, project_root)
+sys.path.append(project_root)
+from core.paths import ensure_importable
+ensure_importable()
 
 try:
     # 直接从子文件夹导入，路径更清晰
