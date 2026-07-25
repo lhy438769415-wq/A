@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """最小化 Baostock 网络连通性测试"""
 import sys, io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+if __name__ == '__main__':
+    # 仅在直接运行脚本时重设编码; 被 pytest 收集时保持原有 stdout (避免破坏 capture)
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 import socket, time
 

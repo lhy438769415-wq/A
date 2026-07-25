@@ -259,8 +259,12 @@ def add_momentum_features(df: pd.DataFrame) -> pd.DataFrame:
     var_x = x.rolling(window=window).var()
     
     # Slope & Intercept
-    slope = cov_xy / var_x
-    intercept = mean_y - (slope * mean_x)
+    # 前 window-1 行 rolling 尚未填满 -> cov_xy/var_x 均为 NaN, NaN/NaN 会触发
+    # RuntimeWarning: invalid value encountered in true_divide; 用 errstate 抑制
+    # (结果仍为 NaN, 不改变任何有效行的计算, 零行为变化)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        slope = cov_xy / var_x
+        intercept = mean_y - (slope * mean_x)
     
     # Current Regression Value (at current bar x)
     df['linreg_res'] = (slope * x) + intercept

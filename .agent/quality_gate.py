@@ -32,7 +32,8 @@ FORBIDDEN_PATTERNS = {
     'sys.path.insert': re.compile(r'sys\.path\.insert\s*\('),
     'logging.basicConfig': re.compile(r'logging\.basicConfig\s*\('),
     'bare except': re.compile(r'except\s*:\s*(?!#)'),
-    'from module import *': re.compile(r'from\s+\w[\w.]*\s+import\s+\*'),
+    # 同时覆盖绝对 (from foo import *) 与相对 (from ... import *) 通配导入
+    'from module import *': re.compile(r'from\s+[.\w]+\s+import\s+\*'),
 }
 
 # 红线授权的"合规替代物"文件：允许其内部作为唯一的合法注入点。
@@ -96,6 +97,42 @@ def scan_ddl_violations(files):
     return hits
 
 
+def scan_get_logger_order(files):
+    """护栏: 模块级 `get_logger(__name__)` 调用不得早于其 import。
+
+    此前出现过 "调用早于 import" 的回归 (NameError 风险), 这里闭环该缺口。
+    `core/log_config.py` 本身定义 get_logger, 排除之, 避免自指误报。
+    """
+    GET_LOGGER_IMPORT = re.compile(
+        r'(from\s+[\w.]*log_config\s+import\s+get_logger'
+        r'|from\s+core\s+import\s+log_config'
+        r'|import\s+[\w.]*get_logger)')
+    GET_LOGGER_CALL = re.compile(r'get_logger\s*\(')
+    EXEMPT = {'core/log_config.py'}
+    hits = []
+    for fp in files:
+        rel = os.path.relpath(fp, PROJECT_ROOT).replace('\\', '/')
+        if rel in EXEMPT:
+            continue
+        try:
+            with open(fp, encoding='utf-8') as fh:
+                lines = fh.readlines()
+        except (OSError, UnicodeDecodeError):
+            continue
+        import_line = None
+        for i, line in enumerate(lines, 1):
+            if GET_LOGGER_IMPORT.search(line):
+                import_line = i
+                break
+        if import_line is None:
+            continue  # 该文件未引入 get_logger, 不查顺序
+        for i, line in enumerate(lines, 1):
+            if i < import_line and GET_LOGGER_CALL.search(line):
+                hits.append((rel, i, 'get_logger call before its import',
+                             line.strip()))
+    return hits
+
+
 def count_test_functions():
     """单独遍历 tests/ 目录统计 def test_ 数量（守卫：防删测试让检查变绿）。"""
     total = 0
@@ -136,6 +173,7 @@ def main():
     files = list(iter_py_files())
 
     forbidden = scan_forbidden(files)
+    forbidden += scan_get_logger_order(files)
     ddl = scan_ddl_violations(files)
     test_count = count_test_functions()
 

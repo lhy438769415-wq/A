@@ -17,7 +17,6 @@ fetch_weekly_data), 本文件只负责:
 # 并在 data 目录下生成监控文件 (weekly_gap_watchlist.json)
 """
 import sys, os, io, argparse, logging, time, json
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.paths import ensure_importable
 ensure_importable()
@@ -281,4 +280,7 @@ def main():
 
 
 if __name__ == '__main__':
+    # 惰性初始化: 仅在作为脚本直接运行时重设 stdout 编码, 避免被其他模块导入时
+    # 在进程内互相覆盖全局流 (stdout/stderr 互踩)
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     main()

@@ -11,7 +11,7 @@
 
 | 项目 | 说明 |
 |------|------|
-| **项目名称** | Brooks-AI Quant System V9.8 |
+| **项目名称** | Brooks-AI Quant System V9.20 |
 | **核心功能** | A股量化扫描系统：基于 Al Brooks PA 理论 + DeepSeek AI 二次审计 |
 | **产品定位** | **人机协作** — 系统负责 数据获取 → 标的筛选 → 机会推送 → 统计回测；真正交易由人工操作 |
 | **数据源** | Baostock 本地 SQLite（离线优先，T+1 模式） |
