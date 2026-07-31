@@ -115,14 +115,33 @@ def _track_single(sig: dict) -> dict:
     except Exception as e:
         logger.debug(f"获取 {code} 行情失败: {e}")
         return None
-    
+
+    # [P0-2.5] 生命周期计数: 周线信号必须用周线 bar 数, 否则 8周≈8日 提前过期。
+    # 触发判断仍用日线 post_df (实时性), 仅过期判断用正确的 lifecycle_bars。
+    if tf == 'weekly':
+        try:
+            wdf = dp.get_stock_data_weekly(code, limit=200)
+            if wdf is not None and not wdf.empty:
+                wdate_col = 'trade_date' if 'trade_date' in wdf.columns else ('date' if 'date' in wdf.columns else None)
+                if wdate_col:
+                    wdf[wdate_col] = wdf[wdate_col].astype(str)
+                    lifecycle_bars = len(wdf[wdf[wdate_col] > sig['signal_date']])
+                else:
+                    lifecycle_bars = len(post_df)
+            else:
+                lifecycle_bars = len(post_df)
+        except Exception:
+            lifecycle_bars = len(post_df)
+    else:
+        lifecycle_bars = len(post_df)
+
     updates = {'updated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-    
+
     if status == 'PENDING':
-        return _track_pending(sig, post_df, updates)
+        return _track_pending(sig, post_df, updates, lifecycle_bars)
     elif status == 'ACTIVE':
-        return _track_active(sig, post_df, updates)
-    
+        return _track_active(sig, post_df, updates, lifecycle_bars)
+
     return None
 
 
@@ -136,13 +155,13 @@ def _get_bar_date(df, iloc_idx):
     return datetime.now().strftime('%Y-%m-%d')
 
 
-def _track_pending(sig, post_df, updates):
+def _track_pending(sig, post_df, updates, lifecycle_bars):
     """[Phase2 向量化] 追踪 PENDING 状态: 入场优先于失效"""
     entry = sig['entry_price']
     sl = sig['sl_price']
     tf = sig['timeframe']
     expiry_bars = PENDING_EXPIRY.get(tf, 20)
-    bars_elapsed = len(post_df)
+    bars_elapsed = lifecycle_bars
     
     if post_df.empty:
         return None
@@ -191,7 +210,7 @@ def _track_pending(sig, post_df, updates):
     return None  # 无变化
 
 
-def _track_active(sig, post_df, updates):
+def _track_active(sig, post_df, updates, lifecycle_bars):
     """追踪 ACTIVE 状态: 检查是否触达 TP / SL / 过期"""
     entry = sig['entry_price']
     sl = sig['sl_price']
@@ -210,7 +229,7 @@ def _track_active(sig, post_df, updates):
     if active_df.empty:
         return None
     
-    bars_elapsed = len(active_df)
+    bars_elapsed = lifecycle_bars
     
     # 更新 MFE / MAE
     max_high = active_df['high'].max()

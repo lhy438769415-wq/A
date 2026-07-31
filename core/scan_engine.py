@@ -25,10 +25,12 @@ import numpy as np
 from core.calculator import add_indicators
 from core.strategy_registry import StrategyRegistry
 import core.data_provider as dp
-from core.rating import band, clamp
+from core.rating import band, clamp, get_strategy_cuts
 from core.log_config import get_logger
 from tools.notifier import (
-    generate_chart_bytes, send_discord_message, send_discord_images, format_push_brief
+    generate_chart_bytes, send_discord_message, send_discord_images, format_push_brief,
+    factor_evidence_list, factor_evidence_text, format_signal_one_line,
+    strategy_priority, signal_chart_key
 )
 
 logger = get_logger(__name__)
@@ -101,9 +103,37 @@ def _get_strategy_cols(strategy_name: str) -> dict:
 # =====================================================
 # 从本地周线数据库极速提取数据 (供扫描 + 图表复用)
 # =====================================================
+def _drop_incomplete_current_week(df, today=None):
+    """[P1-8] 丢弃'当前未完成周'的半成品周K, 避免周中扫描产生幻影信号。
+
+    判定以'本周一'为周边界(而非自然周五), 对假日缩短周/周五盘前扫描均鲁棒:
+      - 最新周K属于'本周' 且 今天为周一~周五(本周尚未收盘) -> 是半成品, 丢弃;
+      - 最新周K属于'本周' 且 今天已周六/周日(本周已收盘) -> 完整周, 保留;
+      - 最新周K属于先前某完整周 -> 保留。
+    边界取舍: 若本周因周五休市而周四收盘(假日缩短周), 周中扫描会丢弃该完整周K
+    (仅损失1周即时性, 次周即归为先前完整周); 这是'宁丢1周、不产幻影'的安全优先。
+    """
+    if df is None or len(df) == 0 or 'trade_date' not in df.columns:
+        return df
+    try:
+        last = pd.to_datetime(df['trade_date'].iloc[-1]).normalize()
+        today = (today if today is not None else pd.Timestamp.now()).normalize()
+        this_monday = today - pd.Timedelta(days=today.weekday())
+        last_monday = last - pd.Timedelta(days=last.weekday())
+        if last_monday == this_monday and today.weekday() < 5:
+            # 最新周K属于本周 且 本周尚未收盘 -> 半成品, 丢弃
+            return df.iloc[:-1]
+    except Exception:
+        pass
+    return df
+
+
 def fetch_weekly_data(full_code: str, weeks: int = 200) -> pd.DataFrame:
-    """周线数据提取: 委托 data_provider 读本地 db (SQLite)."""
-    return dp.get_stock_data_weekly(full_code, limit=weeks)
+    """周线数据提取: 委托 data_provider 读本地 db (SQLite). [S1] 自动丢弃未完成周."""
+    df = dp.get_stock_data_weekly(full_code, limit=weeks)
+    if df is None:
+        return None
+    return _drop_incomplete_current_week(df)
 
 
 # =====================================================
@@ -128,8 +158,13 @@ def prepare_weekly_df(full_code: str, weeks: int = 200) -> pd.DataFrame:
 # 主扫描逻辑 (原 scanner_weekly_gap._scan_single_code, 原样搬入)
 # =====================================================
 # 🟢 [P3 Opt 2] 单只股票的扫描逻辑（顶层函数，可跨进程序列化）
-def scan_single_code_weekly(code: str, recent_weeks: int = 4, strategies: list = None) -> list:
-    """扫描单只股票的周线缺口信号，返回命中的信号列表 (dict 结构, 与旧 scanner 一致)"""
+def scan_single_code_weekly(code: str, signal_lookback: int = 60, strategies: list = None) -> list:
+    """扫描单只股票的周线缺口信号，返回命中的信号列表 (dict 结构, 与旧 scanner 一致)
+
+    signal_lookback: 缺口家族需回看较宽窗口(默认60周)以捕捉仍存活的 pending/active 信号,
+    这与 3K 的紧 recent_weeks 语义不同 — 故独立命名, 不再复用 recent_weeks(P1-9 修正:
+    原先 recent_weeks 参数被本函数静默忽略, 与 scan_weekly_3k_signals 行为不一致)。
+    """
     if strategies is None:
         strategies = ['STRATEGY_STRUCTURAL_GAP']
     results = []
@@ -257,13 +292,13 @@ def scan_single_code_weekly(code: str, recent_weeks: int = 4, strategies: list =
 
                 # 🟢 [RATING_PLAN] 统一经 strategy.compute_rating 产出四因子评级 (删除内联重复)
                 try:
-                    _rating = strategy.compute_rating(df_strat)
+                    _rating = strategy.compute_rating(df_strat, timeframe='weekly')
                 except Exception as _e:
                     logging.warning(f"compute_rating failed for {strat_name} {code}: {_e}")
                     _rating = None
                 if _rating is not None:
                     ev_score = _rating.raw_score
-                    ev_rating = _letter_to_ev_text(_rating.letter)
+                    ev_rating = ''  # [P0-5] 不再渲染经回测证明为噪声的假字母; rating_dict 仍保留供因子证据
                     rating_dict = _rating.to_dict()
                 else:
                     # 兜底: 保留原四因子逻辑 (极端路径, 不应触发)
@@ -276,7 +311,7 @@ def scan_single_code_weekly(code: str, recent_weeks: int = 4, strategies: list =
                     elif q < 0.5:       ev_score -= 1
                     if pb_consec_bear >= 3: ev_score -= 1
                     ev_score += time_decay_penalty
-                    ev_rating = _letter_to_ev_text(band(clamp(50 + 10 * ev_score)))
+                    ev_rating = ''  # [P0-5]
                     rating_dict = None
 
                 name = dp.get_stock_name(code)
@@ -324,7 +359,8 @@ def scan_weekly_gap_signals(all_codes: list, strategies: list = None, recent_wee
     print(f"  🚀 启动 {MAX_WORKERS} 线程并行扫描 {total} 只股票...")
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {executor.submit(scan_single_code_weekly, code, recent_weeks, strategies): code for code in all_codes}
+        # 缺口家族使用自身宽窗口(默认60周)捕捉存活信号, 不套用 3K 的紧 recent_weeks (P1-9)
+        futures = {executor.submit(scan_single_code_weekly, code, strategies=strategies): code for code in all_codes}
 
         for future in as_completed(futures):
             completed += 1
@@ -338,7 +374,10 @@ def scan_weekly_gap_signals(all_codes: list, strategies: list = None, recent_wee
                 for hit in hits:
                     results_gap.append(hit)
                     tag = "👀" if hit.get('is_pending') else "✨"
-                    print(f"\n  {tag} 命中: {hit['code']} {hit['name']} | [{hit['ev_rating']}]")
+                    # [P0-5] 去字母化: 控制台命中打印不再显示经回测证明为噪声的 A+/A/B/C/D 假字母
+                    _ev = factor_evidence_text(hit.get('rating'))
+                    _tail = f" | {_ev}" if _ev else ""
+                    print(f"\n  {tag} 命中: {hit['code']} {hit['name']}{_tail}")
             except Exception as e:
                 logger.debug(f"获取 {code} 结果失败: {e}")
 
@@ -398,13 +437,13 @@ def scan_weekly_3k_signals(all_codes: list, recent_weeks: int = 4) -> dict:
 
                 # 🟢 [R-A] 接入策略层 compute_rating, 与 gap 扫描器统一评级
                 try:
-                    _rating = strategy.compute_rating(df)
+                    _rating = strategy.compute_rating(df, timeframe='weekly')
                 except Exception as _e:
                     logging.warning(f"compute_rating failed for STRATEGY_3K {code}: {_e}")
                     _rating = None
                 if _rating is not None:
                     ev_score = _rating.raw_score
-                    ev_rating = _letter_to_ev_text(_rating.letter)
+                    ev_rating = ''  # [P0-5] 不再渲染经回测证明为噪声的假字母; rating_dict 仍保留供因子证据
                     rating_dict = _rating.to_dict()
                 else:
                     ev_score = 0
@@ -455,13 +494,7 @@ def format_push_weekly_gap(results, total_stocks=0):
     print(f"  周线 {strat_display} 信号汇总")
     print("=" * 80)
 
-    sg_best = [s for s in sig_gap if '🌟' in s.get('ev_rating', '') and not s.get('is_pending')]
-    sg_good = [s for s in sig_gap if '👍' in s.get('ev_rating', '') and not s.get('is_pending')]
-    sg_warn = [s for s in sig_gap if '⚠️' in s.get('ev_rating', '') and not s.get('is_pending')]
-    sg_pend = [s for s in sig_gap if s.get('is_pending')]
-
-    # 确保按评级重新排序
-    sig_gap = sg_best + sg_good + sg_warn + sg_pend
+    # 去字母化: 不再按字母 emoji 分档冷落信号; 全量保留 (is_pending 仅作状态标注, 不丢信号)
     results['signals_gap'] = sig_gap
 
     # 📥 Signal Tracker: 归档周线信号 (仅确认信号, 不含 pending)
@@ -474,7 +507,10 @@ def format_push_weekly_gap(results, total_stocks=0):
             archive_signal(
                 code=s['code'], strategy=s.get('strategy_name', 'STRUCTURAL_GAP'), timeframe='weekly',
                 entry=s['entry'], sl=s['sl'], tp=s['tp'] if not np.isnan(s['tp']) else 0,
-                ev_rating=s.get('ev_rating', ''), signal_date=sig_date,
+                ev_rating='',  # [P0-5] 不再写经回测证明为噪声的假字母
+                evidence=factor_evidence_text(s.get('rating')),
+                signal_date=sig_date,
+                signal_bar_idx=s.get('signal_bar_idx', -1),
                 ev_score=s.get('ev_score', 0), rr=s.get('rr', 0), name=s.get('name', ''),
                 gap_size_pct=s.get('gap_size_pct', 0), pb_bars=s.get('pb_bars', 0),
                 sig_quality=s.get('sig_quality', 0)
@@ -487,21 +523,25 @@ def format_push_weekly_gap(results, total_stocks=0):
     print(f"\n📌 重点埋伏区 - 周线结构跨越+神级洗盘已确认 (共 {len(sig_gap)} 个):")
     print("-" * 60)
 
+    # 去字母化: 控制台按策略分组打印一行精简 (与 Discord 一致)
     def _print_sg_console(group, title):
         if group:
             print(f"\n[{title}] ({len(group)}只):")
             for s in group:
-                tp_str = f"{s['tp']:.2f}" if not np.isnan(s['tp']) else "N/A"
-                rr_str = f"1:{s['rr']:.1f}" if s['rr'] > 0 else "N/A"
-                gap_str = f" | 缺口={s.get('gap_size_pct', 0):.1f}%" if 'gap_size_pct' in s else ""
-                pb_str = f" | 回调={s.get('pb_bars', '?')}周" if 'pb_bars' in s else ""
-                strat_short = s.get('strategy_name', '').replace('STRATEGY_', '')
-                print(f"  {s['code']:>12s} {s['name']:<6s} | 策略:{strat_short:<10s} | 买入:>={s['entry']:.2f} | 止损:{s['sl']:.2f} | 止盈:{tp_str} | R:R={rr_str}{gap_str}{pb_str}")
+                print(f"  {format_signal_one_line(s['code'], s['name'], s.get('strategy_name', ''), s, timeframe='weekly')}")
 
-    _print_sg_console(sg_best, "🌟 高预期")
-    _print_sg_console(sg_good, "👍 常态")
-    _print_sg_console(sg_warn, "⚠️ 低预期")
-    _print_sg_console(sg_pend, "🔎 潜在追踪缺口 (尚未出现日历翻转信号)")
+    # 按策略优先级分组打印
+    from collections import OrderedDict
+    from core.strategy_registry import StrategyRegistry
+    _grp = OrderedDict()
+    for s in sig_gap:
+        _sn = StrategyRegistry.get_metadata(s.get('strategy_name', '')).get('display_name') or s.get('strategy_name', '')
+        _grp.setdefault(_sn, []).append(s)
+    _ranked = sorted(_grp.items(),
+                     key=lambda kv: strategy_priority(kv[1][0].get('strategy_name', ''), 'weekly'),
+                     reverse=True)
+    for _sn, _ss in _ranked:
+        _print_sg_console(_ss, _sn)
 
     print("\n" + "=" * 80)
 
@@ -542,7 +582,8 @@ def format_push_weekly_gap(results, total_stocks=0):
             rr_str = f"1:{s['rr']:.1f}" if s['rr'] > 0 else "N/A"
             date_str = s['date'].strftime('%Y-%m-%d') if hasattr(s['date'], 'strftime') else str(s['date'])
             strat_short = s.get('strategy_name', '').replace('STRATEGY_', '')
-            report_md += f"| `{s['code']}` | **{s['name']}** | {strat_short} | {s['ev_rating']} | **>={s['entry']:.2f}** | *{s['sl']:.2f}* | {tp_str} | {rr_str} |\n"
+            ev = factor_evidence_text(s.get('rating'))
+            report_md += f"| `{s['code']}` | **{s['name']}** | {strat_short} | {ev} | **>={s['entry']:.2f}** | *{s['sl']:.2f}* | {tp_str} | {rr_str} |\n"
 
     with open(md_path, 'w', encoding='utf-8') as f:
         f.write(report_md)
@@ -561,20 +602,32 @@ def format_push_weekly_gap(results, total_stocks=0):
     if not sig_gap:
         msg += f"\n💤 【周线/{strat_display}】，本次未发现信号"
     else:
-        msg += format_push_brief(sig_gap)
-        msg += f"\n\n🌟 A+/A 级图表即将推送..."
+        # 去字母化: 按策略分组 + 每条一行精简 (全推送, 因子证据, 不按字母筛)
+        from collections import OrderedDict
+        from core.strategy_registry import StrategyRegistry
+        grp = OrderedDict()
+        for s in sig_gap:
+            sn = StrategyRegistry.get_metadata(s.get('strategy_name', '')).get('display_name') or s.get('strategy_name', '')
+            grp.setdefault(sn, []).append(s)
+        ranked = sorted(grp.items(),
+                        key=lambda kv: strategy_priority(kv[1][0].get('strategy_name', ''), 'weekly'),
+                        reverse=True)
+        for sn, ss in ranked:
+            msg += f"\n📌 **{sn} ({len(ss)}只)**:\n"
+            for s in ss:
+                msg += format_signal_one_line(s['code'], s['name'], s.get('strategy_name', ''), s, timeframe='weekly') + "\n"
+        msg += f"\n\n📊 信号 K线图即将推送..."
 
     send_discord_message(msg)
 
     if not sig_gap:
         print("✅ Discord 空结果推送成功！")
     else:
-        top_sigs = [s for s in sig_gap if 'A' in s.get('ev_rating', '')]
-        if top_sigs:
-            chart_label = "🌟 **A+/A 级 K线图**"
-        else:
-            top_sigs = sig_gap[:5]
-            chart_label = "📋 **信号 K线图**"
+        # 去字母化: 按策略优先级+因子证据排序取 Top-N (高优先策略恒出图, 去掉仅A+门禁)
+        from config import settings
+        max_charts = settings.MAX_CHARTS_PER_RUN
+        top_sigs = sorted(sig_gap, key=lambda x: signal_chart_key(x, 'weekly'), reverse=True)[:max_charts]
+        chart_label = "📊 **信号 K线图 (按策略优先级)**"
 
         if top_sigs:
             print(f"\n🎨 为 {len(top_sigs)} 只标的生成图表...")
@@ -592,14 +645,15 @@ def format_push_weekly_gap(results, total_stocks=0):
                             code=s['code'], stock_name=s['name'],
                             strategy_type=s.get('strategy_name', 'STRATEGY_STRUCTURAL_GAP'),
                             sl_price=s['sl'], tp1=s['tp'] if not np.isnan(s['tp']) else 0,
-                            reason=f"周线大底确认 | {s['ev_rating']}", df_override=df,
-                            ev_rating=s['ev_rating'], sig_quality=s.get('sig_quality'), bears=s.get('bears'),
+                            reason="周线大底确认", df_override=df,
+                            ev_rating=None,
+                            sig_quality=s.get('sig_quality'), bears=s.get('bears'),
                             entry=s.get('entry', 0), rating=s.get('rating'), timeframe='周K'
                         )
                         if buf:
                             chart_bufs.append(buf)
                             chart_names.append(f"{s['code']}.png")
-                            print(f"  ✅ {s['code']} {s['name']} [{s['ev_rating'][:10]}]")
+                            print(f"  ✅ {s['code']} {s['name']}")
                 except Exception as e:
                     logger.warning(f"绘图失败 {s['code']}: {e}")
 
@@ -619,7 +673,7 @@ def format_push_weekly_gap(results, total_stocks=0):
 def format_push_weekly_3k(results: dict, total_stocks: int = 0, weeks: int = 4):
     """控制台输出 + JSON/MD 导出 + Discord 推送 (周线 3K).
 
-    注意: 3K **不归档** signal_tracker (与 gap 路径的行为差异刻意保留).
+    注意: 3K 信号一并归档 signal_tracker (P0-2.6: 消除独立状态源, 统一复盘闭环).
     """
     from core.strategies.three_k_strategy import ThreeKStrategy
     pd_ts = pd.Timestamp.now()
@@ -645,6 +699,29 @@ def format_push_weekly_3k(results: dict, total_stocks: int = 0, weeks: int = 4):
         print(f"{s['code']:>12s} {s['name']:<6s} 周线日期:{s['date']}  下周买入(Buy Stop):>={s['entry']:.2f}  防守(SL):{s['sl']:.2f}  目标:{tp_str}  R:R={rr_str}")
 
     print("\n" + "=" * 80)
+
+    # [P0-2.6] 周线 3K 信号归档进 SignalTracker (消除独立状态源 weekly_watchlist.json)
+    try:
+        from core.signal_tracker import archive_signal, init_signal_archive
+        init_signal_archive()
+        _archived = 0
+        for s in sig_gt + sig_3k:
+            _sdate = s['date'].strftime('%Y-%m-%d') if hasattr(s['date'], 'strftime') else str(s['date'])
+            _tp = s.get('tp', 0)
+            if isinstance(_tp, float) and np.isnan(_tp):
+                _tp = 0
+            archive_signal(
+                code=s['code'], strategy='STRATEGY_3K', timeframe='weekly',
+                entry=s.get('entry', 0), sl=s.get('sl', 0), tp=_tp,
+                signal_date=_sdate, name=s.get('name', ''),
+                phase='缺口确认' if s in sig_gt else '新雏形',
+                signal_bar_idx=s.get('signal_bar_idx', -1)
+            )
+            _archived += 1
+        if _archived:
+            logger.info(f"📥 周线 3K 信号已归档 {_archived} 个到 Signal Tracker")
+    except Exception as e:
+        logger.warning(f"周线 3K 归档失败: {e}")
 
     # === 导出报告与数据 ===
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -761,7 +838,7 @@ def format_push_weekly_3k(results: dict, total_stocks: int = 0, weeks: int = 4):
 # =====================================================
 def run_weekly_scan(active_strategies, weeks=4, limit=0, all_codes=None):
     """
-    周线统一编排入口 (Phase 3 彻底单引擎): 取列表 -> 按家族路由 -> 扫描 + 格式化/推送.
+    周线统一编排入口 (Phase 3 入口/编排层单引擎; 注: 3K 硬编码例外刻意保留, core->tools 倒置见 :30 为已知债): 取列表 -> 按家族路由 -> 扫描 + 格式化/推送.
 
     - 含 STRATEGY_3K -> 走 3K 路径 (不归档 signal_tracker, 产物 weekly_watchlist.json / weekly_ambush_plan.md)
     - 否则 -> 走 gap 家族路径 (STRUCTURAL_GAP/PINBAR/H2, 含 Signal Tracker 归档)
@@ -792,11 +869,25 @@ def run_weekly_scan(active_strategies, weeks=4, limit=0, all_codes=None):
         pass
 
     active = [s.upper() for s in (active_strategies or [])]
-    if 'STRATEGY_3K' in active:
+    # [P1-1 修复] 周线 3K 与缺口家族改为并行路由, 不再互斥:
+    # 原 `if STRATEGY_3K in active` 的独占分支导致"选了 3K 就不扫 gap",
+    # 既漏信号又违背用户多选意图。现各自独立判定、按需都跑。
+    WEEKLY_GAP_STRATS = {
+        'STRATEGY_STRUCTURAL_GAP', 'STRATEGY_GAP_PINBAR', 'STRATEGY_GAP_H2',
+    }
+    do_3k = 'STRATEGY_3K' in active
+    do_gap = bool(set(active) & WEEKLY_GAP_STRATS)
+    if not (do_3k or do_gap):
+        print(f"\n⚠️ 周线扫描: 未识别到任何周线策略 ({', '.join(active) or '空'})。"
+              f"支持: STRATEGY_3K / {', '.join(sorted(WEEKLY_GAP_STRATS))}")
+        return
+    if do_gap:
+        gap_strats = [s for s in active_strategies if s.upper() in WEEKLY_GAP_STRATS]
+        print(f"\n🌙 周线缺口扫描: {len(all_codes)} 只股票, 检查最近 {weeks} 周, "
+              f"策略: {', '.join(gap_strats)}")
+        gap_results = scan_weekly_gap_signals(all_codes, strategies=gap_strats, recent_weeks=weeks)
+        format_push_weekly_gap(gap_results, total_stocks=len(all_codes))
+    if do_3k:
         print(f"\n🌙 周线 3K 扫描: {len(all_codes)} 只股票, 检查最近 {weeks} 周")
-        results = scan_weekly_3k_signals(all_codes, recent_weeks=weeks)
-        format_push_weekly_3k(results, total_stocks=len(all_codes), weeks=weeks)
-    else:
-        print(f"\n🌙 周线扫描: {len(all_codes)} 只股票, 检查最近 {weeks} 周, 策略: {', '.join(active)}")
-        results = scan_weekly_gap_signals(all_codes, strategies=active_strategies, recent_weeks=weeks)
-        format_push_weekly_gap(results, total_stocks=len(all_codes))
+        k3_results = scan_weekly_3k_signals(all_codes, recent_weeks=weeks)
+        format_push_weekly_3k(k3_results, total_stocks=len(all_codes), weeks=weeks)

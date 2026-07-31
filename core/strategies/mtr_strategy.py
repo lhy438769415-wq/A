@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional
 from .base import BaseStrategy
 from core.formatter import get_common_context
 from config import settings
-from core.rating import RatingResult, RatingFactor, clamp, band
+from core.rating import RatingResult, RatingFactor, clamp, band, band_calibrated, is_calibration_available
 from .geometric_engine import GeometricTrendlineEngine 
 from core.strategies.mtr_structural_v35 import MTRStructuralEngineV35
 
@@ -66,7 +66,7 @@ class MTRStrategy(BaseStrategy):
         return super().get_signal_info(df)
 
     @classmethod
-    def compute_rating(cls, df: pd.DataFrame) -> Optional['RatingResult']:
+    def compute_rating(cls, df: pd.DataFrame, timeframe: str = 'daily') -> Optional['RatingResult']:
         """[RATING_PLAN §4.4] MTR 评级: 包七维综合分 mtr_score(0-100).
         ⚠️ Phase 0 直接包手调七维权重; 维度2(EMA20突破)权重待 Phase 2 下调至低档
            (Step 7 MA_Gap 翻转证据, 非动量因子); calibrated=False。
@@ -81,15 +81,15 @@ class MTRStrategy(BaseStrategy):
             if pd.notna(val):
                 raw = float(val)
         score = clamp(round(raw))
-        letter = band(score)
         toxic = score < 30
+        letter = band_calibrated(cls, score, toxic=toxic, timeframe=timeframe)
         factors = [RatingFactor(
             name='七维综合评分', value=raw, hit=raw >= 50, weight=0.0,
             sop_ref='SOP Step 1/2/4/5/7/11',
             note='七维手调加权(结构15+趋势10+反弹20+回调35+极值5+信号K10+深度5); '
                  '维度2 EMA权重待Phase2下调至低档(MA_Gap翻转证据, 非动量因子)')]
         return RatingResult(raw_score=raw, score=score, letter=letter, factors=factors,
-                            toxic=toxic, calibrated=False)
+                            toxic=toxic, calibrated=is_calibration_available())
 
     @classmethod
     def annotate_chart(cls, ax, plot_df: pd.DataFrame, strategy_type: str, **kwargs) -> None:
@@ -295,6 +295,11 @@ class MTRStrategy(BaseStrategy):
                     if signal_bar and signal_bar['idx'] < len(df):
                         sb_idx = signal_bar['idx']
                         df.at[df.index[sb_idx], 'signal_mtr'] = True
+                        # 🟢 [Bugfix] 把评级所需的 mtr_score / mtr_stage 一并写到信号K线,
+                        #    否则 run_scanner_all 读最新 bar 的 signal_mtr=True 时,
+                        #    mtr_score 仍为 0 (只在检测 bar i 写了) -> 评级恒判 D.
+                        df.at[df.index[sb_idx], 'mtr_score'] = res['score']
+                        df.at[df.index[sb_idx], 'mtr_stage'] = res['stage']
                         df.at[df.index[i], 'mtr_signal_bar_idx'] = sb_idx
                         df.at[df.index[i], 'mtr_entry_price'] = signal_bar['high']
                         df.at[df.index[i], 'mtr_signal_bar_quality'] = signal_bar.get('quality', 0)
@@ -317,6 +322,10 @@ class MTRStrategy(BaseStrategy):
             def get_sl(row):
                 l1 = row.get('mtr_L1_price', np.nan)
                 tl = row.get('mtr_TL_price', np.nan)
+                # 🟢 [UX] L1/TL 均未识别时两值均为 NaN, 直接返回 NaN(下游跳过),
+                #    避免 np.nanmin([nan,nan]) 刷 RuntimeWarning 并连带打印源码行, 淹没终端有效信息.
+                if pd.isna(l1) and pd.isna(tl):
+                    return np.nan
                 extreme = np.nanmin([l1, tl])
                 return extreme - 0.01 if pd.notna(extreme) else np.nan
             

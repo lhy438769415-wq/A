@@ -283,6 +283,114 @@ def validate_integrity(symbol: str, df: pd.DataFrame) -> bool:
 # ==========================================
 # 🧱 Database Writer (Thread)
 # ==========================================
+
+SYNC_JOIN_TIMEOUT = 300       # DB Writer 线程 join 上限秒数(防卡死写入永久阻塞主线程)
+
+def _wait_writer_stop(writer_thread, label, logger):
+    """等待 DB Writer 线程结束; 超时(真卡死)才报 [P1-7] 错误, 正常结束不报。
+
+    修复: Thread.join() 永远返回 None, 不能当布尔用。先阻塞等待超时,
+    再用 is_alive() 判定线程是否真卡死。
+    返回: True=卡死已强停 / False=正常结束。
+    """
+    writer_thread.join(timeout=SYNC_JOIN_TIMEOUT)
+    if writer_thread.is_alive():
+        logger.error(f"❌ [P1-7] {label} 在 {SYNC_JOIN_TIMEOUT}s 内未结束(可能卡在写入), 标记停止并继续")
+        writer_thread.stop()
+        return True
+    return False
+
+
+def _finalize_sync(writer_thread, data_queue, label, logger,
+                   download_count=0, skip_count=0, total_count=0):
+    """同步收尾: 投毒 pill + join 守卫 + 登出 + 成功日志 (抽出以便单测)。"""
+    data_queue.put(None)
+    _wait_writer_stop(writer_thread, label, logger)
+    try:
+        from tools.fetcher_baostock import bs_logout
+        bs_logout()
+    except ImportError:
+        pass
+    logger.info("💾 Database sync complete.")
+    logger.info(f"🎉 Data Sync Completed! (Downloaded: {download_count}/{total_count}, Skipped/NoNewData: {skip_count})")
+    return (download_count, total_count)
+
+
+def _drain_futures_with_watchdog(executor, futures_map, q, label="同步",
+                                 progress_every=200, stall_limit=2,
+                                 wall_limit=30, per_task_timeout=1):
+    """收割 executor futures, 带看门狗防 hung worker 导致整批同步无限挂死 (P1-7)。
+
+    futures_map: {Future: code}; q: 结果队列 (下载成功的 (code,df) 放入)。
+    返回统计 dict: aborted/done/total/download_count/skip_count/blacklisted。
+    """
+    import concurrent.futures
+    remaining = dict(futures_map)
+    done = 0
+    download_count = 0
+    skip_count = 0
+    blacklisted = False
+    aborted = False
+    total = len(remaining)
+    t_start = time.time()
+    last_progress = t_start
+
+    def _kill():
+        try:
+            executor.shutdown(wait=False, cancel_futures=True, kill=True)
+        except TypeError:
+            try:
+                executor.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+
+    while remaining:
+        completed, _ = concurrent.futures.wait(
+            list(remaining.keys()), timeout=per_task_timeout,
+            return_when=concurrent.futures.FIRST_COMPLETED)
+        now = time.time()
+        if completed:
+            for fut in completed:
+                code = remaining.pop(fut, None)
+                if code is None:
+                    continue
+                try:
+                    result = fut.result()
+                except BsBlacklistedError:
+                    blacklisted = True
+                    done += 1
+                    _kill()
+                    aborted = True
+                    return {"aborted": aborted, "done": done, "total": total,
+                            "download_count": download_count, "skip_count": skip_count,
+                            "blacklisted": blacklisted}
+                except Exception:
+                    done += 1
+                    continue
+                done += 1
+                if result is None:
+                    skip_count += 1
+                else:
+                    code_r, df = result
+                    q.put((code_r, df))
+                    download_count += 1
+                last_progress = now
+            if progress_every and done % progress_every == 0:
+                logger.info(f"[{label}] 进度 {done}/{total}")
+        else:
+            if now - last_progress >= stall_limit:
+                aborted = True
+                _kill()
+                break
+        if now - t_start >= wall_limit:
+            aborted = True
+            _kill()
+            break
+
+    return {"aborted": aborted, "done": done, "total": total,
+            "download_count": download_count, "skip_count": skip_count,
+            "blacklisted": blacklisted}
+
 class DatabaseWriter(threading.Thread):
     def __init__(self, data_queue):
         super().__init__()
@@ -371,7 +479,7 @@ class DatabaseWriter(threading.Thread):
                     try:
                         self.conn.rollback()
                         pending_count = 0
-                    except Exception:pass
+                    except Exception: pass
                 finally:
                     self.data_queue.task_done()
                         
@@ -382,7 +490,7 @@ class DatabaseWriter(threading.Thread):
             if self.conn_ctx:
                 try:
                     self.conn_ctx.__exit__(None, None, None)
-                except Exception:pass
+                except Exception: pass
             logger.info(f"🏁 [DB Writer] Stopped. Stats: {self.stats}")
 
     def stop(self):
@@ -448,7 +556,7 @@ class WeeklyDatabaseWriter(threading.Thread):
         finally:
             if self.conn_ctx:
                 try: self.conn_ctx.__exit__(None, None, None)
-                except Exception:pass
+                except Exception: pass
             logger.info(f"🏁 [Weekly DB Writer] Stopped. Stats: {self.stats}")
 
     def stop(self):
@@ -500,7 +608,8 @@ def get_last_date(symbol: str) -> Optional[str]:
             cursor.execute("SELECT MAX(trade_date) FROM daily_bars WHERE symbol=?", (symbol,))
             res = cursor.fetchone()
             return res[0] if res else None
-    except Exception:        return None
+    except Exception:
+        return None
 
 def _read_sql_safe(query: str, conn, params: tuple = None) -> pd.DataFrame:
     """
@@ -540,17 +649,30 @@ def get_stock_data(full_code: str, limit: int = None, timeframe: str = 'daily') 
 
     try:
         with get_db_connection() as conn:
-            # 🟢 [Phase1] 移除 abu_indicators LEFT JOIN (该表从未写入，JOIN 列始终为 NULL)
-            query = """
-            SELECT 
-                symbol, 
-                trade_date as date, 
-                open, high, low, close, volume
-            FROM daily_bars
-            WHERE symbol=? 
-            ORDER BY trade_date ASC
-            """
-            df_hist = _read_sql_safe(query, conn, params=(symbol,))
+            if timeframe == 'weekly':
+                # 🟢 [Phase1] 周线查询（含 adjust 列，供周线策略/指标使用）
+                query = """
+                SELECT 
+                    symbol, 
+                    trade_date, 
+                    open, high, low, close, volume, adjust
+                FROM weekly_bars
+                WHERE symbol=? 
+                ORDER BY trade_date ASC
+                """
+                df_hist = _read_sql_safe(query, conn, params=(symbol,))
+            else:
+                # 🟢 [Phase1] 移除 abu_indicators LEFT JOIN (该表从未写入，JOIN 列始终为 NULL)
+                query = """
+                SELECT 
+                    symbol, 
+                    trade_date as date, 
+                    open, high, low, close, volume
+                FROM daily_bars
+                WHERE symbol=? 
+                ORDER BY trade_date ASC
+                """
+                df_hist = _read_sql_safe(query, conn, params=(symbol,))
 
             if df_hist.empty:
                 return None
@@ -696,12 +818,11 @@ def _fetch_worker(full_code, target_date, last_date_cache=None):
     except BsBlacklistedError:
         raise  # 黑名单封禁必须穿透到主循环
     except BsConnectionDeadError as e:
-        # 🛡️ 登录超时/socket 断开，现在能穿透 @retry_on_failure 装饰器
         _session_dead = True
         print(f"⚠️ Worker session 已损坏，本进程后续任务将跳过: {e}")
     except Exception as e:
         print(f"Worker Error {symbol}: {e}")
-        
+
     return None
 
 def _fetch_weekly_worker(full_code, target_date, last_date_cache=None):
@@ -744,7 +865,7 @@ def _fetch_weekly_worker(full_code, target_date, last_date_cache=None):
         print(f"⚠️ Weekly Worker session 已损坏，本进程后续任务将跳过: {e}")
     except Exception as e:
         print(f"Weekly Worker Error {symbol}: {e}")
-        
+
     return None
 
 
@@ -845,10 +966,10 @@ def update_daily_data_batch(max_workers=settings.MAX_WORKERS):
     download_count = 0
     skip_count = 0
     
-    # 🟢 Multiprocessing: 5 workers = 5 independent Baostock connections
-    # Baostock 服务端并发连接硬限制为 5，超出必定超时
+    # 🟢 Multiprocessing: 4 workers = 4 independent connections
+    # Baostock is stable with 4 processes.
     mp_workers = max(1, max_workers) 
-    if mp_workers > 5: mp_workers = 5  # Baostock 并发连接硬上限
+    if mp_workers > 6: mp_workers = 6 # Cap at 6 to be safe
     
     logger.info(f"🚀 Starting ProcessPool with {mp_workers} workers...")
     
@@ -906,8 +1027,9 @@ def update_daily_data_batch(max_workers=settings.MAX_WORKERS):
     logger.info(f"✅ All Phases finished. Waiting for DB Writer...")
     
     # 🟢 Fix: Graceful Exit (Poison Pill)
+    # 🟢 Fix: Graceful Exit (Poison Pill)
     data_queue.put(None)
-    writer_thread.join()
+    _wait_writer_stop(writer_thread, "DB Writer", logger)
     
     # Explicit Baostock Logout (Final Cleanup)
     try:
@@ -1087,7 +1209,7 @@ def update_weekly_data_batch(max_workers=settings.MAX_WORKERS):
     download_count = 0
     skip_count = 0
     mp_workers = max(1, max_workers) 
-    if mp_workers > 5: mp_workers = 5  # Baostock 并发连接硬上限
+    if mp_workers > 6: mp_workers = 6 
     
     logger.info(f"🚀 Starting ProcessPool with {mp_workers} workers for Weekly...")
     
@@ -1127,7 +1249,7 @@ def update_weekly_data_batch(max_workers=settings.MAX_WORKERS):
     logger.info(f"✅ Download Finished. Waiting for DB Writer to commit {data_queue.qsize()} chunks...")
     
     data_queue.put(None)
-    writer_thread.join()
+    _wait_writer_stop(writer_thread, "Weekly DB Writer", logger)
     
     try:
         from tools.fetcher_baostock import bs_logout

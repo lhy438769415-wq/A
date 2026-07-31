@@ -377,11 +377,10 @@ class TestResolveClass(unittest.TestCase):
         self.assertEqual(cls, GapH2Strategy)
 
     def test_unknown_fallback(self):
-        """未知策略名应回退到 MTR"""
+        """[P1-1 修正] 未知策略名必须 fail-fast 显式报错, 不再静默回退 MTR(藏错)"""
         from core.strategy_registry import StrategyRegistry
-        from core.strategies.mtr_strategy import MTRStrategy
-        cls = StrategyRegistry._resolve_class('NON_EXISTENT_STRATEGY')
-        self.assertEqual(cls, MTRStrategy)
+        with self.assertRaises(KeyError):
+            StrategyRegistry._resolve_class('NON_EXISTENT_STRATEGY')
 
 
 class TestGetSignalInfo(unittest.TestCase):
@@ -512,13 +511,11 @@ class TestWeeklyScannerHelper(unittest.TestCase):
         self.assertEqual(cols['gap_top_exact'], 'gap_h2_top_exact')
 
     def test_unknown_strategy_returns_mtr_fallback(self):
-        """未知策略名由于 _resolve_class 回退到 MTR，应返回 MTR 的列映射"""
+        """[P1-1 修正] 未知名经 _resolve_class 抛错, _get_strategy_cols 边界优雅降级返回空 dict(不再冒领 MTR 列)"""
         from core.scan_engine import _get_strategy_cols
         cols = _get_strategy_cols('NON_EXISTENT')
-        # _resolve_class 对未知策略回退到 MTR，所以返回 MTR 的列
-        self.assertEqual(cols['signal'], 'signal_mtr')
-        self.assertEqual(cols['entry'], 'entry_price')
-        self.assertEqual(cols['sl'], 'sl_price')
+        # _resolve_class 对未知策略现在抛错, 该边界 try/except 捕获后返回空列映射(无信号产出), 不冒领 MTR 列
+        self.assertEqual(cols, {})
 
 
 # =========================================================================
@@ -568,16 +565,35 @@ class TestSignalTrackerCompatFunctions(unittest.TestCase):
         self.assertFalse(result)
 
     def test_add_signal_entry(self):
-        """添加信号应返回非空 signal_id"""
-        from core.signal_tracker import add_signal_entry
-        code = f'TEST_{datetime.now().strftime("%H%M%S")}'
-        sid = add_signal_entry(
-            code=code, entry=10.0, sl=9.0, score=80.0,
-            date='2025-01-01', strategy='TEST_STRAT',
-            timeframe='daily'
-        )
-        # 即使数据库写入可能因环境失败，函数不应抛出异常
-        self.assertIsInstance(sid, str)
+        """添加信号应返回非空 signal_id, 且真实写入 (重定向到临时库, 避免污染生产库)"""
+        import os
+        import tempfile
+        from unittest.mock import patch
+        from config import settings as _cfg
+        import core.database as _cdb
+        from core.signal_tracker import add_signal_entry, check_signal_exists
+
+        tmp = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        tmp.close()
+        tmp_path = tmp.name
+        try:
+            with patch.object(_cfg, 'DB_PATH', tmp_path):
+                _cdb.init_signal_archive()  # 在临时库建表
+                code = 'TEST_000001'
+                sid = add_signal_entry(
+                    code=code, entry=10.0, sl=9.0, score=80.0,
+                    date='2025-01-01', strategy='TEST_STRAT',
+                    timeframe='daily'
+                )
+                self.assertIsInstance(sid, str)
+                self.assertTrue(len(sid) > 0)
+                # 真实验证: 信号确实写入临时库 (不再只看 isinstance)
+                self.assertTrue(check_signal_exists(code, timeframe='daily'))
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
     def test_get_signal_status_no_signal(self):
         """查询不存在信号的状态应返回空字符串"""

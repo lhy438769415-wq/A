@@ -15,6 +15,15 @@ if [ ! -x "$PY" ]; then
   fi
 fi
 
+# 源码收缩守卫：拦截被清空/截断的 .py 进入历史（防本次事故类丢失）
+"$PY" "$ROOT/hooks/guard_source_shrink.py"
+SRC=$?
+if [ "$SRC" -ne 0 ]; then
+  echo ""
+  echo "🚫 提交被源码收缩守卫阻断 (guard_source_shrink 退出码 $SRC)。"
+  exit 1
+fi
+
 "$PY" "$ROOT/.agent/quality_gate.py"
 RC=$?
 if [ "$RC" -ne 0 ]; then

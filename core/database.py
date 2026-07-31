@@ -21,7 +21,8 @@ logger = logging.getLogger(__name__)
 # =========================================================================
 # 连接池配置
 # =========================================================================
-_db_pool = queue.Queue()
+# [P0-3] 按 DB 路径分池: 避免测试 patch settings.DB_PATH 仍复用指向真实库的旧连接
+_db_pools = {}  # path -> queue.Queue
 _pool_lock = threading.Lock()
 _MAX_POOL_SIZE = settings.DB_POOL_SIZE
 
@@ -32,9 +33,9 @@ _pool_stats = {
     'closed': 0     # 关闭连接数
 }
 
-# init_db 进程内幂等: 仅首次调用执行建表与日志 (多策略扫描会多次调用 init_db)
+# init_db 按 DB 路径幂等: 仅首次为某路径建表 (多策略扫描会多次调用 init_db)
 _INIT_LOCK = threading.Lock()
-_INIT_DONE = False
+_INIT_DONE_PATHS = set()  # 已初始化的 DB 路径集合 (P0-3: 按路径隔离)
 
 # =========================================================================
 # 连接池上下文管理器
@@ -51,11 +52,15 @@ def get_db_connection():
             conn.commit()
     """
     conn = None
+    path = settings.DB_PATH
+    # [P0-3] 取本路径专属队列, 连接绝不跨路径复用
+    with _pool_lock:
+        q = _db_pools.setdefault(path, queue.Queue())
     try:
         with _pool_lock:
-            if not _db_pool.empty():
+            if not q.empty():
                 # 从池中获取已有连接
-                candidate = _db_pool.get_nowait()
+                candidate = q.get_nowait()
                 # 复用时健康自检 (P1⑦): 长时运行(盘后扫描)连接可能在池中变 stale,
                 # 复用前 ping, 失效则丢弃并新建, 避免静默失败
                 try:
@@ -73,17 +78,17 @@ def get_db_connection():
                     conn = None
             if conn is None:
                 # 创建新连接
-                os.makedirs(os.path.dirname(settings.DB_PATH), exist_ok=True)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
                 # 允许跨线程使用（由队列保证线程安全）
                 conn = sqlite3.connect(
-                    settings.DB_PATH, 
-                    timeout=settings.DB_TIMEOUT, 
+                    path,
+                    timeout=settings.DB_TIMEOUT,
                     check_same_thread=False
                 )
                 # 启用 WAL 模式提升并发性能
                 conn.execute("PRAGMA journal_mode=WAL;")
                 conn.execute("PRAGMA synchronous=NORMAL;")
-                logger.debug(f"创建新数据库连接: {settings.DB_PATH}")
+                logger.debug(f"创建新数据库连接: {path}")
                 _pool_stats['created'] += 1
 
         yield conn
@@ -93,7 +98,8 @@ def get_db_connection():
         if conn:
             try:
                 conn.rollback()
-            except Exception:                pass
+            except Exception:
+                pass
         raise
     finally:
         if conn:
@@ -101,9 +107,9 @@ def get_db_connection():
                 # 检查连接是否仍然有效
                 conn.execute("SELECT 1")
                 with _pool_lock:
-                    if _db_pool.qsize() < _MAX_POOL_SIZE:
-                        # 归还到连接池
-                        _db_pool.put_nowait(conn)
+                    if q.qsize() < _MAX_POOL_SIZE:
+                        # 归还到本路径连接池
+                        q.put_nowait(conn)
                     else:
                         # 池已满，直接关闭
                         conn.close()
@@ -113,7 +119,8 @@ def get_db_connection():
                 logger.error(f"归还连接到池时出错: {e}")
                 try:
                     conn.close()
-                except Exception:                    pass
+                except Exception:
+                    pass
 
 # =========================================================================
 # 数据库初始化
@@ -130,9 +137,10 @@ def init_db():
     - volume: 成交量
     - adjust: 复权标识 ('qfq'/'hfq'/'none')
     """
-    global _INIT_DONE
+    global _INIT_DONE_PATHS
+    path = settings.DB_PATH
     with _INIT_LOCK:
-        if _INIT_DONE:
+        if path in _INIT_DONE_PATHS:
             return
     try:
         with get_db_connection() as conn:
@@ -268,7 +276,7 @@ def init_db():
 
             conn.commit()
         with _INIT_LOCK:
-            _INIT_DONE = True
+            _INIT_DONE_PATHS.add(path)
         logger.info("✅ 数据库初始化成功 (Tables: daily_bars, weekly_bars, abu_indicators, signal_archive, trade_reviews)")
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")
@@ -297,15 +305,19 @@ def init_review_db():
 def close_all_connections():
     """
     优雅关闭所有数据库连接：WAL checkpoint → 排空连接池 → 关闭连接
-    
+
     用于程序退出时确保 WAL 临时文件合并到主库，避免下次启动时的恢复等待。
+    [P0-3] 排空所有路径的连接池 (不再假设单一全局池)。
     """
-    global _db_pool
+    global _db_pools
     drained = 0
     with _pool_lock:
-        while not _db_pool.empty():
+        queues = list(_db_pools.values())
+        _db_pools.clear()
+    for q in queues:
+        while not q.empty():
             try:
-                conn = _db_pool.get_nowait()
+                conn = q.get_nowait()
                 # 先做 WAL checkpoint，把临时文件合并进主库
                 conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
                 conn.close()

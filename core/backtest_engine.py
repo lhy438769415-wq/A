@@ -84,29 +84,11 @@ def simulate_trade_unified(df: pd.DataFrame, idx: int,
             dt = row['date'] if 'date' in row else step
 
             if trade_status == 'WAIT_TRIGGER':
-                # 触发前跌穿防守线 -> 形态破位撤单 (通用, 所有策略)
-                if lo < sl_price:
-                    return {'status': 'INVALIDATED', 'reason': '未入场即跌穿防守线',
-                            'net_R': 0.0, 'gross_R': 0.0, 'net_win': 0,
-                            'gross_win': False, 'net_pct': 0.0, 'bars_held': 0,
-                            'entry_date': None, 'exit_date': None,
-                            'entry_fill': 0.0, 'exit_fill': 0.0}
-                # 缺口家族生命周期三过滤 (文档 tools/backtest_gap_h2.py evaluate_trade)
-                if lifecycle_filters:
-                    # 止盈先达作废: 多头动能已释放, 入场意义消失
-                    if hi >= tp_price:
-                        return {'status': 'VOIDED', 'reason': '等待期止盈先达, 动能已释放',
-                                'net_R': 0.0, 'gross_R': 0.0, 'net_win': 0,
-                                'gross_win': False, 'net_pct': 0.0, 'bars_held': 0,
-                                'entry_date': None, 'exit_date': None,
-                                'entry_fill': 0.0, 'exit_fill': 0.0}
-                    # 超时失效: 久盘动能衰竭
-                    if step > 30:
-                        return {'status': 'TIMEOUT', 'reason': '等待超过30根未触发',
-                                'net_R': 0.0, 'gross_R': 0.0, 'net_win': 0,
-                                'gross_win': False, 'net_pct': 0.0, 'bars_held': 0,
-                                'entry_date': None, 'exit_date': None,
-                                'entry_fill': 0.0, 'exit_fill': 0.0}
+                # [P1-10 修复] 入场触发判定必须优先于"未入场跌穿撤单"判定。
+                # 同根 bar 同时向上触 entry_ref、向下破 sl_price 时, 价格必先到达
+                # 突破位(entry)才回落扫损 -> 属"入场后止损"的真实亏损(LOSS), 而非
+                # "未入场失效"(INVALIDATED)。原顺序把这类真实亏损剔除出胜率分母,
+                # 造成系统性乐观偏差, 污染评级校准。
                 if hi >= entry_ref:
                     actual_entry = max(entry_ref, op) * (1 + slip)
                     entry_date = dt
@@ -120,6 +102,30 @@ def simulate_trade_unified(df: pd.DataFrame, idx: int,
                         tp_fill = tp_price * (1 - slip)
                         return _close(actual_entry, tp_fill, risk, '入场当日即打止盈',
                                       entry_date, dt)
+                else:
+                    # 未触发入场: 形态破位撤单 (通用, 所有策略)
+                    if lo < sl_price:
+                        return {'status': 'INVALIDATED', 'reason': '未入场即跌穿防守线',
+                                'net_R': 0.0, 'gross_R': 0.0, 'net_win': 0,
+                                'gross_win': False, 'net_pct': 0.0, 'bars_held': 0,
+                                'entry_date': None, 'exit_date': None,
+                                'entry_fill': 0.0, 'exit_fill': 0.0}
+                    # 缺口家族生命周期三过滤 (仅等待期有意义)
+                    if lifecycle_filters:
+                        # 止盈先达作废: 多头动能已释放, 入场意义消失
+                        if hi >= tp_price:
+                            return {'status': 'VOIDED', 'reason': '等待期止盈先达, 动能已释放',
+                                    'net_R': 0.0, 'gross_R': 0.0, 'net_win': 0,
+                                    'gross_win': False, 'net_pct': 0.0, 'bars_held': 0,
+                                    'entry_date': None, 'exit_date': None,
+                                    'entry_fill': 0.0, 'exit_fill': 0.0}
+                        # 超时失效: 久盘动能衰竭
+                        if step > 30:
+                            return {'status': 'TIMEOUT', 'reason': '等待超过30根未触发',
+                                    'net_R': 0.0, 'gross_R': 0.0, 'net_win': 0,
+                                    'gross_win': False, 'net_pct': 0.0, 'bars_held': 0,
+                                    'entry_date': None, 'exit_date': None,
+                                    'entry_fill': 0.0, 'exit_fill': 0.0}
             else:  # IN_TRADE
                 if lo <= sl_price:
                     sl_fill = sl_price * (1 - slip)

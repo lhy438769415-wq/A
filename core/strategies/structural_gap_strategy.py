@@ -19,7 +19,7 @@ from typing import Dict, Any, Optional
 from .base import BaseStrategy
 from core.formatter import get_common_context
 from config import settings
-from core.rating import RatingResult, clamp, band
+from core.rating import RatingResult, clamp, band, band_calibrated, is_calibration_available
 from core.rating_core import (quality_factor, pb_speed_factor, gap_width_factor,
                               consec_bear_penalty, time_decay_factor, sum_weights)
 
@@ -107,7 +107,7 @@ class StructuralGapStrategy(BaseStrategy):
         return result
 
     @classmethod
-    def compute_rating(cls, df: pd.DataFrame) -> Optional['RatingResult']:
+    def compute_rating(cls, df: pd.DataFrame, timeframe: str = 'daily') -> Optional['RatingResult']:
         """[RATING_PLAN §4.1] 缺口家族四因子积分制 (数据驱动, 纯 PA).
         日线/周线共用: 从 df 最后一信号行取量, 复用 rating_core 通用 PA 因子。
         四因子: 回调速度(pb_bars)/缺口宽度%(gap_size_pct)/K线质量(q)/连阴数(bears) + 时间衰减。
@@ -156,10 +156,10 @@ class StructuralGapStrategy(BaseStrategy):
         factors = [f_q, f_pb, f_gap, f_bear, f_decay]
         raw = sum_weights(factors)
         score = clamp(50 + 10 * raw)  # 与原四因子映射完全兼容
-        letter = band(score)
         toxic = raw <= -3
+        letter = band_calibrated(cls, score, toxic=toxic, timeframe=timeframe)
         return RatingResult(raw_score=raw, score=score, letter=letter, factors=factors,
-                            toxic=toxic, calibrated=False)
+                            toxic=toxic, calibrated=is_calibration_available())
 
     @classmethod
     def annotate_chart(cls, ax, plot_df: pd.DataFrame, strategy_type: str, **kwargs) -> int:

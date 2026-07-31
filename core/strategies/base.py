@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import logging
 
-from core.rating import RatingResult, RatingFactor, band, map_native, clamp
+from core.rating import RatingResult, RatingFactor, band, band_calibrated, map_native, clamp
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ class BaseStrategy(ABC):
         }
 
     @classmethod
-    def compute_rating(cls, df: pd.DataFrame) -> Optional['RatingResult']:
+    def compute_rating(cls, df: pd.DataFrame, timeframe: str = 'daily') -> Optional['RatingResult']:
         """
         [RATING_PLAN Phase 0] 计算信号评级 (统一输出契约).
 
@@ -111,7 +111,7 @@ class BaseStrategy(ABC):
         except Exception:
             q = 0.0
         score = clamp(round(q * 100))
-        letter = band(score)
+        letter = band_calibrated(cls, score, timeframe=timeframe)
         factors = [RatingFactor(
             name='信号K质量(退化)', value=q, hit=q > 0.5, weight=0.0,
             sop_ref='SOP Step 4',
@@ -182,7 +182,7 @@ class BaseStrategy(ABC):
             if rating_result is not None:
                 result['rating'] = rating_result.to_dict()
         except Exception as e:
-            logger.warning(f"compute_rating failed in get_signal_info for {cls.name}: {e}")
+            logger.warning(f"compute_rating failed in get_signal_info for {cls.__name__}: {e}")
 
         return result
 

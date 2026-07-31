@@ -11,7 +11,7 @@
 | 项 | 值 |
 |:---|:---|
 | 名称 | Brooks-AI Quant System |
-| 版本 | V9.20（见 `.agent/context/STATUS.md`） |
+| 版本 | V10.0（见 `.agent/context/STATUS.md`） |
 | 定位 | A 股**人机协作**量化扫描（只推信号、不下单） |
 | 理论基础 | Al Brooks Price Action（价格行为） |
 | 数据源 | Baostock 本地 SQLite，离线优先，T+1 |
@@ -143,7 +143,7 @@ Facade `tools/watchlist.py` → 此子包。组成：`__init__` / `_shared` / `a
 
 > 其余 32 个 `tools/*.py/html` 研究/回测脚本已于 2026-07-25 归档至 `archive/tools/`（commit `84e6dc0`），不再参与生产。
 
-> 周线扫描器 `scanner_weekly_gap.py` / `scanner_weekly_3k.py` 已于 2026-07-25 Phase 3 并入 `core/scan_engine.py` + `hunter.py`（彻底单引擎），生产入口统一为 `python hunter.py --timeframe weekly [--strategy STRATEGY_3K]`。
+> 周线扫描器 `scanner_weekly_gap.py` / `scanner_weekly_3k.py` 已于 2026-07-25 Phase 3 并入 `core/scan_engine.py` + `hunter.py`（入口/编排层单引擎；3K 例外刻意保留，core→tools 倒置为已知债），生产入口统一为 `python hunter.py --timeframe weekly [--strategy STRATEGY_3K]`。
 
 ---
 
@@ -185,7 +185,7 @@ Facade `tools/watchlist.py` → 此子包。组成：`__init__` / `_shared` / `a
 
 **日线流水线**（`hunter.run_scanner`）：一次取数(`data_provider`) → 一次算指标(`calculator.add_indicators`) → 多策略 `calculate_signals` 命中最新 K 线 → `compute_rating` → `formatter` → `notifier`(Discord+图表) → `watchlist`/SignalTracker 归档。
 
-**周线流水线**（Phase 3 彻底单引擎）：`hunter.py --timeframe weekly`（CLI 直通 / 交互菜单）统一调用 `core/scan_engine.run_weekly_scan`，按家族路由——gap 家族（STRUCTURAL_GAP/PINBAR/H2，含 Signal Tracker 归档）走 `scan_weekly_gap_signals`+`format_push_weekly_gap`；3K（`--strategy STRATEGY_3K` 或菜单项，不归档）走 `scan_weekly_3k_signals`+`format_push_weekly_3k`。产出 JSON（`weekly_gap_watchlist.json` / `weekly_watchlist.json`）+ MD 计划 + Discord。原 `scanner_weekly_gap.py` / `scanner_weekly_3k.py` 已并入 `scan_engine` + `hunter`（2026-07-25）。
+**周线流水线**（Phase 3 入口/编排层单引擎；3K 例外刻意保留，core→tools 倒置为已知债）：`hunter.py --timeframe weekly`（CLI 直通 / 交互菜单）统一调用 `core/scan_engine.run_weekly_scan`，按家族路由——gap 家族（STRUCTURAL_GAP/PINBAR/H2，含 Signal Tracker 归档）走 `scan_weekly_gap_signals`+`format_push_weekly_gap`；3K（`--strategy STRATEGY_3K` 或菜单项，不归档）走 `scan_weekly_3k_signals`+`format_push_weekly_3k`。产出 JSON（`weekly_gap_watchlist.json` / `weekly_watchlist.json`）+ MD 计划 + Discord。原 `scanner_weekly_gap.py` / `scanner_weekly_3k.py` 已并入 `scan_engine` + `hunter`（2026-07-25）。
 
 **评级校准回测**：`tools/rating_calibration_backtest.py` + `core/backtest_engine.py` → `config/rating_factors.json` + `calibration_report.txt`（含训练/测试切分、Wilson 95% CI、净 EV）。
 

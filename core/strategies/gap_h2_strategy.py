@@ -27,7 +27,7 @@ from typing import Dict, Any, Optional
 from .base import BaseStrategy
 from core.formatter import get_common_context
 from config import settings
-from core.rating import RatingResult, clamp, band
+from core.rating import RatingResult, clamp, band, band_calibrated, is_calibration_available
 from core.rating_core import (quality_factor, pb_speed_factor, gap_width_factor,
                               consec_bear_penalty, time_decay_factor, sum_weights, factor)
 
@@ -94,7 +94,7 @@ class GapH2Strategy(BaseStrategy):
         return result
 
     @classmethod
-    def compute_rating(cls, df: pd.DataFrame) -> Optional['RatingResult']:
+    def compute_rating(cls, df: pd.DataFrame, timeframe: str = 'daily') -> Optional['RatingResult']:
         """[RATING_PLAN §4.3] Gap+H2 评级: 缺口家族四因子骨架 + 缺口全程存活 + 两腿对称性 (纯 PA)."""
         if df is None or df.empty:
             return None
@@ -154,10 +154,10 @@ class GapH2Strategy(BaseStrategy):
         factors = [f_q, f_pb, f_gap, f_bear, f_decay, f_gapopen, f_leg2]
         raw = sum_weights(factors)
         score = clamp(50 + 10 * raw)
-        letter = band(score)
         toxic = raw <= -3
+        letter = band_calibrated(cls, score, toxic=toxic, timeframe=timeframe)
         return RatingResult(raw_score=raw, score=score, letter=letter, factors=factors,
-                            toxic=toxic, calibrated=False)
+                            toxic=toxic, calibrated=is_calibration_available())
 
     @classmethod
     def annotate_chart(cls, ax, plot_df: pd.DataFrame, strategy_type: str, **kwargs) -> int:

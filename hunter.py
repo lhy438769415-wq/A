@@ -45,7 +45,7 @@ from core.calculator import add_indicators
 # 引用 data_manager 里的标准函数名
 import core.data_provider as data_provider  # Runtime lookup
 
-from core.scanner import run_scanner
+from core.scanner import run_scanner, run_scanner_all
 from tools.notifier import fetch_stock_name, generate_chart_bytes, stitch_images, send_discord_message, send_discord_image
 from tools.journal import init_journal_db, log_hunter_decision
 
@@ -185,9 +185,14 @@ def prepare_daily_chart(stage1_item: Dict[str, any], passed: bool = True, reason
         tp2 = info.get('tp2', 0)
         
         chart_buf = generate_chart_bytes(
-            code, name, stage1_item['type'], info.get('sl', 0), 
-            tp1=tp1, tp2=tp2, 
-            reason=display_reason
+            code, name, stage1_item['type'], info.get('sl', 0),
+            tp1=tp1, tp2=tp2,
+            reason=display_reason,
+            ev_rating=None,  # 去字母化: 图表不显示假评级字母
+            rating=info.get('rating'),  # 因子证据面板由此驱动(仅显示命中因子)
+            entry=info.get('entry', 0),
+            sig_quality=info.get('sig_quality', 0),
+            bears=info.get('pb_consec_bear', 0)
         )
         return stage1_item, chart_buf, "图表生成完成"
     except Exception as e:
@@ -288,15 +293,18 @@ def _scan_market(all_codes, strategies, seen_signals):
     all_hits = []
     
     with ThreadPoolExecutor(max_workers=settings.MAX_WORKERS) as executor:
-        futures = {executor.submit(run_scanner, code, strategy_name=strategies): code for code in all_codes}
+        # 🟢 [修复 ALL 短路] 用 run_scanner_all 返回该股命中的全部策略 (不再首个即返回)
+        futures = {executor.submit(run_scanner_all, code, strategies): code for code in all_codes}
         
         for i, future in enumerate(as_completed(futures)):
             scan_count += 1
             if scan_count % 200 == 0:
                 print(f"   ⏳ 扫描: {scan_count}/{len(all_codes)} | 命中: {hit_count}", end='\r')
             try:
-                res = future.result()
-                if res and res['code']:
+                res_list = future.result() or []
+                for res in res_list:
+                    if not res or not res.get('code'):
+                        continue
                     res['strategy_name'] = res['type']
                     sig_key = f"{res['code']}_{res['type']}"
                     
@@ -306,21 +314,6 @@ def _scan_market(all_codes, strategies, seen_signals):
                     hit_count += 1
                     all_hits.append(res)
                     new_signals.add(sig_key)
-                    
-                    # 📥 Signal Tracker: 归档日线信号
-                    try:
-                        from core.signal_tracker import archive_signal
-                        info = res.get('info', {})
-                        archive_signal(
-                            code=res['code'], strategy=res['type'], timeframe='daily',
-                            entry=info.get('entry', info.get('price', 0)),
-                            sl=info.get('sl', 0), tp=info.get('tp1', 0),
-                            ev_rating=_letter_to_ev_text(_extract_rating(info).get('letter', 'C')),
-                            signal_date=info.get('signal_date', ''),
-                            rr=info.get('rr', 0), name=res.get('name_cn', '')
-                        )
-                    except Exception:
-                        pass  # 归档失败不影响主流程
             except KeyboardInterrupt:
                 logger.info("🛑 扫描被中断，正在退出...")
                 break
@@ -399,8 +392,13 @@ def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_thr
             
     logger.info(f"📌 Watchlist 过滤后，新增/更新信号: {len(new_hits)}")
 
-    # 覆盖 all_hits，后续只让 AI 分析新信号
-    all_hits = new_hits
+    # [Fix] 去字母化后推送全部扫描命中, 不再用 watchlist 去重拦截推送可见性。
+    # watchlist 去重仅用于上面的生命周期写库 (add_signal/update_signal_bar 已按 new_hits 执行),
+    # 不应屏蔽用户对本次扫描结果的可见性 —— 否则已跟踪的稳定信号 (如 MTR 同信号K线索引恒不变)
+    # 会被全部吞掉, 导致"扫描出 N 个但推送 0"。AI 审计候补已在下方按 ai_candidates_raw[:10] 限流,
+    # 不会因全量而爆 token; 无 AI 模式下全部走 direct_picks 直通推送。
+    # 注: 此改动是 P0-2.4 (正确解析 signal_bar_idx) 暴露的副作用修复 —— 修复前该字段恒为 -1,
+    #      去重误判"已变"而每次都推; 修复后返回真实值, 稳定信号被正确判定为"未变"却被错误吞掉。
 
     # 🟢 [V9.5] 策略分流: MTR/3K/Struct Gap 均不再强制走 AI
     ai_candidates_raw = []
@@ -415,16 +413,16 @@ def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_thr
         except Exception:
             _ai_audit = True
         if not _ai_audit:
-            # 🟢 [RATING_PLAN] 统一从 info['rating'] 取字母评级, 不再据 score 重算 ev_rating
+            # 🟢 [RATING_PLAN] 统一从 info['rating'] 取评级; [P0-5] 不再把经回测证明为噪声的字母
+            #         渲染/写入(图表reason/info), 改用命中因子作证据。
             _info = res.get('info', {})
-            _letter = _extract_rating(_info).get('letter', 'C')
-            ev_rating = _letter_to_ev_text(_letter)
-            res['info']['ev_rating'] = ev_rating
-            strat_label = strat_type.replace('STRATEGY_', '')
-            if 'MTR' in strat_type:
-                reason_txt = f"MTR 结构确认 | {ev_rating}"
-            else:
-                reason_txt = f"[{strat_label}] 结构信号 | {ev_rating}"
+            from tools.notifier import factor_evidence_text
+            try:
+                _dn = StrategyRegistry.get_metadata(strat_type).get('display_name') or strat_type.replace('STRATEGY_', '')
+            except Exception:
+                _dn = strat_type.replace('STRATEGY_', '')
+            _ev = factor_evidence_text(_info.get('rating'))
+            reason_txt = f"{_dn} 结构确认 {_ev}" if _ev else f"{_dn} 结构确认"
 
             res_item, chart_buf, _ = prepare_daily_chart(res, passed=True, reason=reason_txt)
             if chart_buf:
@@ -496,14 +494,42 @@ def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_thr
                 item, reason = data
                 rejected_list.append((item, reason))
     
+    # [P1-3 修复] 信号归档必须发生在 AI 判定之后: 仅归档通过 AI / 结构确认的信号,
+    # AI 拒绝(rejected_list)的信号一律不进 signal_archive, 避免其永远停在 PENDING 污染追踪器。
+    _archive_passed_signals(direct_picks + final_picks)
+
     return direct_picks, final_picks, rejected_list, watchlist, status_changes
+
+
+def _archive_passed_signals(items):
+    """[P1-3] 仅归档通过 AI / 结构确认的信号 (AI 拒绝的不归档, 杜绝 PENDING 污染)。
+
+    items 为 direct_picks + final_picks (均为原始 res dict, 含 code/type/info)。
+    """
+    from core.signal_tracker import archive_signal
+    from tools.notifier import factor_evidence_text
+    for res in items:
+        try:
+            info = res.get('info', {})
+            archive_signal(
+                code=res['code'], strategy=res['type'], timeframe='daily',
+                entry=info.get('entry', info.get('price', 0)),
+                sl=info.get('sl', 0), tp=info.get('tp1', 0),
+                ev_rating='',  # [P0-5] 不再写经回测证明为噪声的假字母
+                evidence=factor_evidence_text(info.get('rating')),
+                signal_date=info.get('signal_date', ''),
+                signal_bar_idx=info.get('signal_bar_idx', -1),
+                rr=info.get('rr', 0), name=res.get('name_cn', '')
+            )
+        except Exception:
+            pass  # 归档失败不影响主流程
 
 
 def _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_changes, total_stocks=0, strategy_names=None):
     """
     [V9.16] 阶段 3: 统一推送格式 (与周线完全对齐)
     
-    推送结构: 标题区 → 统计区 → A+/A 详细区 → B/C 压缩区 → 图表预告
+    推送结构: 标题区 → 统计区(按策略优先级) → 每条一行精简(全推送, 因子证据) → 图表预告
     """
     from tools.notifier import format_signal_line
     
@@ -520,8 +546,12 @@ def _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_
         rejected_with_reason.append(p)
 
     if not passed_candidates and not rejected_with_reason and not direct_picks:
-        # 🟢 空结果消息包含周期+策略名
-        strat_label = ' / '.join(s.replace('STRATEGY_', '').replace('_MASTER', '') for s in strategy_names) if strategy_names else '全策略'
+        # 🟢 空结果消息包含周期+策略名 (统一用 display_name)
+        try:
+            from core.strategy_registry import StrategyRegistry
+            strat_label = ' / '.join(StrategyRegistry.get_metadata(s).get('display_name') or s for s in strategy_names) if strategy_names else '全策略'
+        except Exception:
+            strat_label = ' / '.join(s.replace('STRATEGY_', '').replace('_MASTER', '') for s in strategy_names) if strategy_names else '全策略'
         logger.info("💤 本轮无新信号 (Scanner 0 命中)")
         send_discord_message(f"💤 【日线/{strat_label}】，本次未发现信号")
         return
@@ -534,25 +564,32 @@ def _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_
     logger.info(f"📨 阶段 3/3: 信号归档与结果推送 (Dispatch)")
     logger.info("="*50)
 
-    # ===== 按评级分组 (统一维度, 不区分策略) =====
-    sg_best, sg_good, sg_warn, sg_other = [], [], [], []
-    
+    # ===== 按策略分组 (去字母化: 因子证据 + 策略优先级, 非字母分级) =====
+    # 背景: A+/A/B/C/D 字母评级经历史回测验证为统计噪声(9/9策略全噪声),
+    #       详见 rating_authenticity_report.txt。改以因子命中作证据、按策略历史EV排优先级、全量推送。
+    from collections import OrderedDict
+    from core.strategy_registry import StrategyRegistry
+    from tools.notifier import (format_signal_one_line, strategy_priority,
+                                 signal_chart_key)
+
+    def _sn(p):
+        st = p.get('type', 'MTR')
+        try:
+            return StrategyRegistry.get_metadata(st).get('display_name') or st
+        except Exception:
+            return st
+
+    groups = OrderedDict()
     for p in all_passed:
-        # 🟢 [RATING_PLAN] 统一据 rating.letter 分组 (字母为权威, 同时补全 ev_rating 文本)
-        _rating = _extract_rating(p.get('info', {}))
-        _letter = _rating.get('letter', 'C')
-        p['info']['ev_rating'] = _letter_to_ev_text(_letter)
-        if _letter in ('A+', 'A'):
-            sg_best.append(p)
-        elif _letter == 'B':
-            sg_good.append(p)
-        elif _letter == 'C':
-            sg_warn.append(p)
-        else:  # D 毒性
-            sg_other.append(p)
-    
+        groups.setdefault(_sn(p), []).append(p)
+
     total_hits = len(all_passed)
-    
+
+    # 组间按策略优先级降序
+    ranked = sorted(groups.items(),
+                    key=lambda kv: strategy_priority(kv[1][0].get('type', ''), 'daily'),
+                    reverse=True)
+
     # ===== ① 标题区 =====
     msg_lines = []
     msg_lines.append("🔔 **【日线 Brooks-AI 猎手 雷达扫描完成】**")
@@ -560,84 +597,69 @@ def _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_
     if total_stocks > 0:
         msg_lines.append(f"池子: 全市场 {total_stocks} 只个股")
     msg_lines.append("----------------------")
-    
-    # ===== ② 统计区 =====
+
+    # ===== ② 统计区 (按策略优先级, 列出全部激活策略含 0 命中) =====
     msg_lines.append(f"🎯 **命中结果**: 共 {total_hits} 只")
-    if sg_best:
-        msg_lines.append(f"   🌟 **高预期**: {len(sg_best)} 只")
-    if sg_good:
-        msg_lines.append(f"   👍 **常态**: {len(sg_good)} 只")
-    if sg_warn:
-        msg_lines.append(f"   ⚠️ **低预期**: {len(sg_warn)} 只")
-    if sg_other:
-        msg_lines.append(f"   📋 **其他**: {len(sg_other)} 只")
+    if strategy_names:
+        # 🟢 用激活策略名单补齐 0 命中项, 让交易员知道"扫了但今日无符合"
+        count_by_sn = {sn: len(ps) for sn, ps in groups.items()}
+        ordered_keys = sorted(set(strategy_names),
+                              key=lambda s: strategy_priority(s, 'daily'),
+                              reverse=True)
+        for skey in ordered_keys:
+            try:
+                dname = StrategyRegistry.get_metadata(skey).get('display_name') or skey
+            except Exception:
+                dname = skey.replace('STRATEGY_', '').replace('_MASTER', '')
+            cnt = count_by_sn.get(dname, 0)
+            note = "" if cnt > 0 else "  (今日无符合)"
+            msg_lines.append(f"   • {dname}: {cnt} 只{note}")
+    else:
+        for sn, ps in ranked:
+            msg_lines.append(f"   • {sn}: {len(ps)} 只")
     msg_lines.append("")
-    
-    # ===== ③ A+/A 级详细展示 =====
-    if sg_best:
-        msg_lines.append(f"🌟 **A+/A 级 ({len(sg_best)}只)**:")
-        for p in sg_best:
+
+    # ===== ③ 每条信号一行精简 (全推送, 不按字母筛) =====
+    for sn, ps in ranked:
+        msg_lines.append(f"📌 **{sn} ({len(ps)}只)**:")
+        ps_sorted = sorted(ps, key=lambda x: (x.get('info', {}).get('rating') or {}).get('score', 0), reverse=True)
+        for p in ps_sorted:
             code = p['code']
             name = p.get('name_cn') or fetch_stock_name(code)
             info = p.get('info', {})
-            strat_type = p.get('type', 'MTR')
-            entry = info.get('entry', info.get('price', 0))
-            sl = info.get('sl', 0)
-            tp1 = info.get('tp1', 0)
-            ev_rating = info.get('ev_rating', 'N/A')
-            rr = info.get('rr', 0)
-            msg_lines.append(format_signal_line(
-                code, name, strat_type, entry, sl, tp1,
-                ev_rating=ev_rating, rr=rr, detail=True
-            ))
+            msg_lines.append(format_signal_one_line(code, name, p.get('type', 'MTR'), info, timeframe='daily'))
         msg_lines.append("")
-    
-    # ===== ④ B/C 级压缩汇总 =====
-    bc_list = sg_good + sg_warn + sg_other
-    if bc_list:
-        bc_names = []
-        for p in bc_list:
-            code = p['code']
-            name = p.get('name_cn') or fetch_stock_name(code)
-            strat_type = p.get('type', 'MTR')
-            bc_names.append(format_signal_line(
-                code, name, strat_type, 0, 0, 0, detail=False
-            ))
-        msg_lines.append(f"📋 B/C 级 ({len(bc_list)}只): " + " / ".join(bc_names))
-        msg_lines.append("")
-    
+
     if total_hits == 0:
         msg_lines.append("  (无新增信号)")
         msg_lines.append("")
 
-    # ===== ⑤ 图表预告 =====
-    # 🟢 确定图表推送候选: A+/A 优先, 无则降级取 B/C 前 5 只
-    chart_candidates = sg_best if sg_best else (sg_good + sg_warn + sg_other)[:5]
-    
+    # ===== ④ 图表预告 (全量按策略优先级+因子证据排序, 去掉仅A+门禁) =====
+    chart_candidates = sorted(all_passed, key=lambda x: signal_chart_key(x, 'daily'), reverse=True)
+
     if chart_candidates:
-        if sg_best:
-            msg_lines.append(f"🌟 A+/A 级图表即将推送...")
-        else:
-            msg_lines.append(f"📋 本轮无 A+/A 级, B/C 级图表即将推送...")
+        msg_lines.append(f"📊 信号 K线图即将推送 ({len(chart_candidates)} 张, 按策略优先级)...")
+    else:
+        msg_lines.append(f"📋 本轮无信号, 不推送图表。")
 
     summary_text = "\n".join(msg_lines)
     send_discord_message(summary_text)
-    
+
     # 🟢 返回图表推送候选列表供 _dispatch_charts 使用
     return chart_candidates
 
 
 def _dispatch_charts(direct_picks, final_picks, top_picks=None):
     """
-    [V9.16 重构] 阶段 4: 仅为 A+/A 级信号生成图表并推送 (与周线对齐)
+    [去字母化] 阶段 4: 为全量信号生成图表并推送, 按策略优先级 + 因子证据排序 (去掉仅 A+/A 出图门禁)
     """
-    from tools.notifier import generate_chart_bytes, send_discord_images, send_discord_message
+    from tools.notifier import (generate_chart_bytes, send_discord_images, send_discord_message,
+                                factor_evidence_list, factor_evidence_text, signal_chart_key)
     
-    # 🟢 [V9.16] 只推 A+/A 级图表 (与周线统一)
+    # 去字母化: top_picks 已是 _compose_report 排出的全量(按策略优先级+因子证据排序)
     if top_picks is None:
-        # 兼容回退: 如果没传 top_picks, 按旧逻辑取全量
-        final_picks_sorted = sorted(final_picks, key=lambda x: _extract_rating(x.get('info', {})).get('score', 0), reverse=True)
-        all_chart_candidates = list(final_picks_sorted[:3]) + list(direct_picks)
+        all_chart_candidates = sorted(list(final_picks) + list(direct_picks),
+                                      key=lambda x: signal_chart_key(x, 'daily'), reverse=True)
     else:
         all_chart_candidates = list(top_picks)
     
@@ -658,7 +680,7 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
                         tp1=info.get('tp1', 0), tp2=info.get('tp2', 0),
                         reason=f"[√] {fallback_reason}" if p.get('ai_verdict') else f"[×] {fallback_reason}",
                         df_override=p['df'],
-                        ev_rating=info.get('ev_rating', None),
+                        ev_rating=None,
                         sig_quality=info.get('sig_quality', 0),
                         bears=info.get('pb_consec_bear', 0)
                     )
@@ -683,12 +705,10 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
             )
 
         BATCH_SIZE = 10
-        logger.info(f"🎨 Discord 图表推送: {len(chart_pool)} 张 A+/A 级 ({BATCH_SIZE} 张/批)")
+        logger.info(f"🎨 Discord 图表推送: {len(chart_pool)} 张信号图 ({BATCH_SIZE} 张/批, 按策略优先级)")
 
-        # 🟢 根据候选级别动态调整附言
-        has_a_level = any(_extract_rating(p.get('info', {})).get('letter') in ('A+', 'A')
-                         for p in all_chart_candidates)
-        label = "🌟 **A+/A 级 K线图**" if has_a_level else "📋 **信号 K线图**"
+        # 去字母化: 不再区分 A+/A 级, 统一按策略优先级标注
+        label = "📊 **信号 K线图 (按策略优先级)**"
 
         for batch_start in range(0, len(chart_pool), BATCH_SIZE):
             batch = chart_pool[batch_start:batch_start + BATCH_SIZE]
@@ -699,13 +719,18 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
 
         # 超量信号聚合为一条文字摘要 (不丢信号, 不刷图)
         if overflow_candidates:
-            lines = [f"📝 **其余 {len(overflow_candidates)} 个 A+/A 级信号 (图表已折叠)**"]
+            lines = [f"📝 **其余 {len(overflow_candidates)} 个信号 (图表已折叠, 按策略优先级)**"]
             for p in overflow_candidates:
                 info = p.get('info', {})
                 name = p.get('name_cn') or fetch_stock_name(p['code'])
-                ev = info.get('ev_rating', 'N/A')
-                stype = p.get('type', 'MTR').replace('STRATEGY_', '')
-                lines.append(f"• `{p['code']}` {name} | {stype} | 评级 {ev}")
+                ev = factor_evidence_text(info.get('rating'))
+                _stype = p.get('type', 'MTR')
+                try:
+                    from core.strategy_registry import StrategyRegistry
+                    stype = StrategyRegistry.get_metadata(_stype).get('display_name') or _stype.replace('STRATEGY_', '')
+                except Exception:
+                    stype = _stype.replace('STRATEGY_', '')
+                lines.append(f"• `{p['code']}` {name} | {stype} | {ev}")
             send_discord_message("\n".join(lines))
 
 
@@ -762,7 +787,7 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
         top_picks = _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_changes,
                                      total_stocks=len(all_codes), strategy_names=strategies)
         
-        # 阶段 4: 图表 (V9.16: 仅推 A+/A 级)
+        # 阶段 4: 图表 (去字母化: 全量按策略优先级出图, 不再限 A+/A)
         _dispatch_charts(direct_picks, final_picks, top_picks=top_picks)
     finally:
         # 🛡️ 确保退出时 AI Worker 线程被正确停止
@@ -805,6 +830,60 @@ def _check_data_freshness():
         pass
     
     return msgs
+
+
+def check_database_health():
+    """[P0-4] 启动数据库自检: 防空库/错位库静默运行 (由 07-26 评审事故暴露)。
+
+    返回 (fatal, warn):
+      - fatal: 库不存在/过小/读不到 → 禁止扫描, 但保留恢复入口 (不退出程序)
+      - warn:  数据滞后等可自愈项 → 仅提醒, 不拦截
+
+    设计: 严重问题绝不调用 sys.exit 封死程序, 否则用户无法进入主菜单[4]数据同步
+          自助修复 (评审 P1-5)。滞后 N 天 (如长假/周末未同步) 归为 warn, 不阻断。
+    """
+    import os
+    from config import settings
+    from datetime import datetime
+    MIN_SIZE = 100 * 1024 * 1024          # 100MB
+    MIN_ROWS = 1_000_000                  # 100万行
+    MAX_LAG_DAYS = 7
+    db_path = settings.DB_PATH
+    fatal, warn = [], []
+
+    # ① 文件存在 + ② 大小
+    if not os.path.exists(db_path):
+        fatal.append(f"数据库文件不存在: {db_path}")
+    else:
+        size = os.path.getsize(db_path)
+        if size < MIN_SIZE:
+            fatal.append(f"数据库过小 ({size/1024/1024:.1f}MB < 100MB), 疑似空库/错位")
+        # ③ 行数 + ④ 新鲜度
+        try:
+            from core.database import get_db_connection
+            with get_db_connection() as conn:
+                cnt = conn.execute('SELECT COUNT(*) FROM daily_bars').fetchone()[0]
+                if cnt < MIN_ROWS:
+                    fatal.append(f"daily_bars 仅 {cnt:,} 行 (< 100万), 数据不完整")
+                r = conn.execute('SELECT MAX(trade_date) FROM daily_bars').fetchone()
+                if r and r[0]:
+                    last = datetime.strptime(r[0], '%Y-%m-%d')
+                    lag = (datetime.now() - last).days
+                    if lag > MAX_LAG_DAYS:
+                        warn.append(f"日线数据滞后 {lag} 天 (> {MAX_LAG_DAYS}), 建议先同步")
+        except Exception as e:
+            fatal.append(f"数据库读取失败: {e}")
+
+    if fatal:
+        msg = "🛑 **数据库严重异常, 扫描已禁用**\n" + "\n".join(f"• {p}" for p in fatal)
+        logger.error(msg)
+        try:
+            send_discord_message(msg)
+        except Exception:
+            pass
+    if warn:
+        logger.warning("; ".join(warn))
+    return fatal, warn
 
 
 def _run_data_sync():
@@ -876,14 +955,40 @@ def main():
     parser.add_argument('--no-ai', action='store_true', help='旁路(Bypass) DeepSeek AI 审计，全量技术面直通')
     args = parser.parse_args()
 
+    # [P1-6] 重置本次运行摘要, 心跳据此写出真实状态(避免假成功)
+    RUN_SUMMARY.clear()
+    RUN_SUMMARY.update(
+        mode=None, job_ran=False, signals=0,
+        discord_configured=bool(os.environ.get('DISCORD_BOT_TOKEN')),
+        error=None,
+    )
+
     init_journal_db()
-    
+
+    # [P0-4] 启动数据库自检: 防空库/错位库静默运行。
+    # 维护模式 (track/report) 只读归档库, 不依赖实时行情, 跳过以免误伤。
+    # [P1-5] 严重问题仅禁用扫描、保留恢复入口(不 sys.exit 封死); 滞后归为提醒。
+    db_fatal, db_warn = [], []
+    if not (args.track or args.report):
+        db_fatal, db_warn = check_database_health()
+    if db_warn:
+        print("\n⚠️  " + "\n⚠️  ".join(db_warn))
+    if db_fatal:
+        print("\n" + "=" * 50)
+        print("🛑 数据库严重异常, 扫描功能已禁用")
+        for p in db_fatal:
+            print(f"  • {p}")
+        print("👉 请选择主菜单 [4] 数据同步 修复后重试 (恢复入口保持开放)")
+        print("=" * 50)
+
     # ============================================================
     # 追踪模式: python hunter.py --track [--report]
     # ============================================================
     if args.track or args.report:
         from core.signal_tracker import init_signal_archive, track_signals, generate_report, format_tracker_discord_msg, run_tracker_dashboard
         init_signal_archive()
+        RUN_SUMMARY['mode'] = 'track' if args.track else 'report'
+        RUN_SUMMARY['job_ran'] = True
         if args.track:
             # 🟢 V9.3: 统一走仪表盘路径 (内含追踪 + 按状态分组推送 + 报表)
             run_tracker_dashboard()
@@ -900,6 +1005,9 @@ def main():
     # ============================================================
     # CLI 直通: 指定 --timeframe 则跳过交互菜单
     if args.timeframe:
+        if db_fatal:
+            print("🛑 数据库严重异常, 已禁止扫描。请先运行交互模式选 [4] 数据同步修复, 或检查数据库文件。")
+            return
         if args.timeframe == 'weekly':
             print(f"\n🌙 周线模式启动 (检查最近 {args.weeks} 周)")
             from core.strategy_registry import StrategyRegistry
@@ -920,6 +1028,7 @@ def main():
                 active_strategies = [weekly_supported[0]] if weekly_supported else []
 
             run_weekly_scan(active_strategies, weeks=args.weeks, limit=args.limit, all_codes=all_codes)
+            RUN_SUMMARY['mode'] = 'weekly'; RUN_SUMMARY['job_ran'] = True
             return
         # daily: 继续往下进入策略选择
     else:
@@ -941,6 +1050,7 @@ def main():
         # 路径 2: 信号追踪仪表盘
         if mode_choice == '2':
             from core.signal_tracker import run_tracker_dashboard
+            RUN_SUMMARY['mode'] = 'track'; RUN_SUMMARY['job_ran'] = True
             run_tracker_dashboard()
             return
         
@@ -951,6 +1061,7 @@ def main():
             if not holdings:
                 print("⚠️ 持仓列表为空 (请检查 hold_list.txt)"); return
             print(f"🛡️ 持仓管家启动, {len(holdings)} 只股票...")
+            RUN_SUMMARY['mode'] = 'guardian'; RUN_SUMMARY['job_ran'] = True
             for item in holdings:
                 try: analyze_single_stock_micro(item)
                 except Exception as e: print(f"❌ {item['code']} 分析失败: {e}")
@@ -958,16 +1069,21 @@ def main():
         
         # 路径 4: 数据同步
         if mode_choice == '4':
+            RUN_SUMMARY['mode'] = 'sync'; RUN_SUMMARY['job_ran'] = True
             _run_data_sync()
             return
         
         # 路径 5: 复盘录入
         if mode_choice == '5':
             from core.review_bridge import run_review_cli
+            RUN_SUMMARY['mode'] = 'review'; RUN_SUMMARY['job_ran'] = True
             run_review_cli()
             return
         
-        # 路径 1: 扫描 → 选时间周期
+        # 路径 1: 扫描 → 选时间周期 (致命库损坏时禁用, 保留[4]同步入口)
+        if db_fatal:
+            print("🛑 数据库严重异常, 扫描已禁用。请先选 [4] 数据同步 修复。")
+            return
         print("\n  选择扫描周期:")
         print("  1. 日线 (Daily)")
         print("  2. 周线 (Weekly)")
@@ -1022,6 +1138,7 @@ def main():
             print(f"\n🚀 已激活周线策略: {', '.join(active_strategies)}")
 
             run_weekly_scan(active_strategies, weeks=args.weeks, limit=args.limit, all_codes=all_codes)
+            RUN_SUMMARY['mode'] = 'weekly'; RUN_SUMMARY['job_ran'] = True
             return
 
     # ============================================================
@@ -1086,7 +1203,10 @@ def main():
             return
         if args.limit > 0:
             all_codes = all_codes[:args.limit]
-        run_pipeline_once(all_codes, strategies=active_strategies, use_ai=use_ai)
+        new_signals = run_pipeline_once(all_codes, strategies=active_strategies, use_ai=use_ai)
+        RUN_SUMMARY['mode'] = 'daily'
+        RUN_SUMMARY['job_ran'] = True
+        RUN_SUMMARY['signals'] = len(new_signals or [])
     except KeyboardInterrupt:
         logger.info("🛑 程序已终止")
     finally:
@@ -1126,16 +1246,47 @@ def _notify_crash(exc):
         pass
 
 
-def _write_heartbeat():
-    """运行监控: 记录一次成功运行的时间戳, 供心跳/过期检查 (tools/check_heartbeat.py)。"""
+# 运行会话摘要: main() 在真实任务执行点填充, _write_heartbeat 据此写出真实心跳。
+RUN_SUMMARY = {
+    'mode': None,            # 本次运行的真实模式 (daily/weekly/sync/track/guardian/review)
+    'job_ran': False,        # 是否真的执行了扫描/同步等任务 (菜单空跑/数据缺失早退=False)
+    'signals': 0,            # 扫描命中信号数
+    'discord_configured': False,  # Discord 令牌是否配置 (False=推送被静默跳过)
+    'error': None,           # 捕获的异常信息 (非空则 status='error')
+}
+
+
+def _write_heartbeat(summary=None):
+    """运行监控: 写出本次运行的真实心跳, 供 tools/check_heartbeat.py 判断健康。
+
+    [P1-6 修复] 旧实现仅 main() 正常返回即写 status='ok', 不区分"真的扫了"还是
+    "菜单空跑 / 数据缺失早退" -> 系统没干活也报正常 (假成功)。现依据 RUN_SUMMARY:
+      - error 非空 -> status='error' (崩溃/异常)
+      - job_ran=True -> status='ok'    (真实任务执行并跑完)
+      - 其余        -> status='idle'   (仅打开菜单 / 早退, 不算一次有效运行)
+    并附 mode / signals / discord_configured 真值, 便于排查"扫了但没推"等盲区。
+    """
     import os, json, datetime
+    s = summary or RUN_SUMMARY
+    if s.get('error'):
+        status = 'error'
+    elif s.get('job_ran'):
+        status = 'ok'
+    else:
+        status = 'idle'
     try:
         root = os.path.dirname(os.path.abspath(__file__))
         data_dir = os.path.join(root, 'data')
         os.makedirs(data_dir, exist_ok=True)
         with open(os.path.join(data_dir, 'last_run.json'), 'w', encoding='utf-8') as f:
-            json.dump({'last_run': datetime.datetime.now().isoformat(timespec='seconds'),
-                       'status': 'ok'}, f, ensure_ascii=False, indent=2)
+            json.dump({
+                'last_run': datetime.datetime.now().isoformat(timespec='seconds'),
+                'status': status,
+                'mode': s.get('mode'),
+                'signals': s.get('signals', 0),
+                'discord_configured': s.get('discord_configured', False),
+                'error': s.get('error'),
+            }, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
@@ -1146,6 +1297,9 @@ if __name__ == "__main__":
     except (KeyboardInterrupt, SystemExit):
         raise
     except Exception as e:
+        # [P1-6] 崩溃也写出真实心跳(status='error'), 不再让 check_heartbeat 只靠"过期"猜测
+        RUN_SUMMARY['error'] = str(e)
+        _write_heartbeat()
         _notify_crash(e)
         raise
     else:

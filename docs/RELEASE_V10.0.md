@@ -10,7 +10,7 @@ V9.x 系列以"新增策略 / 功能"为主轴。V10.0 不做新策略，而是�
 
 ## 二、核心变更
 
-### 1. 彻底单引擎（消除重复编排）
+### 1. 入口/编排层单引擎（消除重复编排；3K 例外刻意保留，core→tools 倒置为已知债）
 - 周线 / 3K 扫描入口统一到 `hunter.py` 单一 CLI（`--timeframe weekly [--strategy STRATEGY_3K]`）+ `core/scan_engine` 共享编排核心。
 - 删除两个重复 scanner 脚本（`tools/scanner_weekly_gap.py` / `tools/scanner_weekly_3k.py`），零外部 import，迁移 2 个测试 + `web_viewer` 文案。
 - 等价交叉 diff 证明**零逻辑漂移**（gap 177 行仅函数名 / docstring 差异；3K 仅 import 位置差异）。

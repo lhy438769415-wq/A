@@ -1,27 +1,21 @@
 {
-  "total_resolved": 2,
-  "pending_active": 96,
-  "wins": 2,
-  "losses": 0,
-  "expired": 0,
-  "win_rate": 100.0,
-  "avg_r": 2.4,
+  "total_resolved": 6429,
+  "pending_active": 1389,
+  "wins": 6214,
+  "losses": 107,
+  "expired": 108,
+  "win_rate": 98.3,
+  "avg_r": 2.14,
   "by_rating": {
-    "A": {
-      "total": 1,
-      "wins": 1,
-      "win_rate": 100.0,
-      "avg_r": 1.92
-    },
-    "B": {
-      "total": 1,
-      "wins": 1,
-      "win_rate": 100.0,
-      "avg_r": 2.88
+    "N/A": {
+      "total": 6321,
+      "wins": 6214,
+      "win_rate": 98.3,
+      "avg_r": 2.14
     }
   },
   "timeframe": "all",
   "strategy": "all",
-  "days": 90,
-  "generated_at": "2026-03-03 10:01:43"
+  "days": 0,
+  "generated_at": "2026-07-31 08:24:22"
 }

@@ -1,11 +1,13 @@
 streamlit==1.53.0
 pandas>=2.1.0
-numpy==2.4.1
+numpy>=2.2,<2.5
 matplotlib==3.10.8
 mplfinance==0.12.10b0
-akshare==1.18.20
 baostock==0.8.9
 python-dotenv==1.2.1
 requests==2.32.5
-tushare==1.4.24
 openpyxl==3.1.5
+psutil>=5.9
+Pillow>=10.0
+ttkbootstrap>=1.10
+# 注: akshare / tushare 全仓零 import, 已从依赖中移除 (见第三方评审 T5)

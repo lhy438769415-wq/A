@@ -41,7 +41,7 @@ class TestWeeklyGapScannerMultiStrategy:
         mock_fetch.return_value = df
 
         # 调用 _scan_single_code，传入单个策略
-        results = scan_single_code_weekly('sh.600000', recent_weeks=4, strategies=['STRATEGY_STRUCTURAL_GAP'])
+        results = scan_single_code_weekly('sh.600000', strategies=['STRATEGY_STRUCTURAL_GAP'])
         assert isinstance(results, list)
 
     @patch('core.scan_engine.fetch_weekly_data')
@@ -63,7 +63,7 @@ class TestWeeklyGapScannerMultiStrategy:
         mock_fetch.return_value = df
 
         # 调用 _scan_single_code，指定 STRATEGY_GAP_H2
-        results = scan_single_code_weekly('sh.600000', recent_weeks=4, strategies=['STRATEGY_GAP_H2'])
+        results = scan_single_code_weekly('sh.600000', strategies=['STRATEGY_GAP_H2'])
         assert isinstance(results, list)
 
 

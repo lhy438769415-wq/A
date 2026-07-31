@@ -7,6 +7,7 @@ P2 WatchlistManager 兼容层 (JSON Watchlist → SQLite Signal Tracker)
 """
 
 from datetime import datetime
+import json
 
 from core.database import get_db_connection, init_signal_archive
 
@@ -170,12 +171,19 @@ def get_signals_by_status(statuses: list, timeframe: str = None) -> dict:
                 sql_status = sig['status']
                 json_status = _STATUS_MAP_SQL_TO_JSON.get(sql_status, 'WATCHING')
 
+                # [P0-2.4] 从 extra_json 解析真实 signal_bar_idx (不再恒为 -1)
+                signal_bar_idx = -1
+                try:
+                    extra = json.loads(sig.get('extra_json', '{}') or '{}')
+                    signal_bar_idx = extra.get('signal_bar_idx', -1)
+                except Exception:
+                    pass
                 result[code] = {
                     'status': json_status,
                     'entry': sig.get('entry_price', 0) or 0,
                     'sl': sig.get('sl_price', 0) or 0,
                     'score': sig.get('ev_score', 0) or 0,
-                    'signal_bar_idx': -1,
+                    'signal_bar_idx': signal_bar_idx,
                     'signal_date': sig.get('signal_date', ''),
                     'added_date': sig.get('scan_date', ''),
                     'days_watching': 0,
@@ -187,7 +195,7 @@ def get_signals_by_status(statuses: list, timeframe: str = None) -> dict:
 
 
 def update_signal_entry(code: str, signal_bar_idx: int = -1, entry: float = None,
-                        timeframe: str = 'daily') -> bool:
+                        timeframe: str = 'daily', signal_id: str = '') -> bool:
     """
     更新信号记录的入场价和信号K线索引 (WatchlistManager.update_signal_bar 兼容接口)。
 
@@ -216,9 +224,21 @@ def update_signal_entry(code: str, signal_bar_idx: int = -1, entry: float = None
             if not updates:
                 return False
 
-            params.append(code)
-            params.append(timeframe)
-            query = f"UPDATE signal_archive SET {', '.join(updates)} WHERE code = ? AND timeframe = ?"
+            # [P0-2.3] 精确更新: 优先按 signal_id, 否则按 code+timeframe 仅更新最新一条
+            if signal_id:
+                params.append(signal_id)
+                query = f"UPDATE signal_archive SET {', '.join(updates)} WHERE signal_id = ?"
+            else:
+                # SQLite 的 UPDATE 不支持 ORDER BY/LIMIT, 改用子查询锁定最新一行的 signal_id
+                row = conn.execute(
+                    "SELECT signal_id FROM signal_archive "
+                    "WHERE code = ? AND timeframe = ? ORDER BY scan_date DESC LIMIT 1",
+                    (code, timeframe),
+                ).fetchone()
+                if row is None:
+                    return False
+                params.append(row[0])
+                query = f"UPDATE signal_archive SET {', '.join(updates)} WHERE signal_id = ?"
             conn.execute(query, params)
             conn.commit()
             return True

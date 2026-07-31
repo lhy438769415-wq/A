@@ -83,8 +83,12 @@ class StrategyRegistry:
         if "AWIL" in name_upper:
             return AWILStrategy
         
-        # 3. 默认回退
-        return MTRStrategy
+        # 3. 未知策略: 显式报错 (fail-fast), 不再静默回退 MTR
+        #    —— 避免 CLI 拼错/误写策略名时"悄悄跑 MTR"而用户无感知 (P1-1 藏错)。
+        raise KeyError(
+            f"未知/不支持的策略名: {name!r} "
+            f"(可用: {', '.join(cls._strategies.keys())})"
+        )
 
     # =====================================================================
     # 原有接口 (保持向后兼容)

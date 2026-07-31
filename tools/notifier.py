@@ -160,11 +160,16 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
         plot_df = df.tail(display_bars).copy()
 
     # 确保索引是 Datetime 类型
+    # 🟢 [Fix P1-11] 周线 df 用 trade_date 列 (非 date), 须与日线同等处理, 否则 RangeIndex 被当纳秒转成 1970 轴
     # 🟢 [Fix] Explicit copy and .loc to silence SettingWithCopyWarning
     if 'date' in plot_df.columns:
         plot_df = plot_df.copy()
         plot_df.loc[:, 'date'] = pd.to_datetime(plot_df['date'])
         plot_df.set_index('date', inplace=True)
+    elif 'trade_date' in plot_df.columns:
+        plot_df = plot_df.copy()
+        plot_df.loc[:, 'trade_date'] = pd.to_datetime(plot_df['trade_date'])
+        plot_df.set_index('trade_date', inplace=True)
     elif not isinstance(plot_df.index, pd.DatetimeIndex):
         plot_df = plot_df.copy()
         plot_df.index = pd.to_datetime(plot_df.index)
@@ -322,10 +327,12 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
             try:
                 factor_names = []
                 if isinstance(rating, dict):
+                    # 去字母化: 仅显示命中的因子作证据(命中=支撑该信号成立的PA条件), 不显示未命中噪音
                     for f in rating.get('factors', []):
-                        nm = f.get('name')
-                        if nm:
-                            factor_names.append(nm)
+                        if f.get('hit'):
+                            nm = f.get('name')
+                            if nm:
+                                factor_names.append(nm)
                 gap_stats = None
                 if 'GAP' in strategy_type.upper():
                     hist = 0
@@ -381,13 +388,19 @@ def format_signal_line(code, name, strategy_type, entry, sl, tp1=0, ev_rating="N
     Returns:
         str: 格式化后的信号文本
     """
-    strat_short = strategy_type.replace('STRATEGY_', '').replace('MTR_MASTER', 'MTR')
+    # 🟢 [P1] 统一经 StrategyRegistry.get_metadata().display_name, 零硬编码裸策略名
+    try:
+        from core.strategy_registry import StrategyRegistry
+        _dn = StrategyRegistry.get_metadata(strategy_type).get('display_name') or ''
+    except Exception:
+        _dn = ''
+    strat_short = _dn or strategy_type.replace('STRATEGY_', '').replace('MTR_MASTER', 'MTR')
     
     if not detail:
         # 压缩模式: 用于 B/C 级汇总
         return f"{name}({code})[{strat_short}]"
     
-    # 完整模式: A+/A 级双行展示
+    # 完整模式: 双行展示 (遗留格式化器, 新推送走 format_signal_one_line)
     line1 = f"• {name}({code}) [{strat_short}] [{ev_rating}]"
     
     # 计算盈亏比 (如果未提供)
@@ -401,6 +414,107 @@ def format_signal_line(code, name, strategy_type, entry, sl, tp1=0, ev_rating="N
     line2 = f"  ↳ 入场: ≥{entry:.2f} | 止损: {sl:.2f} | 止盈: {tp_str} | R:R={rr_str}"
     
     return f"{line1}\n{line2}"
+
+
+# =========================================================================
+# [去字母化推送政策] RATING_PLAN 落实: 因子作证据 + 按策略优先级 (非字母分级)
+# 背景: A+/A/B/C/D 字母评级经历史回测验证为统计噪声 (9/9 策略全噪声),
+#       详见 rating_authenticity_report.txt / rating_factor_edge_report.txt。
+#       改为: 因子命中作证据 + 按策略历史EV排序优先级 + 全推送精简一行。
+# =========================================================================
+
+# 策略优先级 (基于已验证历史 EV: 周线缺口家族 EV 正且最高, 日线普遍弱)
+# 取值越高越优先; 用于报告分组排序与出图候选筛选。非拍脑袋, 来自回测实证。
+STRATEGY_PRIORITY = {
+    ('STRATEGY_GAP_H2', 'weekly'): 5,
+    ('STRATEGY_STRUCTURAL_GAP', 'weekly'): 5,
+    ('STRATEGY_GAP_PINBAR', 'weekly'): 5,
+    ('STRATEGY_GAP_H2', 'daily'): 3,
+    ('STRATEGY_STRUCTURAL_GAP', 'daily'): 3,
+    ('STRATEGY_GAP_PINBAR', 'daily'): 3,
+    ('STRATEGY_3K', 'daily'): 2,
+    ('MTR_MASTER', 'daily'): 2,
+    ('STRATEGY_AWIL', 'daily'): 1,
+}
+
+
+def _norm_strategy_key(strategy_name: str) -> str:
+    s = (strategy_name or '').strip().upper()
+    if s == 'MTR':
+        s = 'MTR_MASTER'
+    if not s.startswith('STRATEGY_'):
+        s = 'STRATEGY_' + s
+    return s
+
+
+def strategy_priority(strategy_name: str, timeframe: str = 'daily') -> int:
+    """返回策略×周期优先级 (越高越优先)。未知策略默认中优先级 2。"""
+    return STRATEGY_PRIORITY.get((_norm_strategy_key(strategy_name), timeframe), 2)
+
+
+def factor_evidence_list(rating_dict: dict) -> list:
+    """从 rating['factors'] 提取命中(hit=True)的因子名列表, 作证据展示。"""
+    if not rating_dict:
+        return []
+    return [f.get('name') for f in (rating_dict.get('factors') or []) if f.get('hit')]
+
+
+def factor_evidence_text(rating_dict: dict) -> str:
+    """命中因子拼成 ●证据 串 (用于一行精简格式)。"""
+    return ' '.join(f'●{n}' for n in factor_evidence_list(rating_dict))
+
+
+def _strat_display(strategy_type: str) -> str:
+    """策略标识 -> 注册表 display_name (零硬编码裸策略名)。"""
+    try:
+        from core.strategy_registry import StrategyRegistry
+        _dn = StrategyRegistry.get_metadata(strategy_type).get('display_name') or ''
+    except Exception:
+        _dn = ''
+    return _dn or strategy_type.replace('STRATEGY_', '').replace('MTR_MASTER', 'MTR')
+
+
+def format_signal_one_line(code, name, strategy_type, info: dict, timeframe: str = 'daily') -> str:
+    """去字母化后的统一一行精简格式 (取代 format_signal_line 的双行 vs 单行分级)。
+
+    形态: • 名(代码)[策略简名] ●因子 ●因子 | 入场≥X | 止损Y | 止盈Z | R:R=1:N
+    无字母评级; 因子命中作证据; 三价与R:R保留(若数据齐)。
+    """
+    strat_short = _strat_display(strategy_type)
+    entry = info.get('entry', info.get('price', 0)) or 0
+    sl = info.get('sl', 0) or 0
+    tp1 = info.get('tp1', info.get('tp', 0)) or 0
+    rr = info.get('rr', 0) or 0
+    rating = info.get('rating') or {}
+    ev = factor_evidence_text(rating)
+    if entry > 0 and sl > 0 and tp1 > 0:
+        if rr == 0:
+            risk = entry - sl
+            if risk > 0:
+                rr = round((tp1 - entry) / risk, 1)
+        rr_str = f"1:{rr:.1f}" if rr > 0 else "N/A"
+        line = (f"• {name}({code}) [{strat_short}] {ev} | 入场≥{entry:.2f} "
+                f"| 止损{sl:.2f} | 止盈{tp1:.2f} | R:R={rr_str}")
+    else:
+        line = f"• {name}({code}) [{strat_short}] {ev}"
+    return line.strip()
+
+
+def signal_chart_key(sig: dict, timeframe: str = 'daily'):
+    """图表候选排序键: (策略优先级, 因子命中数, 评分) 降序。
+
+    兼容两种信号结构: hunter 的 p{info:{rating,score}} 与 scan_engine 的 s 平铺{rating,score}。
+    """
+    sn = sig.get('type') or sig.get('strategy_name') or ''
+    prio = strategy_priority(sn, timeframe)
+    info = sig.get('info', sig)
+    rating = info.get('rating') if isinstance(info, dict) else None
+    if rating is None:
+        rating = sig.get('rating') or {}
+    factors = (rating or {}).get('factors') or []
+    hits = sum(1 for f in factors if f.get('hit'))
+    score = (rating or {}).get('score', 0) or 0
+    return (prio, hits, score)
 
 
 def _rating_letter(ev_rating):
@@ -421,13 +535,16 @@ def _rating_letter(ev_rating):
     return 'C'
 
 
-def format_push_brief(signals, group_key='ev_rating', order=None):
+def format_push_brief(signals, group_key='phase', order=None):
     """v5 分组简报: 按策略聚合 → 组内按分组键分组 → 同组顿号间隔 → 仅6位代码。
+
+    [P0-5] 默认 group_key 改为 'phase' (按形态阶段), 不再默认按经回测证明为噪声的
+           A+/A/B/C/D 字母分组。调用方显式传 'ev_rating' 才会按字母。
 
     Args:
         signals: list of dict, 含 'code' / 'strategy_name' / 分组字段
-        group_key: 'ev_rating' (默认, 按 A+/A/B/C/D) 或 'phase' (按形态阶段, 如 3K)
-        order: 分组顺序列表; ev_rating 默认 A+/A/B/C/D, phase 默认 ['缺口确认','新雏形']
+        group_key: 'phase' (默认, 按形态阶段, 如 3K) 或 'ev_rating' (按 A+/A/B/C/D)
+        order: 分组顺序列表; phase 默认 ['缺口确认','新雏形'], ev_rating 默认 A+/A/B/C/D
 
     Returns:
         str: 多行简报, 例如

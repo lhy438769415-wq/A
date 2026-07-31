@@ -71,16 +71,20 @@ def generate_report(timeframe=None, strategy=None, days=90) -> dict:
         return report
     
     # 整体统计
-    total = len(resolved)
+    total = len(resolved)                          # 已结算总数 (WIN+LOSS+EXPIRED), 仅作计数展示
     wins = sum(1 for r in resolved if r['status'] == 'WIN')
     losses = sum(1 for r in resolved if r['status'] == 'LOSS')
     expired = sum(1 for r in resolved if r['status'] == 'EXPIRED')
+    traded = wins + losses                          # [P1-4] 真正入场的交易数; 胜率/avgR 分母仅取 traded
+    # 复盘口径: EXPIRED(超时未触发, 非交易) 不计入胜率/盈亏比分母, 否则系统性低估胜率
     
-    win_rate = wins / total * 100 if total > 0 else 0
+    win_rate = wins / traded * 100 if traded > 0 else 0
     
-    # 计算平均 R 倍数
+    # 计算平均 R 倍数 (仅 traded: WIN/LOSS; EXPIRED 未交易不贡献 0R)
     r_multiples = []
     for r in resolved:
+        if r['status'] == 'EXPIRED':
+            continue
         entry = r['entry_price'] or 0
         sl = r['sl_price'] or 0
         exit_p = r['exit_price'] or entry
@@ -91,9 +95,11 @@ def generate_report(timeframe=None, strategy=None, days=90) -> dict:
     
     avg_r = sum(r_multiples) / len(r_multiples) if r_multiples else 0
     
-    # 按评级分组
+    # 按评级分组 (仅 traded: WIN/LOSS; EXPIRED 不进评级胜率分母)
     rating_groups = {}
     for r in resolved:
+        if r['status'] == 'EXPIRED':
+            continue
         # 简化评级标签
         rating = r.get('ev_rating', 'N/A') or 'N/A'
         if 'A+' in rating or '极品' in rating:

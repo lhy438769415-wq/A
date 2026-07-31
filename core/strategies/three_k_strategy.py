@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional
 from .base import BaseStrategy
 from core.formatter import get_common_context
 from config import settings
-from core.rating import RatingResult, clamp, band
+from core.rating import RatingResult, clamp, band, band_calibrated, is_calibration_available
 from core.rating_core import factor, rr_factor, sum_weights
 
 # Al Brooks PA 概念标注:
@@ -105,7 +105,7 @@ class ThreeKStrategy(BaseStrategy):
         return result
 
     @classmethod
-    def compute_rating(cls, df: pd.DataFrame) -> Optional['RatingResult']:
+    def compute_rating(cls, df: pd.DataFrame, timeframe: str = 'daily') -> Optional['RatingResult']:
         """[RATING_PLAN §4.5] 3K 评级: 最小手调集 (纯 PA, 已删违规 trend_align/EMA动量).
         因子: 信号K质量/缺口保持开放/陷阱过滤/非买入高潮/三连阳/RR≥2。
         """
@@ -156,10 +156,10 @@ class ThreeKStrategy(BaseStrategy):
         factors = [f_q, f_gap, f_trap, f_climax, f_3b, f_rr]
         raw = sum_weights(factors)
         score = clamp(40 + 12 * raw)  # 占位归一, Phase 2 改逐策略切点
-        letter = band(score)
         toxic = raw <= -3
+        letter = band_calibrated(cls, score, toxic=toxic, timeframe=timeframe)
         return RatingResult(raw_score=raw, score=score, letter=letter, factors=factors,
-                            toxic=toxic, calibrated=False)
+                            toxic=toxic, calibrated=is_calibration_available())
 
     def __init__(self):
         # Load parameters from settings

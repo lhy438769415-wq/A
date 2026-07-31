@@ -150,7 +150,7 @@ def scan_strategies(codes, strategies, timeframe='daily', limit=300,
 
 ---
 
-## 9. Phase 3 执行记录（2026-07-25，彻底单引擎）
+## 9. Phase 3 执行记录（2026-07-25，入口/编排层单引擎；3K 例外刻意保留）
 
 ### 9.1 决策 (3a)
 - **3K 保持不归档 signal_tracker**：保留与旧 `scanner_weekly_3k.py` 一致的行为差异（gap 家族才在 `format_push_weekly_gap` 内归档；3K 路径 `format_push_weekly_3k` 刻意不调 `archive_signal`）。

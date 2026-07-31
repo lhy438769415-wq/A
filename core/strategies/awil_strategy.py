@@ -34,7 +34,7 @@ from typing import Dict, Any, Optional
 from .base import BaseStrategy
 from core.formatter import get_common_context
 from config import settings
-from core.rating import RatingResult, clamp, band
+from core.rating import RatingResult, clamp, band, band_calibrated, is_calibration_available
 from core.rating_core import factor, sum_weights
 
 logger = logging.getLogger(__name__)
@@ -95,7 +95,7 @@ class AWILStrategy(BaseStrategy):
         return result
 
     @classmethod
-    def compute_rating(cls, df: pd.DataFrame) -> Optional['RatingResult']:
+    def compute_rating(cls, df: pd.DataFrame, timeframe: str = 'daily') -> Optional['RatingResult']:
         """[RATING_PLAN §4.6] AWIL 评级 (Phase 2 重设计): 全部使用随信号变化的纯 PA 因子,
         消除原恒为 A+ 退化。
         因子: 实体占比 / 回调速度(awil_pb_bars) / EMA20磁力距离 / 回撤深度比 / 两腿对称 / 下影陷阱。
@@ -203,28 +203,38 @@ class AWILStrategy(BaseStrategy):
         factors = [f_body, f_pb, f_ema, f_depth, f_leg2, f_tail]
         raw = sum_weights(factors)
         score = clamp(40 + 12 * raw)  # Phase 2 重设计: 全变化因子后 raw 有分布, 不再恒 A+
-        letter = band(score)
         toxic = raw <= -3
+        letter = band_calibrated(cls, score, toxic=toxic, timeframe=timeframe)
         return RatingResult(raw_score=raw, score=score, letter=letter, factors=factors,
-                            toxic=toxic, calibrated=True)
+                            toxic=toxic, calibrated=is_calibration_available())
 
     @classmethod
     def annotate_chart(cls, ax, plot_df: pd.DataFrame,
                        strategy_type: str, **kwargs) -> None:
-        """AWIL 图表标注 — Swing High, H2 信号, SL/TP 水平线。"""
+        """AWIL 图表标注 — Swing High, H2 信号, SL/TP 水平线。
+
+        关键: mplfinance 横轴使用整数位置 0..N-1 (非 Timestamp)。
+        早先用 Timestamp 作 x 坐标会被 matplotlib 当成纳秒巨数, 撑爆坐标轴
+        (图被渲染成数亿像素, 浏览器/预览无法显示)。此处统一改用整数位,
+        与 structural_gap / gap_h2 / mtr 等策略的 annotate_chart 约定一致。
+        """
         if 'signal_awil' not in plot_df.columns:
             return
         sig_mask = plot_df['signal_awil']
         if not sig_mask.any():
             return
 
-        signal_date = sig_mask[sig_mask].index[-1]
-        signal_row = plot_df.loc[signal_date]
+        date_list = list(plot_df.index)
+        n = len(date_list)
+        # 取最后一个信号的整数位 (mplfinance 横轴 = 0..N-1)
+        sig_positions = [i for i, v in enumerate(sig_mask) if v]
+        sig_pos = sig_positions[-1] if sig_positions else (n - 1)
+        signal_row = plot_df.iloc[sig_pos]
 
-        # 标注 H2 信号K线
+        # 标注 H2 信号K线 (xy 用整数位 +0.5 对齐 K 线中心)
         ax.annotate("H2 Signal\n(AWIL入场)",
-                    xy=(signal_date, signal_row['high']),
-                    xytext=(signal_date, signal_row['high'] * 1.02),
+                    xy=(sig_pos + 0.5, signal_row['high']),
+                    xytext=(sig_pos + 6.5, signal_row['high'] * 1.02),
                     arrowprops=dict(arrowstyle="->", color='green'),
                     fontsize=9, color='green', ha='center',
                     fontweight='bold')
@@ -234,7 +244,7 @@ class AWILStrategy(BaseStrategy):
         if sl_price and not np.isnan(sl_price):
             ax.axhline(y=sl_price, color='red', linestyle='--',
                        alpha=0.7, linewidth=1)
-            ax.text(plot_df.index[-1], sl_price, f' SL={sl_price:.2f}',
+            ax.text(n - 1, sl_price, f' SL={sl_price:.2f}',
                     color='red', fontsize=8, va='center')
 
         # TP 水平线 (绿色虚线)
@@ -242,7 +252,7 @@ class AWILStrategy(BaseStrategy):
         if tp_price and not np.isnan(tp_price):
             ax.axhline(y=tp_price, color='green', linestyle='--',
                        alpha=0.7, linewidth=1)
-            ax.text(plot_df.index[-1], tp_price, f' TP={tp_price:.2f}',
+            ax.text(n - 1, tp_price, f' TP={tp_price:.2f}',
                     color='green', fontsize=8, va='center')
 
         # Swing High 标注 (蓝色点线)
@@ -250,7 +260,7 @@ class AWILStrategy(BaseStrategy):
         if swing_high and not np.isnan(swing_high):
             ax.axhline(y=swing_high, color='blue', linestyle=':',
                        alpha=0.5, linewidth=1)
-            ax.text(plot_df.index[0], swing_high,
+            ax.text(0, swing_high,
                     f'Swing High={swing_high:.2f} ',
                     color='blue', fontsize=8, va='center', ha='right')
 

@@ -280,6 +280,22 @@ def _compute_calib_cuts(train_recs, weights):
     return [('A+', _quant(0.90)), ('A', _quant(0.70)), ('B', _quant(0.45)), ('C', _quant(0.20))]
 
 
+def _compute_score_cuts(records):
+    """[P0-2/P0-3] 按生产 compute_rating 分数分布取分位切点 (与 _compute_calib_cuts 同方案).
+
+    直接消费生产 RatingResult.score (0-100), 使生产 band() 逐策略切点 == 校准口径,
+    而非手调全局阈值. 用全样本信号分数 (含未交易), 反映真实分数分布。
+    """
+    scores = [r['score'] for r in records if 'score' in r]
+    s = sorted(scores)
+    if not s:
+        return None
+    def _q(q):
+        i = int(len(s) * q)
+        return float(s[min(i, len(s) - 1)])
+    return [['A+', _q(0.90)], ['A', _q(0.70)], ['B', _q(0.45)], ['C', _q(0.20)]]
+
+
 def analyze_annual_cv(records_all, key, risk_mult):
     """Walk-forward 年度交叉验证: 每个年份作为测试年, 用该年之前所有年份推因子权重+切点, 测该年。
     避免固定 60/40 把某一市况锁进测试集; 直接给出 A+ 档跨年稳定性。
@@ -400,6 +416,7 @@ def analyze(records_all, key, risk_mult):
         'test_letter_gross': test_letter_gross,
         'test_calibrated_net': test_calib,
         'calib_cuts': calib_cuts,
+        'score_cuts': _compute_score_cuts(records_all),
         'train_factor_weights': train_weights,
         'factor_stats_train': factor_stats,
         'year_strat_net': year_strat,
