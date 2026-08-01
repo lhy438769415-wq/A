@@ -374,10 +374,7 @@ def scan_weekly_gap_signals(all_codes: list, strategies: list = None, recent_wee
                 for hit in hits:
                     results_gap.append(hit)
                     tag = "👀" if hit.get('is_pending') else "✨"
-                    # [P0-5] 去字母化: 控制台命中打印不再显示经回测证明为噪声的 A+/A/B/C/D 假字母
-                    _ev = factor_evidence_text(hit.get('rating'))
-                    _tail = f" | {_ev}" if _ev else ""
-                    print(f"\n  {tag} 命中: {hit['code']} {hit['name']}{_tail}")
+                    print(f"\n  {tag} 命中: {hit['code']} {hit['name']}")
             except Exception as e:
                 logger.debug(f"获取 {code} 结果失败: {e}")
 
@@ -490,9 +487,7 @@ def format_push_weekly_gap(results, total_stocks=0):
         _strat_labels.append(_dn)
     strat_display = ' / '.join(_strat_labels) if _strat_labels else '缺口策略'
 
-    print("\n" + "=" * 80)
-    print(f"  周线 {strat_display} 信号汇总")
-    print("=" * 80)
+    print(f"📊 周线 {strat_display} 信号汇总")
 
     # 去字母化: 不再按字母 emoji 分档冷落信号; 全量保留 (is_pending 仅作状态标注, 不丢信号)
     results['signals_gap'] = sig_gap
@@ -543,8 +538,6 @@ def format_push_weekly_gap(results, total_stocks=0):
     for _sn, _ss in _ranked:
         _print_sg_console(_ss, _sn)
 
-    print("\n" + "=" * 80)
-
     # === 导出报告与数据 ===
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -590,7 +583,7 @@ def format_push_weekly_gap(results, total_stocks=0):
     print(f"✅ 生成本周末复盘报告: {md_path}")
 
     # === Discord 图文推送 ===
-    print("\n🚀 正在生成 Discord 图文全量推送...")
+    print("\n📊 准备推送 Discord 信号图文...")
 
     _wdate = pd.Timestamp.now().strftime('%Y-%m-%d')
     _wpool = f"全市场 {total_stocks} 只" if total_stocks > 0 else ""
@@ -628,7 +621,7 @@ def format_push_weekly_gap(results, total_stocks=0):
         chart_label = "📊 **信号 K线图 (按策略优先级)**"
 
         if top_sigs:
-            print(f"\n🎨 为 {len(top_sigs)} 只标的生成图表...")
+            print(f"\n📊 为 {len(top_sigs)} 只标的生成 K线图...")
             chart_bufs = []
             chart_names = []
 
@@ -678,9 +671,7 @@ def format_push_weekly_3k(results: dict, total_stocks: int = 0, weeks: int = 4):
     pd_ts = pd.Timestamp.now()
 
     # === 控制台输出 ===
-    print("\n" + "=" * 80)
-    print(f"  周线 3K 信号汇总")
-    print("=" * 80)
+    print(f"📊 周线 3K 信号汇总")
 
     sig_3k = results['signals_3k']
     sig_gt = results['signals_gap_test']
@@ -688,16 +679,14 @@ def format_push_weekly_3k(results: dict, total_stocks: int = 0, weeks: int = 4):
     print(f"\n📌 重点观察区 - 周线 3K 形态刚确认 (共 {len(sig_3k)} 个):")
     print("-" * 60)
     for s in sig_3k:
-        print(f"{s['code']:>12s} {s['name']:<6s} 周线日期:{s['date']}  最新收盘:{s['close']:.2f}  破位参考(SL):{s['sl']:.2f}")
+        print(f"  {format_signal_one_line(s['code'], s['name'], s.get('strategy_name', ''), s, timeframe='weekly')}  (周线 {s['date']})")
 
     print(f"\n📌 下周埋伏区 - 周线缺口测试已确认，待触发 Buy Stop (共 {len(sig_gt)} 个):")
     print("-" * 60)
     for s in sig_gt:
         tp_str = f"{s['tp']:.2f}" if not np.isnan(s['tp']) else "N/A"
         rr_str = f"1:{s['rr']:.1f}" if s['rr'] > 0 else "N/A"
-        print(f"{s['code']:>12s} {s['name']:<6s} 周线日期:{s['date']}  下周买入(Buy Stop):>={s['entry']:.2f}  防守(SL):{s['sl']:.2f}  目标:{tp_str}  R:R={rr_str}")
-
-    print("\n" + "=" * 80)
+        print(f"  {format_signal_one_line(s['code'], s['name'], s.get('strategy_name', ''), s, timeframe='weekly')}  (周线 {s['date']})")
 
     # [P0-2.6] 周线 3K 信号归档进 SignalTracker (消除独立状态源 weekly_watchlist.json)
     try:

@@ -284,9 +284,7 @@ def _scan_market(all_codes, strategies, seen_signals):
     """
     new_signals = set()
     
-    logger.info("\n" + "="*50)
-    logger.info(f"🔭 全市场技术面扫描 (Scanning {len(all_codes)} 标的)")
-    logger.info("="*50)
+    logger.info(f"🔭 扫描全市场 {len(all_codes)} 只标的")
 
     scan_count = 0
     hit_count = 0
@@ -433,8 +431,6 @@ def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_thr
         else:
             ai_candidates_raw.append(res)
     
-    if direct_picks:
-        logger.info(f"⚡ 快速通道: {len(direct_picks)} 个结构/动能信号直接入池 (跳过 AI)")
 
     if not use_ai:
         # 如果不启用 AI，所有本来要走 AI 的信号，全部变成技术面直通
@@ -451,8 +447,6 @@ def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_thr
     ai_candidates = ai_candidates_raw[:10]
     skipped_candidates = ai_candidates_raw[10:]
     
-    if ai_candidates_raw:
-        logger.info(f"🧠 AI 审计候补: {len(ai_candidates_raw)} 个信号 (非 MTR/3K/SG 策略)")
     
     for res in ai_candidates:
         try:
@@ -463,7 +457,6 @@ def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_thr
     # 等待 AI 队列处理完毕
     mtr_count = len(ai_candidates)
     if mtr_count > 0:
-        logger.info(f"🧠 AI 候补队列审计: {mtr_count} 项待处理...")
         analysis_queue.join()
     
     stop_event.set()
@@ -560,9 +553,7 @@ def _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_
     all_passed = list(direct_picks) + list(passed_candidates)
     all_passed.sort(key=lambda x: _extract_rating(x.get('info', {})).get('score', 0), reverse=True)
 
-    logger.info("\n" + "="*50)
-    logger.info(f"📨 阶段 3/3: 信号归档与结果推送 (Dispatch)")
-    logger.info("="*50)
+    logger.info("📨 阶段 3/3 归档与结果推送 (Dispatch)")
 
     # ===== 按策略分组 (去字母化: 因子证据 + 策略优先级, 非字母分级) =====
     # 背景: A+/A/B/C/D 字母评级经历史回测验证为统计噪声(9/9策略全噪声),
@@ -703,7 +694,7 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
             )
 
         BATCH_SIZE = 10
-        logger.info(f"🎨 Discord 图表推送: {len(chart_pool)} 张信号图 ({BATCH_SIZE} 张/批, 按策略优先级)")
+        logger.info(f"📊 信号K线图({len(chart_pool)}张)已推送")
 
         # 去字母化: 不再区分 A+/A 级, 统一按策略优先级推送
         for batch_start in range(0, len(chart_pool), BATCH_SIZE):
@@ -735,9 +726,7 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
     
     if seen_signals is None: seen_signals = set()
     
-    logger.info("\n" + "="*50)
-    logger.info("🚀 阶段 1/3: 全行情快照与市场分析 (Snapshot)")
-    logger.info("="*50)
+    logger.info("🚀 阶段 1/3 扫描全市场 (Snapshot)")
 
     now = datetime.now()
     current_minutes = now.hour * 60 + now.minute
@@ -761,13 +750,12 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
         t = threading.Thread(target=ai_worker, args=(i, analysis_queue, result_queue, stop_event))
         t.start()
         ai_threads.append(t)
-    logger.info(f"🤖 已启动核心扫描进程 (技术面直通专线已就绪)")
 
     try:
         # 阶段 1: 扫描
         all_hits, new_signals = _scan_market(all_codes, strategies, seen_signals)
         
-        # 阶段 2: 分类 + AI 审计
+        logger.info("📂 阶段 2/3 分类信号 + AI 审计")
         direct_picks, final_picks, rejected_list, watchlist, status_changes = _classify_signals(
             all_hits, analysis_queue, result_queue, stop_event, ai_threads, use_ai=use_ai
         )
@@ -897,12 +885,10 @@ def _run_data_sync():
             elapsed = time.time() - t0
             if result:
                 downloaded, total = result
-                if downloaded == 0 and total > 0:
-                    print(f"✅ 日线数据已全量最新 (耗时 {elapsed:.0f}秒, 活跃股票均已最新, {total}只退市/无新数据已跳过)")
-                elif downloaded < total:
-                    print(f"✅ 日线同步完成 (耗时 {elapsed:.0f}秒, 成功更新 {downloaded}/{total} 只, 其余为退市/无新数据)")
+                if downloaded == 0:
+                    print(f"✅ 日线同步完成 · 全部已最新 (共 {total} 只)")
                 else:
-                    print(f"✅ 日线同步完成 (耗时 {elapsed:.0f}秒, {downloaded}/{total})")
+                    print(f"✅ 日线同步完成 · 更新 {downloaded}/{total} 只 · 耗时 {elapsed:.0f}秒")
             else:
                 print(f"✅ 日线同步完成 (耗时 {elapsed:.0f}秒)")
         except Exception as e:
@@ -917,12 +903,10 @@ def _run_data_sync():
             elapsed = time.time() - t0
             if result:
                 downloaded, total = result
-                if downloaded == 0 and total > 0:
-                    print(f"✅ 周线数据已全量最新 (耗时 {elapsed:.0f}秒, 活跃股票均已最新, {total}只退市/无新数据已跳过)")
-                elif downloaded < total:
-                    print(f"✅ 周线同步完成 (耗时 {elapsed:.0f}秒, 成功更新 {downloaded}/{total} 只, 其余为退市/无新数据)")
+                if downloaded == 0:
+                    print(f"✅ 周线同步完成 · 全部已最新 (共 {total} 只)")
                 else:
-                    print(f"✅ 周线同步完成 (耗时 {elapsed:.0f}秒, {downloaded}/{total})")
+                    print(f"✅ 周线同步完成 · 更新 {downloaded}/{total} 只 · 耗时 {elapsed:.0f}秒")
             else:
                 print(f"✅ 周线同步完成 (耗时 {elapsed:.0f}秒)")
         except Exception as e:

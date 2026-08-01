@@ -37,6 +37,7 @@ L5 基础 → database (SQLite WAL) / data_provider (Baostock 离线)
 - ❌ 禁止引入独立于 SignalTracker 的新状态追踪
 - ❌ 禁止新增 sys.path.insert (使用 core/paths.py)
 - ❌ 禁止新增 logging.basicConfig (使用 core/log_config.py)
+- ❌ 禁止未读源码就断言代码现状/日志体量/程序行为 (须 grep/read 带行号或实测, 严禁凭印象臆想具体数字或触发范围)
 
 ## 数据库结构冻结（Schema 保护）— 最高优先级
 
