@@ -45,9 +45,21 @@ try:
     from config.settings import DISCORD_BOT_TOKEN, DISCORD_CHANNEL_ID, FONT_PATH
 except ImportError:
     # 兼容模式：如果没有配置文件，给予默认空值或硬编码
-    DISCORD_BOT_TOKEN = "" 
+    DISCORD_BOT_TOKEN = ""
     DISCORD_CHANNEL_ID = ""
     FONT_PATH = "simhei.ttf"
+
+# 🟢 [Fix 2026-08-01] Discord 推送尊重环境代理 (HTTP_PROXY / HTTPS_PROXY)
+# 之前写死 proxies={"http":None,"https":None} 会绕过用户本地代理(如 Clash 127.0.0.1:7890),
+# 国内直连 discord.com 时 SSL 握手常被掐断(UNEXPECTED_EOF)。现改为读取环境变量:
+# 有代理则走代理(稳定), 无代理则空 dict(requests 直连)。
+_DISCORD_PROXIES = {}
+_env_http = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
+_env_https = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+if _env_http:
+    _DISCORD_PROXIES["http"] = _env_http
+if _env_https:
+    _DISCORD_PROXIES["https"] = _env_https
 
 # 全局字体设置 (防止中文乱码)
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial'] 
@@ -326,12 +338,15 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
         if draw_panel:
             try:
                 factor_names = []
+                is_mtr = 'MTR' in strategy_type.upper()
                 if isinstance(rating, dict):
                     # 去字母化: 仅显示命中的因子作证据(命中=支撑该信号成立的PA条件), 不显示未命中噪音
                     for f in rating.get('factors', []):
                         if f.get('hit'):
                             nm = f.get('name')
-                            if nm:
+                            # MTR 唯一因子"七维综合评分"为固定废标签(每条信号必带, 无个股差异信息),
+                            # 图上与文字行均不再展示(文字行见 format_signal_one_line)
+                            if nm and not (is_mtr and nm == '七维综合评分'):
                                 factor_names.append(nm)
                 gap_stats = None
                 if 'GAP' in strategy_type.upper():
@@ -477,27 +492,24 @@ def _strat_display(strategy_type: str) -> str:
 def format_signal_one_line(code, name, strategy_type, info: dict, timeframe: str = 'daily') -> str:
     """去字母化后的统一一行精简格式 (取代 format_signal_line 的双行 vs 单行分级)。
 
-    形态: • 名(代码)[策略简名] ●因子 ●因子 | 入场≥X | 止损Y | 止盈Z | R:R=1:N
-    无字母评级; 因子命中作证据; 三价与R:R保留(若数据齐)。
+    形态: • 名(代码) | R=XX
+    - 价格串(入场/止损/止盈)整体移除, 仅保留盈亏比 R(盈利÷亏损绝对比值)
+    - 因子标签(●xxx)移除: 图上已绘制(见 _draw_rating_panel); MTR 固定废标签亦已在图上屏蔽
+    - [策略简名]移除: 段落标题已标注策略
     """
-    strat_short = _strat_display(strategy_type)
-    entry = info.get('entry', info.get('price', 0)) or 0
-    sl = info.get('sl', 0) or 0
-    tp1 = info.get('tp1', info.get('tp', 0)) or 0
     rr = info.get('rr', 0) or 0
-    rating = info.get('rating') or {}
-    ev = factor_evidence_text(rating)
-    if entry > 0 and sl > 0 and tp1 > 0:
-        if rr == 0:
+    if rr == 0:
+        entry = info.get('entry', info.get('price', 0)) or 0
+        sl = info.get('sl', 0) or 0
+        tp1 = info.get('tp1', info.get('tp', 0)) or 0
+        if entry > 0 and sl > 0 and tp1 > 0:
             risk = entry - sl
             if risk > 0:
                 rr = round((tp1 - entry) / risk, 1)
-        rr_str = f"1:{rr:.1f}" if rr > 0 else "N/A"
-        line = (f"• {name}({code}) [{strat_short}] {ev} | 入场≥{entry:.2f} "
-                f"| 止损{sl:.2f} | 止盈{tp1:.2f} | R:R={rr_str}")
-    else:
-        line = f"• {name}({code}) [{strat_short}] {ev}"
-    return line.strip()
+    line = f"• {name}({code})"
+    if rr > 0:
+        line += f" | R={rr:.1f}"
+    return line
 
 
 def signal_chart_key(sig: dict, timeframe: str = 'daily'):
@@ -662,7 +674,7 @@ def send_discord_message(content):
         "Authorization": f"Bot {DISCORD_BOT_TOKEN}",
         "Content-Type": "application/json"
     }
-    proxies = {"http": None, "https": None}
+    proxies = _DISCORD_PROXIES
     
     for idx, chunk in enumerate(chunks):
         for attempt in range(2): 
@@ -752,7 +764,7 @@ def send_discord_image(img_buffer, filename="chart.png", content=""):
         # 注意: multipart/form-data 的 requests 实现会自动添加 Content-Type 和 boundary，不要手动加
     }
     
-    proxies = {"http": None, "https": None}
+    proxies = _DISCORD_PROXIES
     
     try:
         img_buffer.seek(0)
@@ -816,7 +828,7 @@ def send_discord_images(img_buffers, filenames=None, content=""):
         
         url = f"https://discord.com/api/v10/channels/{DISCORD_CHANNEL_ID}/messages"
         headers = {"Authorization": f"Bot {DISCORD_BOT_TOKEN}"}
-        proxies = {"http": None, "https": None}
+        proxies = _DISCORD_PROXIES
         
         files = {}
         for i, (buf, fname) in enumerate(zip(batch_bufs, batch_names)):

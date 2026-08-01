@@ -590,16 +590,16 @@ def _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_
                     key=lambda kv: strategy_priority(kv[1][0].get('type', ''), 'daily'),
                     reverse=True)
 
-    # ===== ① 标题区 =====
+    # ===== ① 标题区 (精简: 时间/池子并入单行标题) =====
     msg_lines = []
-    msg_lines.append("🔔 **【日线 Brooks-AI 猎手 雷达扫描完成】**")
-    msg_lines.append(f"时间: {datetime.now().strftime('%Y-%m-%d')}")
-    if total_stocks > 0:
-        msg_lines.append(f"池子: 全市场 {total_stocks} 只个股")
+    _title_date = datetime.now().strftime('%Y-%m-%d')
+    _title_pool = f"全市场 {total_stocks} 只" if total_stocks > 0 else ""
+    msg_lines.append("🔔 日线 Brooks-AI 猎手 · " + _title_date
+                     + (f" · {_title_pool}" if _title_pool else ""))
     msg_lines.append("----------------------")
 
     # ===== ② 统计区 (按策略优先级, 列出全部激活策略含 0 命中) =====
-    msg_lines.append(f"🎯 **命中结果**: 共 {total_hits} 只")
+    msg_lines.append(f"🎯 命中 {total_hits} 只")
     if strategy_names:
         # 🟢 用激活策略名单补齐 0 命中项, 让交易员知道"扫了但今日无符合"
         count_by_sn = {sn: len(ps) for sn, ps in groups.items()}
@@ -637,9 +637,7 @@ def _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_
     # ===== ④ 图表预告 (全量按策略优先级+因子证据排序, 去掉仅A+门禁) =====
     chart_candidates = sorted(all_passed, key=lambda x: signal_chart_key(x, 'daily'), reverse=True)
 
-    if chart_candidates:
-        msg_lines.append(f"📊 信号 K线图即将推送 ({len(chart_candidates)} 张, 按策略优先级)...")
-    else:
+    if not chart_candidates:
         msg_lines.append(f"📋 本轮无信号, 不推送图表。")
 
     summary_text = "\n".join(msg_lines)
@@ -707,31 +705,22 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
         BATCH_SIZE = 10
         logger.info(f"🎨 Discord 图表推送: {len(chart_pool)} 张信号图 ({BATCH_SIZE} 张/批, 按策略优先级)")
 
-        # 去字母化: 不再区分 A+/A 级, 统一按策略优先级标注
-        label = "📊 **信号 K线图 (按策略优先级)**"
-
+        # 去字母化: 不再区分 A+/A 级, 统一按策略优先级推送
         for batch_start in range(0, len(chart_pool), BATCH_SIZE):
             batch = chart_pool[batch_start:batch_start + BATCH_SIZE]
             send_discord_images(
                 batch,
-                content=f"{label} ({len(chart_pool)} 张)"
+                content="📊 信号K线图"
             )
+        send_discord_message(f"📊 信号K线图({len(chart_pool)}张)已推送")
 
-        # 超量信号聚合为一条文字摘要 (不丢信号, 不刷图)
+        # 超量信号聚合为一条文字摘要 (不丢信号, 不刷图; 仅列名(代码), 因子见图表)
         if overflow_candidates:
-            lines = [f"📝 **其余 {len(overflow_candidates)} 个信号 (图表已折叠, 按策略优先级)**"]
+            folded = []
             for p in overflow_candidates:
-                info = p.get('info', {})
                 name = p.get('name_cn') or fetch_stock_name(p['code'])
-                ev = factor_evidence_text(info.get('rating'))
-                _stype = p.get('type', 'MTR')
-                try:
-                    from core.strategy_registry import StrategyRegistry
-                    stype = StrategyRegistry.get_metadata(_stype).get('display_name') or _stype.replace('STRATEGY_', '')
-                except Exception:
-                    stype = _stype.replace('STRATEGY_', '')
-                lines.append(f"• `{p['code']}` {name} | {stype} | {ev}")
-            send_discord_message("\n".join(lines))
+                folded.append(f"{name}({p['code']})")
+            send_discord_message(f"📝 其余 {len(overflow_candidates)} 只(图略): " + " ".join(folded))
 
 
 def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set = None, use_ai: bool = True) -> set:

@@ -592,12 +592,11 @@ def format_push_weekly_gap(results, total_stocks=0):
     # === Discord 图文推送 ===
     print("\n🚀 正在生成 Discord 图文全量推送...")
 
-    msg = f"🔔 **【周线 {strat_display} 雷达扫描完成】**\n"
-    msg += f"时间: {pd.Timestamp.now().strftime('%Y-%m-%d')}\n"
-    if total_stocks > 0:
-        msg += f"池子: 全市场 {total_stocks} 只个股\n"
+    _wdate = pd.Timestamp.now().strftime('%Y-%m-%d')
+    _wpool = f"全市场 {total_stocks} 只" if total_stocks > 0 else ""
+    msg = "🔔 周线 " + strat_display + f" · {_wdate}" + (f" · {_wpool}" if _wpool else "") + "\n"
     msg += f"----------------------\n"
-    msg += f"🎯 **命中结果**: 共 {len(sig_gap)} 只\n"
+    msg += f"🎯 命中 {len(sig_gap)} 只\n"
 
     if not sig_gap:
         msg += f"\n💤 【周线/{strat_display}】，本次未发现信号"
@@ -616,7 +615,6 @@ def format_push_weekly_gap(results, total_stocks=0):
             msg += f"\n📌 **{sn} ({len(ss)}只)**:\n"
             for s in ss:
                 msg += format_signal_one_line(s['code'], s['name'], s.get('strategy_name', ''), s, timeframe='weekly') + "\n"
-        msg += f"\n\n📊 信号 K线图即将推送..."
 
     send_discord_message(msg)
 
@@ -662,8 +660,9 @@ def format_push_weekly_gap(results, total_stocks=0):
                 for batch_start in range(0, len(chart_bufs), BATCH_SIZE):
                     batch_bufs = chart_bufs[batch_start:batch_start + BATCH_SIZE]
                     batch_names = chart_names[batch_start:batch_start + BATCH_SIZE]
-                    batch_msg = f"{chart_label} ({batch_start+1}-{batch_start+len(batch_bufs)}/{len(chart_bufs)})"
+                    batch_msg = f"📊 信号K线图 ({batch_start+1}-{batch_start+len(batch_bufs)}/{len(chart_bufs)})"
                     send_discord_images(batch_bufs, batch_names, content=batch_msg)
+                send_discord_message(f"📊 信号K线图({len(chart_bufs)}张)已推送")
                 print(f"✅ {len(chart_bufs)} 张图表分 {(len(chart_bufs)-1)//BATCH_SIZE+1} 批推送完成！")
 
 
@@ -815,10 +814,8 @@ def format_push_weekly_3k(results: dict, total_stocks: int = 0, weeks: int = 4):
             unified.append({'code': s['code'], 'strategy_name': 'STRATEGY_3K', 'phase': '缺口确认'})
         for s in sig_3k:
             unified.append({'code': s['code'], 'strategy_name': 'STRATEGY_3K', 'phase': '新雏形'})
-        msg = "🔔 【周线 3K 雷达扫描完成】\n"
-        msg += f"时间: {pd_ts.strftime('%Y-%m-%d')}\n"
-        if total_stocks > 0:
-            msg += f"池子: 全市场 {total_stocks} 只个股\n"
+        _w3k_pool = f"全市场 {total_stocks} 只" if total_stocks > 0 else ""
+        msg = "🔔 周线 3K · " + pd_ts.strftime('%Y-%m-%d') + (f" · {_w3k_pool}" if _w3k_pool else "") + "\n"
         msg += f"----------------------\n"
         msg += format_push_brief(unified, group_key='phase', order=['缺口确认', '新雏形'])
 
