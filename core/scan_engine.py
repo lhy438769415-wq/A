@@ -503,7 +503,7 @@ def format_push_weekly_gap(results, total_stocks=0):
                 code=s['code'], strategy=s.get('strategy_name', 'STRUCTURAL_GAP'), timeframe='weekly',
                 entry=s['entry'], sl=s['sl'], tp=s['tp'] if not np.isnan(s['tp']) else 0,
                 ev_rating='',  # [P0-5] 不再写经回测证明为噪声的假字母
-                evidence=factor_evidence_text(s.get('rating')),
+                evidence=factor_evidence_text(s.get('rating'), s.get('strategy_name', 'STRUCTURAL_GAP')),
                 signal_date=sig_date,
                 signal_bar_idx=s.get('signal_bar_idx', -1),
                 ev_score=s.get('ev_score', 0), rr=s.get('rr', 0), name=s.get('name', ''),
@@ -575,7 +575,7 @@ def format_push_weekly_gap(results, total_stocks=0):
             rr_str = f"1:{s['rr']:.1f}" if s['rr'] > 0 else "N/A"
             date_str = s['date'].strftime('%Y-%m-%d') if hasattr(s['date'], 'strftime') else str(s['date'])
             strat_short = s.get('strategy_name', '').replace('STRATEGY_', '')
-            ev = factor_evidence_text(s.get('rating'))
+            ev = factor_evidence_text(s.get('rating'), s.get('strategy_name', ''))
             report_md += f"| `{s['code']}` | **{s['name']}** | {strat_short} | {ev} | **>={s['entry']:.2f}** | *{s['sl']:.2f}* | {tp_str} | {rr_str} |\n"
 
     with open(md_path, 'w', encoding='utf-8') as f:

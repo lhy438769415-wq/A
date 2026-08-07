@@ -419,7 +419,7 @@ def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_thr
                 _dn = StrategyRegistry.get_metadata(strat_type).get('display_name') or strat_type.replace('STRATEGY_', '')
             except Exception:
                 _dn = strat_type.replace('STRATEGY_', '')
-            _ev = factor_evidence_text(_info.get('rating'))
+            _ev = factor_evidence_text(_info.get('rating') if isinstance(_info, dict) else None, strat_type)
             reason_txt = f"{_dn} 结构确认 {_ev}" if _ev else f"{_dn} 结构确认"
 
             res_item, chart_buf, _ = prepare_daily_chart(res, passed=True, reason=reason_txt)
@@ -509,7 +509,7 @@ def _archive_passed_signals(items):
                 entry=info.get('entry', info.get('price', 0)),
                 sl=info.get('sl', 0), tp=info.get('tp1', 0),
                 ev_rating='',  # [P0-5] 不再写经回测证明为噪声的假字母
-                evidence=factor_evidence_text(info.get('rating')),
+                evidence=factor_evidence_text(info.get('rating'), res['type']),
                 signal_date=info.get('signal_date', ''),
                 signal_bar_idx=info.get('signal_bar_idx', -1),
                 rr=info.get('rr', 0), name=res.get('name_cn', '')

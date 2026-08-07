@@ -474,9 +474,26 @@ def factor_evidence_list(rating_dict: dict) -> list:
     return [f.get('name') for f in (rating_dict.get('factors') or []) if f.get('hit')]
 
 
-def factor_evidence_text(rating_dict: dict) -> str:
-    """命中因子拼成 ●证据 串 (用于一行精简格式)。"""
-    return ' '.join(f'●{n}' for n in factor_evidence_list(rating_dict))
+def factor_evidence_text(rating_dict: dict, strategy_type: str = '') -> str:
+    """命中因子拼成 ●证据 串 (用于一行精简格式)。
+
+    [MTR屏蔽] MTR 唯一因子"七维综合评分"为固定废标签(每条信号必带, 无个股差异信息),
+    与图表绘制(_draw_rating_panel, notifier.py:349)对齐 —— 文字证据亦不展示。
+    """
+    if not rating_dict:
+        return ''
+    is_mtr = 'MTR' in (strategy_type or '').upper()
+    parts = []
+    for f in (rating_dict.get('factors') or []):
+        if not f.get('hit'):
+            continue
+        nm = f.get('name')
+        if not nm:
+            continue
+        if is_mtr and nm == '七维综合评分':
+            continue
+        parts.append(f'●{nm}')
+    return ' '.join(parts)
 
 
 def _strat_display(strategy_type: str) -> str:
