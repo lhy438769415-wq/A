@@ -551,41 +551,36 @@ def _count_strategies(cands) -> int:
     return len({p.get('type') or p.get('strategy_name') or 'UNKNOWN' for p in cands})
 
 
-def _select_diverse_charts(ready, max_charts):
-    """[洪流保护·策略多样性] 从已按 signal_chart_key 降序的候选中选出 ≤max_charts 张图,
-    保证每个被发现的策略至少露脸 1 张, 且剩余名额优先给命中数少的策略(小策略先填满),
-    避免单一大策略(如 MTR 批量命中) 把小策略(如 AWIL) 整批挤出图表。
+def _top_per_strategy_charts(candidates, max_per_strategy=10):
+    """[图表选图·每策略 TOP-N] 每个被发现的策略取评分最高的前 max_per_strategy 张图,
+    不设全局总张数上限。
+
+    - 大策略(如 MTR 批量命中 65 只)只出 TOP-N, 其余进文字摘要;
+    - 小策略(如 AWIL 仅 5 只)全部出图, 不会被挤出;
+    - 组内顺序沿用输入顺序(调用方需先按 signal_chart_key 降序), 故取到的是同策略内最优者。
 
     Args:
-        ready: 已按 signal_chart_key 降序的候选列表 (hunter 路径需含 chart_buf; 周线路径为原始信号)
-        max_charts: 单次推送图表上限 (settings.MAX_CHARTS_PER_RUN)
+        candidates: 已按 signal_chart_key 降序的候选列表 (hunter 路径含 chart_buf; 周线路径为原始信号)
+        max_per_strategy: 每策略最多出图数 (settings.MAX_CHARTS_PER_STRATEGY)
     Returns:
-        (selected, overflow): selected 为入选候选(组内保序), overflow 为落选候选
+        (selected, overflow): selected 入选候选(按"小策略在前"拼接, 组内保序),
+                              overflow 为各策略超出 TOP-N 的落选候选(进文字摘要)
     """
-    if len(ready) <= max_charts:
-        return list(ready), []
-
-    # 按策略分组(组内保持降序 = 同策略内优者先出)
     by_strat = {}
-    for p in ready:
+    for p in candidates:
         sn = p.get('type') or p.get('strategy_name') or 'UNKNOWN'
         by_strat.setdefault(sn, []).append(p)
 
-    # 命中数升序: 小策略优先填满(把大策略冗余名额压到最后)
-    strat_order = sorted(by_strat.keys(), key=lambda s: len(by_strat[s]))
-
     selected = []
-    # 第一轮: 每策略保底 1 张
-    for sn in strat_order:
-        if by_strat[sn] and len(selected) < max_charts:
-            selected.append(by_strat[sn].pop(0))
-    # 第二轮: 剩余名额按"小策略先填满"补位
-    for sn in strat_order:
-        while by_strat[sn] and len(selected) < max_charts:
-            selected.append(by_strat[sn].pop(0))
+    overflow = []
+    # 小策略排在前面, 出图顺序更友好(先看到稀有策略)
+    for sn in sorted(by_strat.keys(), key=lambda s: len(by_strat[s])):
+        items = by_strat[sn]
+        if len(items) > max_per_strategy:
+            overflow.extend(items[max_per_strategy:])
+            items = items[:max_per_strategy]
+        selected.extend(items)
 
-    selected_ids = {id(x) for x in selected}
-    overflow = [p for p in ready if id(p) not in selected_ids]
     return selected, overflow
 
 

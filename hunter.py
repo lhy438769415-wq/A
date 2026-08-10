@@ -644,7 +644,7 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
     """
     from tools.notifier import (generate_chart_bytes, send_discord_images, send_discord_message,
                                 factor_evidence_list, factor_evidence_text, signal_chart_key,
-                                _select_diverse_charts, _count_strategies)
+                                _top_per_strategy_charts, _count_strategies)
     
     # 去字母化: top_picks 已是 _compose_report 排出的全量(按策略优先级+因子证据排序)
     if top_picks is None:
@@ -657,8 +657,13 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
         logger.info("📭 无任何标的，跳过图表推送")
         return
     
-    # ① 先为候选生成图表 (按排序键降序遍历)
-    for p in all_chart_candidates:
+    # ① 每策略取 TOP-N (按策略优先级+因子证据已降序), 不设全局上限
+    #    —— 先选图、后生成: 落选的溢出标的只进文字摘要, 不为其生成图(省算力)
+    MAX_PER_STRATEGY = settings.MAX_CHARTS_PER_STRATEGY
+    selected, overflow_candidates = _top_per_strategy_charts(all_chart_candidates, MAX_PER_STRATEGY)
+
+    # ② 仅为入选标的生成图表
+    for p in selected:
         if 'chart_buf' not in p or not p['chart_buf']:
             try:
                 code, name = p['code'], (p.get('name_cn') or fetch_stock_name(p['code']))
@@ -679,26 +684,17 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
             except Exception as e:
                 logger.error(f"❌ 重绘失败 {p['code']}: {e}")
 
-    chart_ready = [p for p in all_chart_candidates if p.get('chart_buf')]
-    if not chart_ready:
+    chart_pool = [p['chart_buf'] for p in selected if p.get('chart_buf')]
+    if not chart_pool:
         logger.info("📭 无任何标的，跳过图表推送")
         return
 
-    # ② 洪流保护 + 策略多样性: 保证每个被发现的策略至少 1 张图, 小策略优先填满
-    MAX_CHARTS = settings.MAX_CHARTS_PER_RUN
-    overflow_candidates = []
-    if len(chart_ready) > MAX_CHARTS:
-        selected, overflow_candidates = _select_diverse_charts(chart_ready, MAX_CHARTS)
-        chart_pool = [p['chart_buf'] for p in selected]
-        logger.warning(
-            f"⚠️ 信号洪流保护: 本次 {len(chart_ready)} 个图表候选(跨 {_count_strategies(chart_ready)} 个策略), "
-            f"仅推送 Top {len(chart_pool)} 张(每策略保底), 其余 {len(overflow_candidates)} 个汇总为文字"
-        )
-    else:
-        chart_pool = [p['chart_buf'] for p in chart_ready]
-
     BATCH_SIZE = 10
-    logger.info(f"📊 信号K线图({len(chart_pool)}张)已推送")
+    logger.info(
+        f"📊 图表选图: 本次 {len(all_chart_candidates)} 候选(跨 {_count_strategies(all_chart_candidates)} 策略), "
+        f"各策略 TOP {MAX_PER_STRATEGY} → 推送 {len(chart_pool)} 张; "
+        f"{len(overflow_candidates)} 只(单策略超 TOP{MAX_PER_STRATEGY})转文字"
+    )
 
     # 去字母化: 不再区分 A+/A 级, 统一按策略优先级推送
     for batch_start in range(0, len(chart_pool), BATCH_SIZE):
@@ -709,13 +705,13 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
         )
     send_discord_message(f"📊 信号K线图({len(chart_pool)}张)已推送")
 
-    # 超量信号聚合为一条文字摘要 (不丢信号, 不刷图; 仅列名(代码), 因子见图表)
+    # 单策略超出 TOP-N 的标的聚合为一条文字摘要 (不丢信号, 不刷图; 仅列名(代码), 因子见图表)
     if overflow_candidates:
         folded = []
         for p in overflow_candidates:
             name = p.get('name_cn') or fetch_stock_name(p['code'])
             folded.append(f"{name}({p['code']})")
-        send_discord_message(f"📝 其余 {len(overflow_candidates)} 只(图略): " + " ".join(folded))
+        send_discord_message(f"📝 其余 {len(overflow_candidates)} 只(单策略超 TOP{MAX_PER_STRATEGY}, 图略): " + " ".join(folded))
 
 
 def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set = None, use_ai: bool = True) -> set:
