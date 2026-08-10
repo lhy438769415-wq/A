@@ -30,7 +30,7 @@ from core.log_config import get_logger
 from tools.notifier import (
     generate_chart_bytes, send_discord_message, send_discord_images, format_push_brief,
     factor_evidence_list, factor_evidence_text, format_signal_one_line,
-    strategy_priority, signal_chart_key
+    strategy_priority, signal_chart_key, _select_diverse_charts
 )
 
 logger = get_logger(__name__)
@@ -617,7 +617,11 @@ def format_push_weekly_gap(results, total_stocks=0):
         # 去字母化: 按策略优先级+因子证据排序取 Top-N (高优先策略恒出图, 去掉仅A+门禁)
         from config import settings
         max_charts = settings.MAX_CHARTS_PER_RUN
-        top_sigs = sorted(sig_gap, key=lambda x: signal_chart_key(x, 'weekly'), reverse=True)[:max_charts]
+        ranked = sorted(sig_gap, key=lambda x: signal_chart_key(x, 'weekly'), reverse=True)
+        if len(ranked) > max_charts:
+            top_sigs, _ = _select_diverse_charts(ranked, max_charts)
+        else:
+            top_sigs = ranked
         chart_label = "📊 **信号 K线图 (按策略优先级)**"
 
         if top_sigs:

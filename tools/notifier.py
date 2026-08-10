@@ -546,6 +546,49 @@ def signal_chart_key(sig: dict, timeframe: str = 'daily'):
     return (prio, hits, score)
 
 
+def _count_strategies(cands) -> int:
+    """去重统计候选涉及的策略数 (用于洪流保护日志)。"""
+    return len({p.get('type') or p.get('strategy_name') or 'UNKNOWN' for p in cands})
+
+
+def _select_diverse_charts(ready, max_charts):
+    """[洪流保护·策略多样性] 从已按 signal_chart_key 降序的候选中选出 ≤max_charts 张图,
+    保证每个被发现的策略至少露脸 1 张, 且剩余名额优先给命中数少的策略(小策略先填满),
+    避免单一大策略(如 MTR 批量命中) 把小策略(如 AWIL) 整批挤出图表。
+
+    Args:
+        ready: 已按 signal_chart_key 降序的候选列表 (hunter 路径需含 chart_buf; 周线路径为原始信号)
+        max_charts: 单次推送图表上限 (settings.MAX_CHARTS_PER_RUN)
+    Returns:
+        (selected, overflow): selected 为入选候选(组内保序), overflow 为落选候选
+    """
+    if len(ready) <= max_charts:
+        return list(ready), []
+
+    # 按策略分组(组内保持降序 = 同策略内优者先出)
+    by_strat = {}
+    for p in ready:
+        sn = p.get('type') or p.get('strategy_name') or 'UNKNOWN'
+        by_strat.setdefault(sn, []).append(p)
+
+    # 命中数升序: 小策略优先填满(把大策略冗余名额压到最后)
+    strat_order = sorted(by_strat.keys(), key=lambda s: len(by_strat[s]))
+
+    selected = []
+    # 第一轮: 每策略保底 1 张
+    for sn in strat_order:
+        if by_strat[sn] and len(selected) < max_charts:
+            selected.append(by_strat[sn].pop(0))
+    # 第二轮: 剩余名额按"小策略先填满"补位
+    for sn in strat_order:
+        while by_strat[sn] and len(selected) < max_charts:
+            selected.append(by_strat[sn].pop(0))
+
+    selected_ids = {id(x) for x in selected}
+    overflow = [p for p in ready if id(p) not in selected_ids]
+    return selected, overflow
+
+
 def _rating_letter(ev_rating):
     """从评级标签字符串提取字母档位 (A+/A/B/C/D)。"""
     if not ev_rating:

@@ -643,7 +643,8 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
     [去字母化] 阶段 4: 为全量信号生成图表并推送, 按策略优先级 + 因子证据排序 (去掉仅 A+/A 出图门禁)
     """
     from tools.notifier import (generate_chart_bytes, send_discord_images, send_discord_message,
-                                factor_evidence_list, factor_evidence_text, signal_chart_key)
+                                factor_evidence_list, factor_evidence_text, signal_chart_key,
+                                _select_diverse_charts, _count_strategies)
     
     # 去字母化: top_picks 已是 _compose_report 排出的全量(按策略优先级+因子证据排序)
     if top_picks is None:
@@ -656,7 +657,7 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
         logger.info("📭 无任何标的，跳过图表推送")
         return
     
-    chart_pool = []
+    # ① 先为候选生成图表 (按排序键降序遍历)
     for p in all_chart_candidates:
         if 'chart_buf' not in p or not p['chart_buf']:
             try:
@@ -678,40 +679,43 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
             except Exception as e:
                 logger.error(f"❌ 重绘失败 {p['code']}: {e}")
 
-        if 'chart_buf' in p and p['chart_buf']:
-            chart_pool.append(p['chart_buf'])
+    chart_ready = [p for p in all_chart_candidates if p.get('chart_buf')]
+    if not chart_ready:
+        logger.info("📭 无任何标的，跳过图表推送")
+        return
 
-    if chart_pool:
-        # 🟢 [P1⑧] 信号洪流保护: 超出上限的图表候选聚合为文字摘要, 不刷屏
-        MAX_CHARTS = settings.MAX_CHARTS_PER_RUN
-        overflow_candidates = []
-        if len(chart_pool) > MAX_CHARTS:
-            overflow_candidates = all_chart_candidates[MAX_CHARTS:]
-            chart_pool = chart_pool[:MAX_CHARTS]
-            logger.warning(
-                f"⚠️ 信号洪流保护: 本次 {len(all_chart_candidates)} 个图表候选, "
-                f"仅推送 Top {len(chart_pool)} 张, 其余 {len(overflow_candidates)} 个汇总为文字"
-            )
+    # ② 洪流保护 + 策略多样性: 保证每个被发现的策略至少 1 张图, 小策略优先填满
+    MAX_CHARTS = settings.MAX_CHARTS_PER_RUN
+    overflow_candidates = []
+    if len(chart_ready) > MAX_CHARTS:
+        selected, overflow_candidates = _select_diverse_charts(chart_ready, MAX_CHARTS)
+        chart_pool = [p['chart_buf'] for p in selected]
+        logger.warning(
+            f"⚠️ 信号洪流保护: 本次 {len(chart_ready)} 个图表候选(跨 {_count_strategies(chart_ready)} 个策略), "
+            f"仅推送 Top {len(chart_pool)} 张(每策略保底), 其余 {len(overflow_candidates)} 个汇总为文字"
+        )
+    else:
+        chart_pool = [p['chart_buf'] for p in chart_ready]
 
-        BATCH_SIZE = 10
-        logger.info(f"📊 信号K线图({len(chart_pool)}张)已推送")
+    BATCH_SIZE = 10
+    logger.info(f"📊 信号K线图({len(chart_pool)}张)已推送")
 
-        # 去字母化: 不再区分 A+/A 级, 统一按策略优先级推送
-        for batch_start in range(0, len(chart_pool), BATCH_SIZE):
-            batch = chart_pool[batch_start:batch_start + BATCH_SIZE]
-            send_discord_images(
-                batch,
-                content="📊 信号K线图"
-            )
-        send_discord_message(f"📊 信号K线图({len(chart_pool)}张)已推送")
+    # 去字母化: 不再区分 A+/A 级, 统一按策略优先级推送
+    for batch_start in range(0, len(chart_pool), BATCH_SIZE):
+        batch = chart_pool[batch_start:batch_start + BATCH_SIZE]
+        send_discord_images(
+            batch,
+            content="📊 信号K线图"
+        )
+    send_discord_message(f"📊 信号K线图({len(chart_pool)}张)已推送")
 
-        # 超量信号聚合为一条文字摘要 (不丢信号, 不刷图; 仅列名(代码), 因子见图表)
-        if overflow_candidates:
-            folded = []
-            for p in overflow_candidates:
-                name = p.get('name_cn') or fetch_stock_name(p['code'])
-                folded.append(f"{name}({p['code']})")
-            send_discord_message(f"📝 其余 {len(overflow_candidates)} 只(图略): " + " ".join(folded))
+    # 超量信号聚合为一条文字摘要 (不丢信号, 不刷图; 仅列名(代码), 因子见图表)
+    if overflow_candidates:
+        folded = []
+        for p in overflow_candidates:
+            name = p.get('name_cn') or fetch_stock_name(p['code'])
+            folded.append(f"{name}({p['code']})")
+        send_discord_message(f"📝 其余 {len(overflow_candidates)} 只(图略): " + " ".join(folded))
 
 
 def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set = None, use_ai: bool = True) -> set:
