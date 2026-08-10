@@ -97,6 +97,9 @@ def _run_with_timeout(func, args=(), kwargs=None, timeout=30, desc="operation"):
 # 最后一个 Worker 的 TCP 握手可能需要 20-31 秒（含重传），20 秒会误杀健康连接
 BS_LOGIN_TIMEOUT = 45
 BS_QUERY_TIMEOUT = 45
+# 🟢 登出超时 (秒)：登出只是清理动作，连接已坏时死等无意义；
+# 进程退出时操作系统会自动回收 socket，放弃登出无副作用。
+BS_LOGOUT_TIMEOUT = 15
 
 # 🟢 登录重试参数
 # 6 Worker 并发 bs.login() 时，最后 1-2 个可能因服务端/VPN 并发限制失败
@@ -161,13 +164,21 @@ def _ensure_login(force=False):
             raise BsConnectionDeadError(msg)
 
 def bs_logout():
-    """显式登出（可选，程序结束时自动调用）"""
+    """显式登出（可选，程序结束时自动调用）
+
+    🛡️ 超时保护（8-10 数据同步卡死事故根因修复）：
+    bs.logout() 底层 send_msg 的 recv 循环无超时，在已损坏/断流的连接上
+    会无限挂起（卡死不抛异常，except Exception 接不住）。加超时兜底：
+    超时/异常则直接放弃登出 —— 进程退出时操作系统自动回收 socket，无副作用。
+    """
     global _bs_logged_in
     if _bs_logged_in:
         try:
-            bs.logout()
-        except Exception:
-            pass
+            _run_with_timeout(bs.logout, timeout=BS_LOGOUT_TIMEOUT, desc="logout")
+        except TimeoutError as e:
+            logger.warning(f"⚠️ Baostock 登出超时，连接已损坏，放弃登出(不影响后续): {e}")
+        except Exception as e:
+            logger.warning(f"⚠️ Baostock 登出异常（忽略，不影响后续）: {type(e).__name__}: {e}")
         _bs_logged_in = False
         logger.info("Baostock 已登出")
 
@@ -323,7 +334,20 @@ def bs_fetch_daily_history(symbol: str, start_date: str, end_date: str) -> Optio
             msg = f"[Baostock] {symbol} 日线查询超时(连接已损坏): {e}"
             logger.error(msg)
             raise BsConnectionDeadError(msg)
-        
+        except (UnicodeDecodeError, AttributeError) as e:
+            # 🛡️ 解码错误/None解引用 = 响应被截断或乱码。
+            # baostock 流式协议靠分隔符切帧，一段乱码意味着后续帧可能全部错位，
+            # 该连接已不可信 → 与超时同等处理（报废连接，触发 Worker 熔断）。
+            msg = f"[Baostock] {symbol} 日线响应损坏(连接不可信): {type(e).__name__}: {e}"
+            logger.warning(msg)
+            raise BsConnectionDeadError(msg)
+
+        if rs is None:
+            # 🛡️ baostock send_msg 吞掉解码错误后返回 None → 视为连接不可信
+            msg = f"[Baostock] {symbol} 日线返回空(响应损坏, 连接不可信)"
+            logger.warning(msg)
+            raise BsConnectionDeadError(msg)
+
         if rs.error_code != '0':
             # 🛡️ 黑名单检测：立即终止，避免继续浪费请求配额
             if '黑名单' in str(rs.error_msg):
@@ -408,7 +432,18 @@ def bs_fetch_weekly_history(symbol: str, start_date: str, end_date: str) -> Opti
             msg = f"[Baostock] {symbol} 周线查询超时(连接已损坏): {e}"
             logger.error(msg)
             raise BsConnectionDeadError(msg)
-        
+        except (UnicodeDecodeError, AttributeError) as e:
+            # 🛡️ 同日线：响应乱码 = 流式协议帧错位风险，连接不可信 → 触发 Worker 熔断
+            msg = f"[Baostock] {symbol} 周线响应损坏(连接不可信): {type(e).__name__}: {e}"
+            logger.warning(msg)
+            raise BsConnectionDeadError(msg)
+
+        if rs is None:
+            # 🛡️ 同日线：baostock 吞掉解码错误后返回 None → 视为连接不可信
+            msg = f"[Baostock] {symbol} 周线返回空(响应损坏, 连接不可信)"
+            logger.warning(msg)
+            raise BsConnectionDeadError(msg)
+
         if rs.error_code != '0':
             if '黑名单' in str(rs.error_msg):
                 raise BsBlacklistedError(f"Baostock 黑名单封禁: {rs.error_msg}")
@@ -475,15 +510,31 @@ def bs_fetch_minute_history(symbol: str, start_date: str, end_date: str,
         if len(end_date) == 8:
             end_date = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:]}"
         
-        rs = bs.query_history_k_data_plus(
-            full_code,
-            "date,time,open,high,low,close,volume",
-            start_date=start_date,
-            end_date=end_date,
-            frequency=freq,
-            adjustflag="2"
-        )
-        
+        # 🛡️ 超时保护：此处此前是唯一裸调 baostock 查询的位置，
+        # 底层 socket recv 无超时可能无限挂起（与 8-10 登出卡死同类隐患）
+        try:
+            rs = _run_with_timeout(
+                bs.query_history_k_data_plus,
+                args=(full_code, "date,time,open,high,low,close,volume"),
+                kwargs=dict(start_date=start_date, end_date=end_date, frequency=freq, adjustflag="2"),
+                timeout=BS_QUERY_TIMEOUT,
+                desc=f"query_minute({symbol},{freq}m)"
+            )
+        except TimeoutError as e:
+            msg = f"[Baostock] {symbol} 分钟线查询超时(连接已损坏): {e}"
+            logger.error(msg)
+            raise BsConnectionDeadError(msg)
+        except (UnicodeDecodeError, AttributeError) as e:
+            # 🛡️ 同日线：响应乱码 = 连接不可信
+            msg = f"[Baostock] {symbol} 分钟线响应损坏(连接不可信): {type(e).__name__}: {e}"
+            logger.warning(msg)
+            raise BsConnectionDeadError(msg)
+
+        if rs is None:
+            msg = f"[Baostock] {symbol} 分钟线返回空(响应损坏, 连接不可信)"
+            logger.warning(msg)
+            raise BsConnectionDeadError(msg)
+
         if rs.error_code != '0':
             logger.warning(f"[Baostock] {symbol} 分钟线查询失败: {rs.error_msg}")
             return None
