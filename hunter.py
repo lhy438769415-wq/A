@@ -204,8 +204,9 @@ def ai_worker(worker_id, analysis_queue, result_queue, stop_event):
     """
     Consumer Thread: Process candidates with DeepSeek
     """
-    # logger.debug(f"🤖 AI Worker {worker_id} started") # Reduced noise
-    
+    logger.debug(f"🤖 AI Worker {worker_id} 启动")  # 仅在 --debug 展开
+
+    _processed = 0
     while not stop_event.is_set() or not analysis_queue.empty():
         try:
             item = analysis_queue.get(timeout=1)
@@ -216,6 +217,9 @@ def ai_worker(worker_id, analysis_queue, result_queue, stop_event):
             code = item['code']
             # Stage 1: Daily
             logger.info(f"   🤖 正在分析: {code} ...")  # 🟢 新增：进度提示
+            _processed += 1
+            if _processed % 10 == 0:
+                logger.debug(f"🤖 审计进度: 已处理 {_processed} 只, 队列剩余 ~{analysis_queue.qsize()}")
             passed_s1, reason_s1 = process_ai_daily(item)
             
             # 🟢 记录 AI 日志 (审计追踪)
@@ -293,11 +297,13 @@ def _scan_market(all_codes, strategies, seen_signals):
     with ThreadPoolExecutor(max_workers=settings.MAX_WORKERS) as executor:
         # 🟢 [修复 ALL 短路] 用 run_scanner_all 返回该股命中的全部策略 (不再首个即返回)
         futures = {executor.submit(run_scanner_all, code, strategies): code for code in all_codes}
-        
+
+        _strat_hits = {}
         for i, future in enumerate(as_completed(futures)):
             scan_count += 1
             if scan_count % 200 == 0:
                 print(f"   ⏳ 扫描: {scan_count}/{len(all_codes)} | 命中: {hit_count}", end='\r')
+                logger.debug(f"⏳ 扫描进度 {scan_count}/{len(all_codes)} | 命中 {hit_count}")
             try:
                 res_list = future.result() or []
                 for res in res_list:
@@ -305,11 +311,12 @@ def _scan_market(all_codes, strategies, seen_signals):
                         continue
                     res['strategy_name'] = res['type']
                     sig_key = f"{res['code']}_{res['type']}"
-                    
+
                     if sig_key in seen_signals:
                         continue
-                        
+
                     hit_count += 1
+                    _strat_hits[res['type']] = _strat_hits.get(res['type'], 0) + 1
                     all_hits.append(res)
                     new_signals.add(sig_key)
             except KeyboardInterrupt:
@@ -317,8 +324,10 @@ def _scan_market(all_codes, strategies, seen_signals):
                 break
             except Exception:
                 continue
-                
+
     print(f"\n✅ 扫描结束. 初步命中: {hit_count}")
+    if DEBUG_MODE:
+        logger.debug("📊 各策略初步命中: " + ", ".join(f"{s}:{n}" for s, n in _strat_hits.items()))
     return all_hits, new_signals
 
 
@@ -753,12 +762,19 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
 
     try:
         # 阶段 1: 扫描
+        logger.debug(f"🔍 阶段1 扫描启动: {len(all_codes)} 只标的 / 激活策略 {len(strategies)} 个")
         all_hits, new_signals = _scan_market(all_codes, strategies, seen_signals)
-        
+        from collections import Counter as _C
+        _hits_by_strat = _C(h.get('strategy') or h.get('strategy_name') or h.get('type') or '?' for h in all_hits)
+        logger.debug(f"📊 阶段1 完成: 命中 {len(all_hits)} 只 -> " +
+                     ", ".join(f"{s}:{n}" for s, n in _hits_by_strat.items()))
+
         logger.info("📂 阶段 2/3 分类信号 + AI 审计")
         direct_picks, final_picks, rejected_list, watchlist, status_changes = _classify_signals(
             all_hits, analysis_queue, result_queue, stop_event, ai_threads, use_ai=use_ai
         )
+        logger.debug(f"📊 阶段2 完成: direct={len(direct_picks)} final={len(final_picks)} "
+                     f"rejected={len(rejected_list)} watchlist={len(watchlist)}")
         
         # 阶段 3: 报告 (V9.16: 统一推送格式, 传入池子总量+策略名)
         top_picks = _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_changes,
@@ -926,7 +942,15 @@ def main():
     parser.add_argument('--track', action='store_true', help='追踪已归档信号的最新状态')
     parser.add_argument('--report', action='store_true', help='输出信号追踪统计报表')
     parser.add_argument('--no-ai', action='store_true', help='旁路(Bypass) DeepSeek AI 审计，全量技术面直通')
+    parser.add_argument('--debug', action='store_true', help='展开详细过程日志(调试用, 默认精简)')
     args = parser.parse_args()
+
+    # --debug: 临时展开详细日志(默认 INFO 精简)。仅降 root 日志级, 各模块 logger.debug 才会输出。
+    if args.debug:
+        global DEBUG_MODE
+        DEBUG_MODE = True
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.debug("🐞 调试模式已开启 (详细过程日志)")
 
     # [P1-6] 重置本次运行摘要, 心跳据此写出真实状态(避免假成功)
     RUN_SUMMARY.clear()

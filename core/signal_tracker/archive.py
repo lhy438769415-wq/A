@@ -16,7 +16,7 @@ from ._shared import logger
 
 def archive_signal(code, strategy, timeframe, entry, sl, tp,
                    ev_rating='', signal_date='', ev_score=None,
-                   rr=0, name='', evidence='', **extra) -> str:
+                   rr=0, name='', evidence='', silent=False, **extra) -> str:
     """
     将新信号写入 signal_archive 表。幂等操作 — 相同 signal_id 不会重复插入。
     
@@ -54,9 +54,13 @@ def archive_signal(code, strategy, timeframe, entry, sl, tp,
             conn.commit()
             
             if conn.total_changes > 0:
-                # 去字母化(P0-5): 终端日志只显示命中因子证据, 不再打印经回测证明为噪声的 A+/A/B/C/D 假字母
-                _log_tail = f" {evidence}" if evidence else ""
-                logger.info(f"📥 信号归档: {name}({code}) [{strategy}/{timeframe}]{_log_tail}")
+                if not silent:
+                    # 去字母化(P0-5): 终端日志只显示命中因子证据, 不再打印经回测证明为噪声的 A+/A/B/C/D 假字母
+                    _log_tail = f" {evidence}" if evidence else ""
+                    logger.info(f"📥 信号归档: {name}({code}) [{strategy}/{timeframe}]{_log_tail}")
+                else:
+                    # 占位写入(watchlist 生命周期登记)静音, 真实策略归档另行打印, 避免重复刷屏
+                    logger.debug(f"信号归档(占位静音): {name}({code}) [{strategy}/{timeframe}]")
             else:
                 logger.debug(f"信号已存在, 跳过: {signal_id}")
             return signal_id

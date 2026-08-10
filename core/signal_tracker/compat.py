@@ -60,7 +60,8 @@ def check_signal_exists(code: str, timeframe: str = 'daily') -> bool:
 
 def add_signal_entry(code: str, entry: float, sl: float, score: float = 0,
                      signal_bar_idx: int = -1, date: str = '',
-                     timeframe: str = 'daily', strategy: str = '') -> str:
+                     timeframe: str = 'daily', strategy: str = '',
+                     silent: bool = False) -> str:
     """
     添加信号记录 (WatchlistManager.add_signal 的兼容接口)。
 
@@ -85,12 +86,13 @@ def add_signal_entry(code: str, entry: float, sl: float, score: float = 0,
     if not strategy:
         strategy = 'UNKNOWN'
 
-    signal_id = archive_signal(
-        code=code, strategy=strategy, timeframe=timeframe,
-        entry=entry, sl=sl, tp=0,
-        signal_date=date, name='',
-        signal_bar_idx=signal_bar_idx, score=score
-    )
+        signal_id = archive_signal(
+            code=code, strategy=strategy, timeframe=timeframe,
+            entry=entry, sl=sl, tp=0,
+            signal_date=date, name='',
+            signal_bar_idx=signal_bar_idx, score=score,
+            silent=silent
+        )
     return signal_id
 
 

@@ -83,10 +83,11 @@ class WatchlistManager:
             date: 信号日期
         """
         from core.signal_tracker import add_signal_entry
+        # silent=True: 占位登记(UNKNOWN/daily)不打印归档日志, 真实策略归档另行打印, 避免重复刷屏
         add_signal_entry(
             code=code, entry=float(entry) if entry else 0.0,
             sl=float(sl) if sl else 0.0, score=float(score) if score else 0.0,
-            signal_bar_idx=int(sb_idx), date=date
+            signal_bar_idx=int(sb_idx), date=date, silent=True
         )
 
     def update_status(self, code, df):
