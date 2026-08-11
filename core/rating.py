@@ -57,7 +57,7 @@ def load_rating_factors(force: bool = False) -> Dict[str, Any]:
         n = len(data.get('strategies', {}))
         # [P0-5] 如实说明: 校准产物已加载, 但字母评级(A+/A/B/C/D)经验证为统计噪声(9/9策略全噪声),
         #         生产不再据其渲染字母; 仅因子命中作证据、按策略历史EV排优先级。避免误导。
-        logger.info(f"[rating] 评级校准产物已加载 ({n} 策略); 字母评级经回测验证为噪声, 不参与输出")
+        logger.debug(f"[rating] 评级校准产物已加载 ({n} 策略); 字母评级经回测验证为噪声, 不参与输出")
     except Exception as e:
         logger.warning(f"[rating] 校准文件加载失败 ({e}), 回退手调阈值")
         _FACTORS_CACHE = {}
