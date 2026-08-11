@@ -774,7 +774,7 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
             all_hits, analysis_queue, result_queue, stop_event, ai_threads, use_ai=use_ai
         )
         logger.debug(f"📊 阶段2 完成: direct={len(direct_picks)} final={len(final_picks)} "
-                     f"rejected={len(rejected_list)} watchlist={len(watchlist)}")
+                     f"rejected={len(rejected_list)} watchlist={len(watchlist.data)}")
         
         # 阶段 3: 报告 (V9.16: 统一推送格式, 传入池子总量+策略名)
         top_picks = _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_changes,
