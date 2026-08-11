@@ -23,7 +23,7 @@ def query_deepseek(prompt: str) -> str:
     """
     # 检查是否为模拟模式
     if not DEEPSEEK_API_KEY or DEEPSEEK_API_KEY.startswith("sk-dummy"):
-        logger.info(f"[MOCK API] Received prompt (length: {len(prompt)})")
+        logger.debug(f"[MOCK API] Received prompt (length: {len(prompt)})")
         # 根据 Prompt 内容返回模拟结果
         if "MISSION CONTEXT" in prompt and "OHLC" not in prompt:
             # 日线海选模拟

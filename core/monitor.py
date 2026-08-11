@@ -61,7 +61,7 @@ class SystemMonitor(threading.Thread):
             return False
 
     def run(self):
-        logger.info("🛡️ System Monitor started")
+        logger.debug("🛡️ System Monitor started")
         while self.running:
             try:
                 # 1. Check Internet

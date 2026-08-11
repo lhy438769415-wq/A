@@ -182,7 +182,7 @@ class StructuralGapStrategy(BaseStrategy):
             try:
                 with open(rules_path, 'r', encoding='utf-8') as f:
                     self.optimized_rules = json.load(f)
-                logger.info(f"Loaded {len(self.optimized_rules)} optimized rules for Structural Gap Strategy.")
+                logger.debug(f"Loaded {len(self.optimized_rules)} optimized rules for Structural Gap Strategy.")
             except Exception as e:
                 logger.error(f"Failed to load optimized rules: {e}")
 
