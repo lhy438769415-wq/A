@@ -140,33 +140,39 @@ def format_guardian_prompt(holding_data):
     sl_price = thesis.get('sl_price', 0)
     tp_price = thesis.get('tp_price', 0)
     strategy = thesis.get('strategy', '未知')
+    # 🟢 展示名统一走注册表 display_name (零硬编码裸策略名), 分支判断仍用身份证号
+    try:
+        from core.strategy_registry import StrategyRegistry
+        _dn = StrategyRegistry.get_metadata(strategy).get('display_name', strategy)
+    except Exception:
+        _dn = strategy
     ev_rating = thesis.get('ev_rating', 'N/A')
     gap_status = thesis.get('gap_status', '未知')
     signal_date = thesis.get('signal_date', '未知')
-    
+
     # 仅取 30 天日线 (持仓管理不需要 60 天)
     ctx = _get_common_context(df, window_size=30)
-    
+
     # 构建交易论据描述 (简洁)
     if 'STRUCTURAL_GAP' in strategy.upper():
         thesis_desc = (
-            f"策略: 结构性突破缺口 | 信号日: {signal_date} | 评级: {ev_rating}\n"
+            f"策略: {_dn} | 信号日: {signal_date} | 评级: {ev_rating}\n"
             f"SL(Gap Floor): {sl_price:.2f} | TP(MM): {tp_price:.2f} | 缺口: {gap_status}"
         )
     elif 'GAP_PINBAR' in strategy.upper() or 'PINBAR' in strategy.upper():
         thesis_desc = (
-            f"策略: Gap+Pinbar(EMA20刺破) | 信号日: {signal_date} | 评级: {ev_rating}\n"
+            f"策略: {_dn} | 信号日: {signal_date} | 评级: {ev_rating}\n"
             f"SL(Gap Floor): {sl_price:.2f} | TP(起涨区间上翻): {tp_price:.2f} | 缺口: {gap_status}"
         )
     elif 'GAP_H2' in strategy.upper() or 'H2' in strategy.upper():
         thesis_desc = (
-            f"策略: Gap+H2(两腿回调) | 信号日: {signal_date} | 评级: {ev_rating}\n"
+            f"策略: {_dn} | 信号日: {signal_date} | 评级: {ev_rating}\n"
             f"SL(Gap Floor): {sl_price:.2f} | TP(起涨区间上翻): {tp_price:.2f} | 缺口: {gap_status}"
         )
     elif '3K' in strategy.upper():
-        thesis_desc = f"策略: 3K动能突破 | 信号日: {signal_date} | SL: {sl_price:.2f} | TP: {tp_price:.2f}"
+        thesis_desc = f"策略: {_dn} | 信号日: {signal_date} | SL: {sl_price:.2f} | TP: {tp_price:.2f}"
     elif 'MTR' in strategy.upper():
-        thesis_desc = f"策略: MTR反转 | 信号日: {signal_date} | SL: {sl_price:.2f} | TP: {tp_price:.2f}"
+        thesis_desc = f"策略: {_dn} | 信号日: {signal_date} | SL: {sl_price:.2f} | TP: {tp_price:.2f}"
     else:
         thesis_desc = f"成本: {cost:.2f} | SL: {sl_price:.2f} | TP: {tp_price:.2f}"
     

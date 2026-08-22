@@ -226,7 +226,7 @@ class TestAWILSignal:
         for key in required_keys:
             assert key in meta, f"元数据缺少字段: {key}"
         assert meta['signal_column'] == 'signal_awil'
-        assert meta['display_name'] == 'AWIL趋势'
+        assert meta['display_name'] == 'AIL'
 
 
 class TestAWILRegistration:

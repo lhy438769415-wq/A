@@ -86,13 +86,13 @@ def add_signal_entry(code: str, entry: float, sl: float, score: float = 0,
     if not strategy:
         strategy = 'UNKNOWN'
 
-        signal_id = archive_signal(
-            code=code, strategy=strategy, timeframe=timeframe,
-            entry=entry, sl=sl, tp=0,
-            signal_date=date, name='',
-            signal_bar_idx=signal_bar_idx, score=score,
-            silent=silent
-        )
+    signal_id = archive_signal(
+        code=code, strategy=strategy, timeframe=timeframe,
+        entry=entry, sl=sl, tp=0,
+        signal_date=date, name='',
+        signal_bar_idx=signal_bar_idx, score=score,
+        silent=silent
+    )
     return signal_id
 
 

@@ -36,8 +36,13 @@ def _prepare_df(code: str) -> Optional[pd.DataFrame]:
     return df
 
 
-def _build_hit(code: str, strat, df_strat: pd.DataFrame) -> Dict[str, Any]:
-    """[共享] 由已算信号的 df_strat 构造单策略命中结果 dict. 不检查信号, 调用方负责."""
+def _build_hit(code: str, strat, df_strat: pd.DataFrame, strategy_key: str = '') -> Dict[str, Any]:
+    """[共享] 由已算信号的 df_strat 构造单策略命中结果 dict. 不检查信号, 调用方负责.
+
+    strategy_key: 注册表 key (如 MTR_MASTER/STRATEGY_3K). 优先作为 type 字段值,
+                  保证下游 (priority/sig_key/归档) 拿到稳定身份证号, 而非 strat.name
+                  (MTR 的 .name=MTR_V35_STRUCTURAL 与 key 不一致, 历史坑).
+    """
     # P1: 使用策略自描述接口替代硬编码列映射
     signal_info = strat.get_signal_info(df_strat)
 
@@ -103,7 +108,7 @@ def _build_hit(code: str, strat, df_strat: pd.DataFrame) -> Dict[str, Any]:
 
     return {
         'code': code,
-        'type': strat.name,
+        'type': strategy_key or strat.name,
         'info': {
             'price': row['close'],
             'entry': row.get('entry_price', row['close']),
@@ -111,7 +116,7 @@ def _build_hit(code: str, strat, df_strat: pd.DataFrame) -> Dict[str, Any]:
             'tp1': row.get('tp1_price', 0),
             'tp2': row.get('tp2_price', 0),
             'atr': row.get('atr', 1),
-            'type': strat.name,
+            'type': strategy_key or strat.name,
             'score': extra_info.get('score', row.get('mtr_score', 0) if 'mtr_score' in row else 0),
             # 🟢 [Bugfix] 非 MTR 策略用信号K线日期作为稳定去重标识，避免 -1 导致 Watchlist 永久屏蔽
             'signal_bar_idx': int(row['mtr_signal_bar_idx']) if ('mtr_signal_bar_idx' in row and row['mtr_signal_bar_idx'] == row['mtr_signal_bar_idx']) else (int(pd.Timestamp(row['date']).strftime('%Y%m%d')) if 'date' in row.index and pd.notna(row['date']) else -1),
@@ -140,8 +145,9 @@ def run_scanner(code: str, strategy_name: str = 'MTR_MASTER') -> Optional[Dict[s
             df_strat = strat.calculate_signals(df.copy())
             latest_signal = df_strat.iloc[-1][strat.signal_column]
             if latest_signal:
-                logger.info(f"✨ 策略命中 [{strat.name}]: {code}")
-                return _build_hit(code, strat, df_strat)
+                display_name = StrategyRegistry.get_metadata(name).get('display_name', strat.name)
+                logger.info(f"✨ 策略命中 [{display_name}]: {code}")
+                return _build_hit(code, strat, df_strat, name)
         except Exception as e:
             logger.warning(f"Strategy {name} error for {code}: {e}")
             continue
@@ -168,8 +174,9 @@ def run_scanner_all(code: str, strategy_names: Optional[List[str]] = None) -> Li
             df_strat = strat.calculate_signals(df.copy())
             latest_signal = df_strat.iloc[-1][strat.signal_column]
             if latest_signal:
-                logger.info(f"✨ 策略命中 [{strat.name}]: {code}")
-                hits.append(_build_hit(code, strat, df_strat))
+                display_name = StrategyRegistry.get_metadata(name).get('display_name', strat.name)
+                logger.info(f"✨ 策略命中 [{display_name}]: {code}")
+                hits.append(_build_hit(code, strat, df_strat, name))
         except Exception as e:
             logger.warning(f"Strategy {name} error for {code}: {e}")
             continue

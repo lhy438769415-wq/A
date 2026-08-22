@@ -49,7 +49,7 @@ class MTRStrategy(BaseStrategy):
     def get_metadata(cls) -> Dict[str, Any]:
         """MTR 策略元数据声明"""
         return {
-            'display_name': 'MTR反转',
+            'display_name': 'MTR',
             'sl_column': 'sl_price',
             'entry_column': 'entry_price',
             'tp_columns': ['tp1_price', 'tp2_price'],

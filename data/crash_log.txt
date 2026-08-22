@@ -1,0 +1,54 @@
+
+[2026-08-11 21:38:06] CRASH
+Traceback (most recent call last):
+  File "d:\life\Trading view\_Project_A\Data_from_Akshare\debugV7.1_for_workbuddy\hunter.py", line 1293, in <module>
+    main()
+    ~~~~^^
+  File "d:\life\Trading view\_Project_A\Data_from_Akshare\debugV7.1_for_workbuddy\hunter.py", line 1203, in main
+    new_signals = run_pipeline_once(all_codes, strategies=active_strategies, use_ai=use_ai)
+  File "d:\life\Trading view\_Project_A\Data_from_Akshare\debugV7.1_for_workbuddy\hunter.py", line 777, in run_pipeline_once
+    f"rejected={len(rejected_list)} watchlist={len(watchlist)}")
+                                               ~~~^^^^^^^^^^^
+TypeError: object of type 'WatchlistManager' has no len()
+
+============================================================
+[2026-08-13 19:37:03] 收到外部停止信号 SIGINT (signum=2)
+  当时停在: d:/fake/hunter.py:858 in check_database_health()
+  说明: 这个信号不是 Python 自己发的. 来源可能是:
+    - 你(或别人)按了 Ctrl+C
+    - VSCode 集成终端/杀软/任务管理器发的
+    - PowerShell 或运行环境的超时器
+  排查: 把上面 '当时停在' 这一行贴给我即可定位
+------------------------------------------------------------
+[2026-08-14 22:50:31] 收到外部停止信号 SIGINT (signum=2)
+  当时停在: d:\life\Trading view\_Project_A\Data_from_Akshare\debugV7.1_for_workbuddy\hunter.py:1129 in main()
+  说明: 这个信号不是 Python 自己发的. 来源可能是:
+    - 你(或别人)按了 Ctrl+C
+    - VSCode 集成终端/杀软/任务管理器发的
+    - PowerShell 或运行环境的超时器
+  排查: 把上面 '当时停在' 这一行贴给我即可定位
+------------------------------------------------------------
+[2026-08-14 22:50:43] 收到外部停止信号 SIGINT (signum=2)
+  当时停在: d:\life\Trading view\_Project_A\Data_from_Akshare\debugV7.1_for_workbuddy\hunter.py:1250 in main()
+  说明: 这个信号不是 Python 自己发的. 来源可能是:
+    - 你(或别人)按了 Ctrl+C
+    - VSCode 集成终端/杀软/任务管理器发的
+    - PowerShell 或运行环境的超时器
+  排查: 把上面 '当时停在' 这一行贴给我即可定位
+------------------------------------------------------------
+[2026-08-17 19:50:52] 收到外部停止信号 SIGINT (signum=2)
+  当时停在: d:\life\Trading view\_Project_A\Data_from_Akshare\debugV7.1_for_workbuddy\hunter.py:957 in check_database_health()
+  说明: 这个信号不是 Python 自己发的. 来源可能是:
+    - 你(或别人)按了 Ctrl+C
+    - VSCode 集成终端/杀软/任务管理器发的
+    - PowerShell 或运行环境的超时器
+  排查: 把上面 '当时停在' 这一行贴给我即可定位
+------------------------------------------------------------
+[2026-08-17 19:53:31] 收到外部停止信号 SIGINT (signum=2)
+  当时停在: d:\life\Trading view\_Project_A\Data_from_Akshare\debugV7.1_for_workbuddy\hunter.py:957 in check_database_health()
+  说明: 这个信号不是 Python 自己发的. 来源可能是:
+    - 你(或别人)按了 Ctrl+C
+    - VSCode 集成终端/杀软/任务管理器发的
+    - PowerShell 或运行环境的超时器
+  排查: 把上面 '当时停在' 这一行贴给我即可定位
+------------------------------------------------------------

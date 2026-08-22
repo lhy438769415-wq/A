@@ -117,7 +117,7 @@ class TestMTRMetadata(unittest.TestCase):
         self.meta = MTRStrategy.get_metadata()
 
     def test_display_name(self):
-        self.assertEqual(self.meta['display_name'], 'MTR反转')
+        self.assertEqual(self.meta['display_name'], 'MTR')
 
     def test_sl_column(self):
         self.assertEqual(self.meta['sl_column'], 'sl_price')
@@ -146,7 +146,7 @@ class TestThreeKMetadata(unittest.TestCase):
         self.meta = ThreeKStrategy.get_metadata()
 
     def test_display_name(self):
-        self.assertEqual(self.meta['display_name'], '3K动能')
+        self.assertEqual(self.meta['display_name'], '3K')
 
     def test_sl_column(self):
         self.assertEqual(self.meta['sl_column'], 'sl_3k_gap_test')
@@ -205,7 +205,7 @@ class TestGapPinbarMetadata(unittest.TestCase):
         self.meta = GapPinbarStrategy.get_metadata()
 
     def test_display_name(self):
-        self.assertEqual(self.meta['display_name'], 'GAP Pinbar')
+        self.assertEqual(self.meta['display_name'], 'GAP PINBAR')
 
     def test_sl_column(self):
         self.assertEqual(self.meta['sl_column'], 'sl_gap_pinbar')
@@ -263,12 +263,12 @@ class TestStrategyRegistryMetadata(unittest.TestCase):
     def test_get_metadata_mtr(self):
         from core.strategy_registry import StrategyRegistry
         meta = StrategyRegistry.get_metadata('MTR_MASTER')
-        self.assertEqual(meta['display_name'], 'MTR反转')
+        self.assertEqual(meta['display_name'], 'MTR')
 
     def test_get_metadata_3k(self):
         from core.strategy_registry import StrategyRegistry
         meta = StrategyRegistry.get_metadata('STRATEGY_3K')
-        self.assertEqual(meta['display_name'], '3K动能')
+        self.assertEqual(meta['display_name'], '3K')
 
     def test_get_metadata_structural_gap(self):
         from core.strategy_registry import StrategyRegistry
@@ -278,7 +278,7 @@ class TestStrategyRegistryMetadata(unittest.TestCase):
     def test_get_metadata_gap_pinbar(self):
         from core.strategy_registry import StrategyRegistry
         meta = StrategyRegistry.get_metadata('STRATEGY_GAP_PINBAR')
-        self.assertEqual(meta['display_name'], 'GAP Pinbar')
+        self.assertEqual(meta['display_name'], 'GAP PINBAR')
 
     def test_get_metadata_gap_h2(self):
         from core.strategy_registry import StrategyRegistry
@@ -289,13 +289,13 @@ class TestStrategyRegistryMetadata(unittest.TestCase):
         """验证别名模糊匹配也能获取元数据"""
         from core.strategy_registry import StrategyRegistry
         meta = StrategyRegistry.get_metadata('MTR_V35')
-        self.assertEqual(meta['display_name'], 'MTR反转')
+        self.assertEqual(meta['display_name'], 'MTR')
 
     def test_get_metadata_alias_3k(self):
         """验证别名模糊匹配也能获取元数据"""
         from core.strategy_registry import StrategyRegistry
         meta = StrategyRegistry.get_metadata('3K')
-        self.assertEqual(meta['display_name'], '3K动能')
+        self.assertEqual(meta['display_name'], '3K')
 
 
 class TestStrategyRegistryTimeframe(unittest.TestCase):

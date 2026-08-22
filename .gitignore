@@ -107,3 +107,6 @@ calibration_*.log
 calibration_*.jsonl
 config/rating_factors_*.json
 phase2_closeout_diff.txt
+
+# Ruff 缓存
+.ruff_cache/

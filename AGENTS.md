@@ -38,6 +38,7 @@ L5 基础 → database (SQLite WAL) / data_provider (Baostock 离线)
 - ❌ 禁止新增 sys.path.insert (使用 core/paths.py)
 - ❌ 禁止新增 logging.basicConfig (使用 core/log_config.py)
 - ❌ 禁止未读源码就断言代码现状/日志体量/程序行为 (须 grep/read 带行号或实测, 严禁凭印象臆想具体数字或触发范围)
+- ❌ 禁止未经用户在本条消息明确许可，对 `data/*.db*`（含 .db/.db-wal/.db-shm）做任何复制/备份/移动/删除，亦不得触发平台"改前自动备份"；详细铁律与"无人看管不跑数据重活"约定见 `DATA_SAFETY.md`
 
 ## 数据库结构冻结（Schema 保护）— 最高优先级
 

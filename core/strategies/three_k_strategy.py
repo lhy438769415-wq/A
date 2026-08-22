@@ -52,7 +52,7 @@ class ThreeKStrategy(BaseStrategy):
     def get_metadata(cls) -> Dict[str, Any]:
         """3K 策略元数据声明"""
         return {
-            'display_name': '3K动能',
+            'display_name': '3K',
             'sl_column': 'sl_3k_gap_test',
             'entry_column': 'entry_3k_gap_test',
             'tp_columns': ['tp_3k_gap_test'],

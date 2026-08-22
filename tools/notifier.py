@@ -506,13 +506,10 @@ def _strat_display(strategy_type: str) -> str:
     return _dn or strategy_type.replace('STRATEGY_', '').replace('MTR_MASTER', 'MTR')
 
 
-def format_signal_one_line(code, name, strategy_type, info: dict, timeframe: str = 'daily') -> str:
-    """去字母化后的统一一行精简格式 (取代 format_signal_line 的双行 vs 单行分级)。
+def extract_rr(info: dict) -> float:
+    """从信号 info 提取盈亏比 R (盈利÷亏损绝对比值); 缺失时由 entry/sl/tp1 反算。
 
-    形态: • 名(代码) | R=XX
-    - 价格串(入场/止损/止盈)整体移除, 仅保留盈亏比 R(盈利÷亏损绝对比值)
-    - 因子标签(●xxx)移除: 图上已绘制(见 _draw_rating_panel); MTR 固定废标签亦已在图上屏蔽
-    - [策略简名]移除: 段落标题已标注策略
+    供 format_signal_one_line 与清单网格图复用, 避免重复算法。
     """
     rr = info.get('rr', 0) or 0
     if rr == 0:
@@ -523,10 +520,89 @@ def format_signal_one_line(code, name, strategy_type, info: dict, timeframe: str
             risk = entry - sl
             if risk > 0:
                 rr = round((tp1 - entry) / risk, 1)
+    return rr
+
+
+def format_signal_one_line(code, name, strategy_type, info: dict, timeframe: str = 'daily') -> str:
+    """去字母化后的统一一行精简格式 (取代 format_signal_line 的双行 vs 单行分级)。
+
+    形态: • 名(代码) | R=XX
+    - 价格串(入场/止损/止盈)整体移除, 仅保留盈亏比 R(盈利÷亏损绝对比值)
+    - 因子标签(●xxx)移除: 图上已绘制(见 _draw_rating_panel); MTR 固定废标签亦已在图上屏蔽
+    - [策略简名]移除: 段落标题已标注策略
+    """
+    rr = extract_rr(info)
     line = f"• {name}({code})"
     if rr > 0:
         line += f" | R={rr:.1f}"
     return line
+
+
+def generate_list_grid_image(rows, title="", cols=4, max_rows_per_page=30):
+    """画深色网格图清单 (替代"每只股票占一行"的文字列表), 用于 Discord 推送。
+
+    每只股票一个小格, 每行 cols 个横向并排, 填满宽度、不翻页; 超 max_rows_per_page 行自动分页。
+    返回 list[BytesIO] (与 generate_chart_bytes 返回格式一致, 可直接喂 send_discord_images);
+    rows 为空返回 []。
+
+    Args:
+        rows: list of [code:str, name:str, rr:float] (已按优先级降序)
+        title: 图内标题 (如 "MTR (16只)")
+        cols: 每行列数 (默认 4)
+        max_rows_per_page: 单图最大行数, 超过自动分页成多张
+    """
+    if not rows:
+        return []
+    import io
+    # 字体 (与 generate_chart_bytes 一致, 防中文乱码)
+    rc_params = {'font.family': 'SimHei', 'axes.unicode_minus': False}
+    if os.path.exists(FONT_PATH):
+        try:
+            fm.fontManager.addfont(FONT_PATH)
+            prop = fm.FontProperties(fname=FONT_PATH)
+            rc_params['font.family'] = prop.get_name()
+        except Exception:
+            pass
+    plt.rcParams.update(rc_params)
+
+    cell_w = 2.6          # 英寸/格宽
+    cell_h = 0.5          # 英寸/格高
+    title_h = 0.45        # 标题区高度
+    per_page = cols * max_rows_per_page
+    pages = [rows[i:i + per_page] for i in range(0, len(rows), per_page)]
+    bufs = []
+    total = len(rows)
+    for pi, page in enumerate(pages):
+        nrows = (len(page) + cols - 1) // cols
+        fig_w = cell_w * cols
+        fig_h = title_h + cell_h * nrows
+        fig = plt.figure(figsize=(fig_w, fig_h), facecolor='#2b2d31')
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.axis('off')
+        ax.set_xlim(0, cols)
+        ax.set_ylim(-0.5, nrows + 1)
+        ax.text(0.02, nrows + 0.5, strip_emoji(title), color='#f2f3f5',
+                fontsize=13, fontweight='bold', va='center', ha='left')
+        for idx, (code, name, rr) in enumerate(page):
+            rrow = nrows - 1 - (idx // cols)
+            ccol = idx % cols
+            bg = '#383a40' if (rrow % 2 == 0) else '#33353b'
+            ax.add_patch(Rectangle((ccol, rrow), 1, 1, facecolor=bg,
+                                   edgecolor='#2b2d31', lw=1.5))
+            rstr = f" R{rr:.1f}" if rr else ""
+            label = f"{code} {name}{rstr}"
+            ax.text(ccol + 0.06, rrow + 0.5, strip_emoji(label), color='#dbdee1',
+                    fontsize=9, va='center', ha='left')
+        if len(pages) > 1:
+            note = f"第 {pi+1}/{len(pages)} 页 · 共 {total} 只"
+            ax.text(cols - 0.02, -0.3, note, color='#7d8288',
+                    fontsize=8, va='center', ha='right')
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', facecolor=fig.get_facecolor(), dpi=130)
+        plt.close(fig)
+        buf.seek(0)
+        bufs.append(buf)
+    return bufs
 
 
 def signal_chart_key(sig: dict, timeframe: str = 'daily'):
@@ -616,7 +692,7 @@ def format_push_brief(signals, group_key='phase', order=None):
     Returns:
         str: 多行简报, 例如
             GAP H1 (4)  A+：600519 ｜ A：601012 ｜ B：002304、002415
-            3K动能 (3)  缺口确认：600519、601012 ｜ 新雏形：002304
+            3K (3)  缺口确认：600519、601012 ｜ 新雏形：002304
     """
     if not signals:
         return "💤 本次未发现信号"

@@ -65,7 +65,7 @@ def _get_strategy_cols(strategy_name: str) -> dict:
     try:
         meta = StrategyRegistry.get_metadata(strategy_name)
     except Exception as e:
-        logger.debug(f"[{strategy_name}] 获取策略列映射失败: {e}")
+        logger.debug(f"[{StrategyRegistry.get_metadata(strategy_name).get('display_name', strategy_name)}] 获取策略列映射失败: {e}")
         return {}
 
     tp_cols = meta.get('tp_columns', [])
@@ -294,7 +294,7 @@ def scan_single_code_weekly(code: str, signal_lookback: int = 60, strategies: li
                 try:
                     _rating = strategy.compute_rating(df_strat, timeframe='weekly')
                 except Exception as _e:
-                    logging.warning(f"compute_rating failed for {strat_name} {code}: {_e}")
+                    logging.warning(f"compute_rating failed for {StrategyRegistry.get_metadata(strat_name).get('display_name', strat_name)} {code}: {_e}")
                     _rating = None
                 if _rating is not None:
                     ev_score = _rating.raw_score
@@ -436,7 +436,7 @@ def scan_weekly_3k_signals(all_codes: list, recent_weeks: int = 4) -> dict:
                 try:
                     _rating = strategy.compute_rating(df, timeframe='weekly')
                 except Exception as _e:
-                    logging.warning(f"compute_rating failed for STRATEGY_3K {code}: {_e}")
+                    logging.warning(f"compute_rating failed for {StrategyRegistry.get_metadata('STRATEGY_3K').get('display_name', 'STRATEGY_3K')} {code}: {_e}")
                     _rating = None
                 if _rating is not None:
                     ev_score = _rating.raw_score

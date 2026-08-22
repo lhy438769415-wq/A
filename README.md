@@ -24,7 +24,6 @@ hunter.py (主入口)
 ├── hunter.py                ← 统一主入口 (日线/周线扫描)
 ├── README.md
 ├── requirements.txt
-├── setup.bat
 │
 ├── core/                    ← 核心引擎
 │   ├── calculator.py        技术指标计算 (向量化)

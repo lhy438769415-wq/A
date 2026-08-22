@@ -15,11 +15,62 @@ import psutil
 import gc
 import queue
 import threading
+import signal
 import re
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
+
+# ===== 死亡记录仪 (2026-08-13 初建 / 2026-08-18 提前至 import 前) =====
+# 目的: 排查 "程序没按 Ctrl+C 却自己退出" 问题. 收到外部 SIGINT/SIGTERM 时,
+#       第一时间把"几点几分 + 卡在哪个文件哪一行哪个函数"写进 data/crash_log.txt,
+#       再走 Python 默认 KeyboardInterrupt 流程, 不改变既有行为.
+# 触发: VSCode PowerShell 终端 / 杀软 / 任务管理器 / 超时器等任何外部信号源.
+# 2026-08-18 修复盲区: 原先装在 main() 内(所有 import 之后), import sqlite3 等
+#       阶段发生的 SIGINT 漏录. 现提前到一切重型/项目 import 之前上岗.
+def _sigint_death_recorder(signum, frame):
+    try:
+        import os as _os
+        from datetime import datetime as _dt
+        sig_name = signal.Signals(signum).name if hasattr(signal, 'Signals') else str(signum)
+        loc = f"{frame.f_code.co_filename}:{frame.f_lineno} in {frame.f_code.co_name}()"
+        ts = _dt.now().strftime('%Y-%m-%d %H:%M:%S')
+        log_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'data', 'crash_log.txt')
+        _os.makedirs(_os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, 'a', encoding='utf-8') as _f:
+            _f.write(f"[{ts}] 收到外部停止信号 {sig_name} (signum={signum})\n")
+            _f.write(f"  当时停在: {loc}\n")
+            _f.write(f"  说明: 这个信号不是 Python 自己发的. 来源可能是:\n")
+            _f.write(f"    - 你(或别人)按了 Ctrl+C\n")
+            _f.write(f"    - VSCode 集成终端/杀软/任务管理器发的\n")
+            _f.write(f"    - PowerShell 或运行环境的超时器\n")
+            _f.write(f"  排查: 把上面 '当时停在' 这一行贴给我即可定位\n")
+            _f.write('-' * 60 + '\n')
+    except Exception:
+        pass
+    raise KeyboardInterrupt()
+
+
+def _install_death_recorder():
+    """在主线程注册 SIGINT/SIGTERM 处理.
+    2026-08-18 起改为模块顶层早装(在一切重型/项目 import 之前),
+    以覆盖 import sqlite3 阶段的 SIGINT 盲区.
+    测试脚本 import 本模块时也会在主线程执行到此, 但仅注册 handler,
+    不改变任何运行时行为, 故对测试无害.
+    """
+    try:
+        signal.signal(signal.SIGINT, _sigint_death_recorder)
+        if hasattr(signal, 'SIGTERM'):
+            signal.signal(signal.SIGTERM, _sigint_death_recorder)
+    except (ValueError, OSError):
+        # 非主线程调用时 signal.signal 会抛 ValueError, 静默跳过
+        pass
+
+
+# 早装: 必须在一切重型/项目 import 之前上岗, 否则 import sqlite3 等阶段的
+#       SIGINT 仍会漏录(这正是每日首跑报错"看不见"的根因).
+_install_death_recorder()
 
 from core.log_config import get_logger
 
@@ -444,7 +495,12 @@ def _classify_signals(all_hits, analysis_queue, result_queue, stop_event, ai_thr
     if not use_ai:
         # 如果不启用 AI，所有本来要走 AI 的信号，全部变成技术面直通
         for res in ai_candidates_raw:
-            reason_txt = f"[{res.get('type')}] 技术面信号 (AI 审计已关闭)"
+            _type_key = res.get('type', '')
+            try:
+                _dn = StrategyRegistry.get_metadata(_type_key).get('display_name') or _type_key
+            except Exception:
+                _dn = _type_key or '?'
+            reason_txt = f"[{_dn}] 技术面信号 (AI 审计已关闭)"
             res_item, chart_buf, _ = prepare_daily_chart(res, passed=True, reason=reason_txt)
             if chart_buf:
                 res_item['chart_buf'] = chart_buf
@@ -570,7 +626,8 @@ def _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_
     from collections import OrderedDict
     from core.strategy_registry import StrategyRegistry
     from tools.notifier import (format_signal_one_line, strategy_priority,
-                                 signal_chart_key)
+                                 signal_chart_key, extract_rr,
+                                 generate_list_grid_image, send_discord_images)
 
     def _sn(p):
         st = p.get('type', 'MTR')
@@ -602,33 +659,41 @@ def _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_
     msg_lines.append(f"🎯 命中 {total_hits} 只")
     if strategy_names:
         # 🟢 用激活策略名单补齐 0 命中项, 让交易员知道"扫了但今日无符合"
+        #   0 命中用 ":0" 表达, 不再写"今日无符合"后缀; 全策略压成一行省屏
         count_by_sn = {sn: len(ps) for sn, ps in groups.items()}
         ordered_keys = sorted(set(strategy_names),
                               key=lambda s: strategy_priority(s, 'daily'),
                               reverse=True)
+        parts = []
         for skey in ordered_keys:
             try:
                 dname = StrategyRegistry.get_metadata(skey).get('display_name') or skey
             except Exception:
                 dname = skey.replace('STRATEGY_', '').replace('_MASTER', '')
             cnt = count_by_sn.get(dname, 0)
-            note = "" if cnt > 0 else "  (今日无符合)"
-            msg_lines.append(f"   • {dname}: {cnt} 只{note}")
+            parts.append(f"{dname}:{cnt}")
+        msg_lines.append(" · ".join(parts))
     else:
-        for sn, ps in ranked:
-            msg_lines.append(f"   • {sn}: {len(ps)} 只")
+        parts = [f"{sn}:{len(ps)}" for sn, ps in ranked]
+        msg_lines.append(" · ".join(parts))
     msg_lines.append("")
 
-    # ===== ③ 每条信号一行精简 (全推送, 不按字母筛) =====
+    # ===== ③ 每策略一张网格图 (替代"每只一行"文字, 横排填满不翻页) =====
+    #   0 命中策略不在 ranked 中, 自然不出图; 仅统计区标 :0
+    grid_bufs = []
     for sn, ps in ranked:
-        msg_lines.append(f"📌 **{sn} ({len(ps)}只)**:")
         ps_sorted = sorted(ps, key=lambda x: (x.get('info', {}).get('rating') or {}).get('score', 0), reverse=True)
+        rows = []
         for p in ps_sorted:
             code = p['code']
             name = p.get('name_cn') or fetch_stock_name(code)
             info = p.get('info', {})
-            msg_lines.append(format_signal_one_line(code, name, p.get('type', 'MTR'), info, timeframe='daily'))
-        msg_lines.append("")
+            rows.append([code, name, extract_rr(info)])
+        try:
+            bufs = generate_list_grid_image(rows, title=f"{sn} ({len(ps)}只)", cols=4)
+            grid_bufs.extend(bufs)
+        except Exception as e:
+            logger.error(f"❌ 网格图生成失败 {sn}: {e}")
 
     if total_hits == 0:
         msg_lines.append("  (无新增信号)")
@@ -642,6 +707,10 @@ def _compose_report(direct_picks, final_picks, rejected_list, watchlist, status_
 
     summary_text = "\n".join(msg_lines)
     send_discord_message(summary_text)
+
+    # ③ 清单网格图: 文字消息后紧接发送 (Discord 自动排网格, 每批≤10张)
+    if grid_bufs:
+        send_discord_images(grid_bufs, content="📋 信号清单")
 
     # 🟢 返回图表推送候选列表供 _dispatch_charts 使用
     return chart_candidates
@@ -825,6 +894,33 @@ def _check_data_freshness():
     return msgs
 
 
+def _load_db_baseline():
+    """读取上次启动时记录的数据库文件大小基准 (用于快速判断库有没有被动过)"""
+    import json, os
+    baseline_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'db_baseline.json')
+    try:
+        with open(baseline_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _save_db_baseline(size_bytes, mtime):
+    """保存数据库文件大小基准 (仅在确认数据库健康时调用)"""
+    import json, os
+    from datetime import datetime
+    baseline_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'db_baseline.json')
+    try:
+        with open(baseline_path, 'w', encoding='utf-8') as f:
+            json.dump({
+                'size': size_bytes,
+                'mtime': mtime,
+                'ts': datetime.now().isoformat(timespec='seconds')
+            }, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
 def check_database_health():
     """[P0-4] 启动数据库自检: 防空库/错位库静默运行 (由 07-26 评审事故暴露)。
 
@@ -834,6 +930,8 @@ def check_database_health():
 
     设计: 严重问题绝不调用 sys.exit 封死程序, 否则用户无法进入主菜单[4]数据同步
           自助修复 (评审 P1-5)。滞后 N 天 (如长假/周末未同步) 归为 warn, 不阻断。
+    优化 (2026-08-13): 文件大小与上次一致时跳过 COUNT(*), 省 3 秒; 只在无 fatal 时
+          更新基准, 保证基准只在"确认健康"时建立。
     """
     import os
     from config import settings
@@ -854,16 +952,27 @@ def check_database_health():
         # ③ 行数 + ④ 新鲜度
         try:
             from core.database import get_db_connection
+            print("  🔍 正在检查数据库健康...", flush=True)
+            # 文件大小基准对比: 大小没变 = 库没被动过 → 跳过 COUNT(*) 省 3 秒
+            baseline = _load_db_baseline()
+            size_unchanged = baseline is not None and baseline.get('size') == size
             with get_db_connection() as conn:
-                cnt = conn.execute('SELECT COUNT(*) FROM daily_bars').fetchone()[0]
-                if cnt < MIN_ROWS:
-                    fatal.append(f"daily_bars 仅 {cnt:,} 行 (< 100万), 数据不完整")
+                if size_unchanged:
+                    logger.debug("数据库文件大小与上次一致 (%d bytes), 跳过 COUNT(*)", size)
+                else:
+                    cnt = conn.execute('SELECT COUNT(*) FROM daily_bars').fetchone()[0]
+                    if cnt < MIN_ROWS:
+                        fatal.append(f"daily_bars 仅 {cnt:,} 行 (< 100万), 数据不完整")
+                # 查最新日期 (走索引, <0.1秒, 不受基准影响始终执行)
                 r = conn.execute('SELECT MAX(trade_date) FROM daily_bars').fetchone()
                 if r and r[0]:
                     last = datetime.strptime(r[0], '%Y-%m-%d')
                     lag = (datetime.now() - last).days
                     if lag > MAX_LAG_DAYS:
                         warn.append(f"日线数据滞后 {lag} 天 (> {MAX_LAG_DAYS}), 建议先同步")
+            # 只有无 fatal 时才更新基准 (有 fatal 说明库有问题, 下次还要仔细查)
+            if not fatal:
+                _save_db_baseline(size, os.path.getmtime(db_path))
         except Exception as e:
             fatal.append(f"数据库读取失败: {e}")
 

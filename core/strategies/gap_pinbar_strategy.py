@@ -62,7 +62,7 @@ class GapPinbarStrategy(BaseStrategy):
     def get_metadata(cls) -> Dict[str, Any]:
         """Gap Pinbar 策略元数据声明"""
         return {
-            'display_name': 'GAP Pinbar',
+            'display_name': 'GAP PINBAR',
             'sl_column': 'sl_gap_pinbar',
             'entry_column': 'entry_gap_pinbar',
             'tp_columns': ['tp_gap_pinbar'],

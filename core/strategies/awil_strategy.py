@@ -67,7 +67,7 @@ class AWILStrategy(BaseStrategy):
     def get_metadata(cls) -> Dict[str, Any]:
         """AWIL 策略元数据声明。"""
         return {
-            'display_name': 'AWIL趋势',
+            'display_name': 'AIL',
             'sl_column': 'sl_awil',
             'entry_column': 'entry_awil',
             'tp_columns': ['tp_awil'],
