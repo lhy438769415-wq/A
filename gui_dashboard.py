@@ -8,6 +8,8 @@ Brooks-AI 操盘台 — Apple 风格初筛台 (v10)
 """
 import sys
 import re
+import os
+import json
 import webbrowser
 import logging
 import threading
@@ -15,7 +17,7 @@ import threading
 import tkinter as tk
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import (  # 显式导入, 禁止 import *
-    BOTH, LEFT, RIGHT, X, NSEW, EW, END, W, E, HORIZONTAL, DISABLED, NORMAL,
+    BOTH, LEFT, RIGHT, X, NSEW, EW, END, W, E, CENTER, HORIZONTAL, DISABLED, NORMAL,
 )
 
 # ---- 业务模块 (优雅降级: 导入失败则对应按钮禁用, 界面仍可开) ----
@@ -105,6 +107,7 @@ class TradingDashboard:
         self._hunter_ok = bool(main_script and get_stock_list)  # 扫描模块是否可用
         self._sync_ok = bool(update_daily_data_batch)  # 行情下载模块是否可用
         self._stop_event = threading.Event()  # 手动终止信号: 运行中置位, 后台循环检查
+        self.favorites = self._load_favorites()  # 用户手动标记的 "关注" 集合
 
         self._build_ui()
         self._refresh()
@@ -205,15 +208,20 @@ class TradingDashboard:
                                     foreground="#f5f5f7")
         self.list_title.grid(row=0, column=0, sticky=W, padx=4, pady=(0, 12))
 
-        cols = ("代码", "名称", "触发价", "止损价")
+        cols = ("代码", "名称", "关注")
         # 深色主题下用默认 Treeview, 不强制 light 变体
         self.tree = ttk.Treeview(center, columns=cols, show="headings")
-        widths = (90, 120, 75, 75)
-        for c, w in zip(cols, widths):
+        widths = (90, 180, 60)
+        anchors = (W, W, CENTER)
+        for c, w, a in zip(cols, widths, anchors):
             self.tree.heading(c, text=c)
-            self.tree.column(c, width=w, minwidth=w, anchor=W)
+            self.tree.column(c, width=w, minwidth=w, anchor=a)
         self.tree.grid(row=1, column=0, sticky=NSEW)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
+        # 右键菜单: 标记/取消关注
+        self._context = tk.Menu(self.tree, tearoff=0)
+        self._context.add_command(label="标记关注", command=self._toggle_favorite)
+        self.tree.bind("<Button-3>", self._on_right_click)
 
         # 右栏: 选中票详情 (图表为主, 占满剩余空间)
         right = ttk.Frame(main, padding=(16, 0))
@@ -447,12 +455,74 @@ class TradingDashboard:
         for item in self.tree.get_children():
             self.tree.delete(item)
         for i, row in enumerate(rows):
+            code = row.get("code", "")
+            mark = "♥" if code in self.favorites else ""
             self.tree.insert("", END, iid=str(i), values=(
-                row.get("code", ""),
+                code,
                 row.get("name") or "—",
-                _fmt(row.get("entry_price")),
-                _fmt(row.get("sl_price")),
+                mark,
             ))
+
+    def _favorites_path(self):
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "gui_favorites.json")
+
+    def _load_favorites(self):
+        """加载用户手动"关注"的股票代码集合。文件不存在或损坏则返回空集合。"""
+        path = self._favorites_path()
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        return set(data)
+        except Exception as e:  # noqa: BLE001
+            logging.warning(f"加载关注列表失败: {e}")
+        return set()
+
+    def _save_favorites(self):
+        """持久化关注集合到 JSON, 下次打开仍在。"""
+        path = self._favorites_path()
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(sorted(self.favorites), f, ensure_ascii=False, indent=2)
+        except Exception as e:  # noqa: BLE001
+            logging.warning(f"保存关注列表失败: {e}")
+
+    def _on_right_click(self, event):
+        """右键点击列表行, 弹出关注/取消菜单。"""
+        iid = self.tree.identify_row(event.y)
+        if not iid:
+            return
+        self.tree.selection_set(iid)
+        values = self.tree.item(iid, "values")
+        code = values[0] if values else None
+        if not code:
+            return
+        marked = code in self.favorites
+        self._context.entryconfigure(
+            0,
+            label="取消关注" if marked else "标记关注 ♥",
+        )
+        self._context.post(event.x_root, event.y_root)
+
+    def _toggle_favorite(self):
+        """切换当前选中行的关注状态, 立即更新列表与文件。"""
+        sel = self.tree.selection()
+        if not sel:
+            return
+        iid = sel[0]
+        values = list(self.tree.item(iid, "values"))
+        if not values:
+            return
+        code = values[0]
+        if code in self.favorites:
+            self.favorites.discard(code)
+            values[2] = ""
+        else:
+            self.favorites.add(code)
+            values[2] = "♥"
+        self.tree.item(iid, values=tuple(values))
+        self._save_favorites()
 
     # ================= 详情 =================
     def _on_select(self, event):
