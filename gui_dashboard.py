@@ -211,12 +211,14 @@ class TradingDashboard:
         cols = ("代码", "名称", "关注")
         # 深色主题下用默认 Treeview, 不强制 light 变体
         self.tree = ttk.Treeview(center, columns=cols, show="headings")
-        # 宽度: 代码加宽防截断; 关注只放 ♥, 收窄; 名称是唯一可伸缩列
-        widths = (105, 175, 40)
+        # 宽度: 代码加宽到 130(可放下 sh.600046.SH), 关注 60 加大点击区, 名称唯一可伸缩
+        widths = (130, 165, 60)
         anchors = (W, W, CENTER)
         for c, w, a in zip(cols, widths, anchors):
             self.tree.heading(c, text=c)
             self.tree.column(c, width=w, minwidth=w, anchor=a, stretch=(c == "名称"))
+        # 行高加大到 28, 让 ♥ 点击区域更大, 减少盲点
+        ttk.Style().configure("Treeview", rowheight=28)
         self.tree.grid(row=1, column=0, sticky=NSEW)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
         # 关注列可点击: ♥ / 空 切换
