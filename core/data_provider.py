@@ -869,7 +869,7 @@ def _fetch_weekly_worker(full_code, target_date, last_date_cache=None):
     return None
 
 
-def update_daily_data_batch(max_workers=settings.MAX_WORKERS):
+def update_daily_data_batch(max_workers=settings.MAX_WORKERS, progress_callback=None):
     """
     [Main Controller] V8.5 Robust Sync
     """
@@ -1018,6 +1018,13 @@ def update_daily_data_batch(max_workers=settings.MAX_WORKERS):
                 if q_size > 800:
                     logger.warning(f"⚠️ Write Queue congestion: {q_size}/1000")
                 logger.info(f"Progress: {i}/{len(to_update)} | New: {download_count} | Queue: {q_size}")
+
+            # 🟢 [GUI] 进度回调: 让界面实时显示 已完成/总数 (done = i+1)
+            if progress_callback:
+                try:
+                    progress_callback(i + 1, len(to_update), download_count)
+                except Exception:  # noqa: BLE001 - 进度回调绝不能拖垮数据同步
+                    pass
 
     # ==========================================
     # Phase 3: Snapshot Sync (Removed)

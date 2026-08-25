@@ -239,8 +239,17 @@ class TradingDashboard:
         # ---- 状态栏 ----
         status = ttk.Frame(self.root, padding=(18, 8))
         status.grid(row=2, column=0, sticky=NSEW)
+        status.columnconfigure(0, weight=1)  # 进度条占满剩余宽度
+        # 进度条: 默认隐藏, 数据同步/扫描时显示
+        self.progress_var = tk.DoubleVar(value=0)
+        self.progress_bar = ttk.Progressbar(status, variable=self.progress_var,
+                                            maximum=100, mode="determinate",
+                                            bootstyle="primary-striped")
+        self.progress_bar.grid(row=0, column=0, sticky=EW, padx=(0, 12))
+        self.progress_bar.grid_remove()
+        # 状态文字: 数据新鲜度 / 操作进度 / 完成摘要
         ttk.Label(status, textvariable=self.status_var, font=("Consolas", 10),
-                  foreground="#a1a1a6").pack(side=LEFT)
+                  foreground="#a1a1a6").grid(row=0, column=1, sticky=E, padx=(8, 0))
 
     # ================= 数据读取 =================
     def _signal_dates(self):
@@ -547,36 +556,99 @@ class TradingDashboard:
     def start_sync(self):
         if not update_daily_data_batch:
             return
-        self.status_var.set("同步数据中…")
-        self._run_thread(update_daily_data_batch, "数据同步")
+        cb = self._make_progress_cb("行情同步")
+        self._show_progress()
+        self.status_var.set("行情同步中…")
+        def _task():
+            return update_daily_data_batch(progress_callback=cb)
+        self._run_thread(_task, "数据同步",
+                         on_done=lambda ret: self.status_var.set(
+                             f"行情同步完成 · 下载 {ret[0]}/{ret[1]} 只"
+                             if isinstance(ret, tuple) else "行情同步完成"),
+                         on_fail=lambda e: self.status_var.set(f"同步失败: {e}"))
 
     def start_hunter(self):
         if not main_script or not get_stock_list:
             return
         use_ai = bool(self.ai_var.get())
+        cb = self._make_progress_cb("扫描", phase2="分类与出图中…")
+        self._show_progress()
         self.status_var.set("扫描中… (AI 复核开)" if use_ai else "扫描中… (离线)")
 
         def _task():
             codes = get_stock_list()
             if not codes:
                 logging.warning("本地数据库为空, 请先同步数据")
-                return
-            main_script.run_pipeline_once(codes, use_ai=use_ai)
+                return None
+            return main_script.run_pipeline_once(codes, use_ai=use_ai, progress_callback=cb)
 
-        self._run_thread(_task, "猎手扫描")
+        self._run_thread(_task, "猎手扫描",
+                         on_done=lambda ret: self.status_var.set("扫描完成 · 清单已刷新"))
 
-    def _run_thread(self, func, name):
+    def _run_thread(self, func, name, on_done=None, on_fail=None):
         def _wrap():
+            ok = False
+            ret = None
+            err = None
             try:
                 logging.info(f"{name} 启动")
-                func()
+                ret = func()
+                ok = True
                 logging.info(f"{name} 完成")
             except Exception as e:  # noqa: BLE001
+                err = e
                 logging.error(f"{name} 异常: {e}")
-                self.root.after(0, lambda: self.status_var.set(f"{name} 失败: {e}"))
-            finally:
-                self.root.after(0, self._refresh)
+            # 统一在 UI 线程收尾: 先刷新清单/状态, 再写结论, 最后收起进度条
+            def _finish():
+                self._refresh()
+                if ok and on_done is not None:
+                    on_done(ret)
+                elif not ok and on_fail is not None:
+                    on_fail(err)
+                elif not ok:
+                    self.status_var.set(f"{name} 失败: {err}")
+                self._hide_progress()
+            self.root.after(0, _finish)
         threading.Thread(target=_wrap, daemon=True).start()
+
+    # ================= 进度条 =================
+    def _show_progress(self):
+        """操作开始: 显示进度条。"""
+        self.progress_bar.grid()  # 取消 grid_remove 的隐藏
+
+    def _hide_progress(self):
+        """操作结束: 收起进度条并归零。"""
+        self.progress_bar.grid_remove()
+        self.progress_var.set(0)
+
+    def _make_progress_cb(self, label, phase2=None):
+        """生成后台进度回调(在后台线程被调用), 经 root.after 安全更新 UI。
+
+        label : 操作名(如 '行情同步' / '扫描')
+        phase2: 扫描阶段1完成(done>=total)后显示的后续阶段文字(如 '分类与出图中…')
+        """
+        last = {"pct": -1}
+
+        def cb(done, total, info=0):
+            pct = int(done * 100 / total) if total else 0
+            if pct == last["pct"]:
+                return  # 节流: 百分比不变不刷新, 避免 UI 线程被打爆
+            last["pct"] = pct
+            if done >= total and phase2:
+                text = phase2
+            elif done >= total:
+                text = f"{label} 完成 ({pct}%)"
+            else:
+                extra = f" · 命中 {info}" if label == "扫描" else ""
+                text = f"{label} {done}/{total} · {pct}%{extra}"
+            self.root.after(0, self._apply_progress, pct, text)
+
+        return cb
+
+    def _apply_progress(self, pct, text):
+        self.progress_bar.grid()
+        self.progress_var.set(pct)
+        self.status_var.set(text)
 
     def _update_status(self, signal_date, counts=None):
         try:

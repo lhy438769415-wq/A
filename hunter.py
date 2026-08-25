@@ -330,7 +330,7 @@ def get_market_status():
     return 'CLOSED'
 
 
-def _scan_market(all_codes, strategies, seen_signals):
+def _scan_market(all_codes, strategies, seen_signals, progress_callback=None):
     """
     [Phase2 重构] 阶段 1: 全市场扫描 + Signal Tracker 归档
     
@@ -375,6 +375,13 @@ def _scan_market(all_codes, strategies, seen_signals):
                 break
             except Exception:
                 continue
+
+            # 🟢 [GUI] 进度回调: 已完成=scan_count / 总数=len(all_codes)
+            if progress_callback:
+                try:
+                    progress_callback(scan_count, len(all_codes), hit_count)
+                except Exception:  # noqa: BLE001
+                    pass
 
     print(f"\n✅ 扫描结束. 初步命中: {hit_count}")
     if DEBUG_MODE:
@@ -792,7 +799,7 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
         send_discord_message(f"📝 其余 {len(overflow_candidates)} 只(单策略超 TOP{MAX_PER_STRATEGY}, 图略): " + " ".join(folded))
 
 
-def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set = None, use_ai: bool = True) -> set:
+def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set = None, use_ai: bool = True, progress_callback=None) -> set:
     """
     [Phase2 重构] 主流水线协调器 (原 412 行 → 精简为 ~40 行控制流)
     
@@ -832,7 +839,7 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
     try:
         # 阶段 1: 扫描
         logger.debug(f"🔍 阶段1 扫描启动: {len(all_codes)} 只标的 / 激活策略 {len(strategies)} 个")
-        all_hits, new_signals = _scan_market(all_codes, strategies, seen_signals)
+        all_hits, new_signals = _scan_market(all_codes, strategies, seen_signals, progress_callback=progress_callback)
         from collections import Counter as _C
         _hits_by_strat = _C(h.get('strategy') or h.get('strategy_name') or h.get('type') or '?' for h in all_hits)
         logger.debug(f"📊 阶段1 完成: 命中 {len(all_hits)} 只 -> " +
