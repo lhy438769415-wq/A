@@ -211,11 +211,12 @@ class TradingDashboard:
         cols = ("代码", "名称", "关注")
         # 深色主题下用默认 Treeview, 不强制 light 变体
         self.tree = ttk.Treeview(center, columns=cols, show="headings")
-        widths = (90, 180, 60)
+        # 宽度: 代码加宽防截断; 关注只放 ♥, 收窄; 名称是唯一可伸缩列
+        widths = (105, 175, 40)
         anchors = (W, W, CENTER)
         for c, w, a in zip(cols, widths, anchors):
             self.tree.heading(c, text=c)
-            self.tree.column(c, width=w, minwidth=w, anchor=a)
+            self.tree.column(c, width=w, minwidth=w, anchor=a, stretch=(c == "名称"))
         self.tree.grid(row=1, column=0, sticky=NSEW)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
         # 关注列可点击: ♥ / 空 切换
