@@ -330,7 +330,7 @@ def get_market_status():
     return 'CLOSED'
 
 
-def _scan_market(all_codes, strategies, seen_signals, progress_callback=None):
+def _scan_market(all_codes, strategies, seen_signals, progress_callback=None, cancel_event=None):
     """
     [Phase2 重构] 阶段 1: 全市场扫描 + Signal Tracker 归档
     
@@ -382,6 +382,13 @@ def _scan_market(all_codes, strategies, seen_signals, progress_callback=None):
                     progress_callback(scan_count, len(all_codes), hit_count)
                 except Exception:  # noqa: BLE001
                     pass
+
+            # 🟢 [GUI] 手动终止: 取消剩余任务(否则线程池会等全部跑完), 保留已扫部分
+            if cancel_event is not None and cancel_event.is_set():
+                logger.info("🛑 用户手动终止扫描, 取消剩余任务...")
+                for f in futures:
+                    f.cancel()
+                break
 
     print(f"\n✅ 扫描结束. 初步命中: {hit_count}")
     if DEBUG_MODE:
@@ -799,7 +806,7 @@ def _dispatch_charts(direct_picks, final_picks, top_picks=None):
         send_discord_message(f"📝 其余 {len(overflow_candidates)} 只(单策略超 TOP{MAX_PER_STRATEGY}, 图略): " + " ".join(folded))
 
 
-def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set = None, use_ai: bool = True, progress_callback=None) -> set:
+def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set = None, use_ai: bool = True, progress_callback=None, cancel_event=None) -> set:
     """
     [Phase2 重构] 主流水线协调器 (原 412 行 → 精简为 ~40 行控制流)
     
@@ -839,7 +846,11 @@ def run_pipeline_once(all_codes, strategies: List[str] = None, seen_signals: set
     try:
         # 阶段 1: 扫描
         logger.debug(f"🔍 阶段1 扫描启动: {len(all_codes)} 只标的 / 激活策略 {len(strategies)} 个")
-        all_hits, new_signals = _scan_market(all_codes, strategies, seen_signals, progress_callback=progress_callback)
+        all_hits, new_signals = _scan_market(all_codes, strategies, seen_signals,
+                                             progress_callback=progress_callback, cancel_event=cancel_event)
+        if cancel_event is not None and cancel_event.is_set():
+            logger.info("🛑 扫描已终止, 跳过分类/AI审计/推送")
+            return new_signals
         from collections import Counter as _C
         _hits_by_strat = _C(h.get('strategy') or h.get('strategy_name') or h.get('type') or '?' for h in all_hits)
         logger.debug(f"📊 阶段1 完成: 命中 {len(all_hits)} 只 -> " +

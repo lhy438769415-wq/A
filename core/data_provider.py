@@ -869,7 +869,7 @@ def _fetch_weekly_worker(full_code, target_date, last_date_cache=None):
     return None
 
 
-def update_daily_data_batch(max_workers=settings.MAX_WORKERS, progress_callback=None):
+def update_daily_data_batch(max_workers=settings.MAX_WORKERS, progress_callback=None, cancel_event=None):
     """
     [Main Controller] V8.5 Robust Sync
     """
@@ -1025,6 +1025,13 @@ def update_daily_data_batch(max_workers=settings.MAX_WORKERS, progress_callback=
                     progress_callback(i + 1, len(to_update), download_count)
                 except Exception:  # noqa: BLE001 - 进度回调绝不能拖垮数据同步
                     pass
+
+            # 🟢 [GUI] 手动终止: 用户点"终止"则取消剩余下载, 已下载部分保留入库
+            if cancel_event is not None and cancel_event.is_set():
+                logger.info("🛑 用户手动终止, 取消剩余下载任务...")
+                for f in futures:
+                    f.cancel()
+                break
 
     # ==========================================
     # Phase 3: Snapshot Sync (Removed)

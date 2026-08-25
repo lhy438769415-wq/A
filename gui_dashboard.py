@@ -102,6 +102,9 @@ class TradingDashboard:
         self.selected_date = None  # 当前选中的信号日; None 时自动取最新
         self._chart_orig = None  # 原始 K 线 PIL Image, 用于自适应重绘
         self._chart_last_size = (0, 0)  # 上次渲染尺寸, 避免 resize 死循环
+        self._hunter_ok = bool(main_script and get_stock_list)  # 扫描模块是否可用
+        self._sync_ok = bool(update_daily_data_batch)  # 行情下载模块是否可用
+        self._stop_event = threading.Event()  # 手动终止信号: 运行中置位, 后台循环检查
 
         self._build_ui()
         self._refresh()
@@ -130,13 +133,17 @@ class TradingDashboard:
         self.ent_code.bind("<FocusOut>", self._on_search_blur)
         self.ent_code.bind("<Return>", lambda e: self._open_tv_for_entry())
 
-        # 动作按钮 (左=更新数据/扫描, 右=本地同步/行情)
-        self.btn_hunter = ttk.Button(top, text="更新数据", bootstyle="primary",
-                                     command=self.start_hunter, state=DISABLED if not main_script else NORMAL)
+        # 动作按钮 (左=策略扫描, 右=下载行情; 运行时出现红色"终止"按钮)
+        self.btn_hunter = ttk.Button(top, text="策略扫描", bootstyle="primary",
+                                     command=self.start_hunter, state=DISABLED if not self._hunter_ok else NORMAL)
         self.btn_hunter.pack(side=LEFT, padx=5)
-        self.btn_sync = ttk.Button(top, text="本地同步", bootstyle="secondary-outline",
-                                  command=self.start_sync, state=DISABLED if not update_daily_data_batch else NORMAL)
+        self.btn_sync = ttk.Button(top, text="下载行情", bootstyle="secondary-outline",
+                                  command=self.start_sync, state=DISABLED if not self._sync_ok else NORMAL)
         self.btn_sync.pack(side=LEFT, padx=5)
+        # 红色"终止"按钮: 默认隐藏, 任何操作运行时出现
+        self.btn_stop = ttk.Button(top, text="终止", bootstyle="danger", command=self._on_stop)
+        self.btn_stop.pack(side=LEFT, padx=5, after=self.btn_sync)
+        self.btn_stop.pack_forget()
 
         # AI 复核开关 (默认关=纯本地离线扫描; 勾选=相关策略送 DeepSeek 二次审计)
         self.ai_var = tk.BooleanVar(value=False)
@@ -554,36 +561,56 @@ class TradingDashboard:
             webbrowser.open(_tv_url(code))
 
     def start_sync(self):
-        if not update_daily_data_batch:
+        if not self._sync_ok:
             return
-        cb = self._make_progress_cb("行情同步")
+        cb = self._make_progress_cb("下载行情")
+        self._set_busy(True)
         self._show_progress()
-        self.status_var.set("行情同步中…")
+        self.status_var.set("行情下载中…")
         def _task():
-            return update_daily_data_batch(progress_callback=cb)
-        self._run_thread(_task, "数据同步",
-                         on_done=lambda ret: self.status_var.set(
-                             f"行情同步完成 · 下载 {ret[0]}/{ret[1]} 只"
-                             if isinstance(ret, tuple) else "行情同步完成"),
-                         on_fail=lambda e: self.status_var.set(f"同步失败: {e}"))
+            return update_daily_data_batch(progress_callback=cb, cancel_event=self._stop_event)
+        self._run_thread(_task, "行情下载",
+                         on_done=self._on_sync_done,
+                         on_fail=lambda e: self.status_var.set(f"行情下载失败: {e}"))
+
+    def _on_sync_done(self, ret):
+        """行情下载收尾文案: 区分 用户终止 / 正常完成 / 无新数据。"""
+        if self._stop_event.is_set():
+            self.status_var.set("已终止 · 已下载的部分已入库")
+        elif isinstance(ret, tuple):
+            self.status_var.set(f"行情下载完成 · 下载 {ret[0]}/{ret[1]} 只")
+        else:
+            self.status_var.set("行情下载完成 (无新数据)")
 
     def start_hunter(self):
-        if not main_script or not get_stock_list:
+        if not self._hunter_ok:
             return
         use_ai = bool(self.ai_var.get())
-        cb = self._make_progress_cb("扫描", phase2="分类与出图中…")
+        cb = self._make_progress_cb("策略扫描", phase2="分类与出图中…")
+        self._set_busy(True)
         self._show_progress()
-        self.status_var.set("扫描中… (AI 复核开)" if use_ai else "扫描中… (离线)")
+        self.status_var.set("策略扫描中… (AI 复核开)" if use_ai else "策略扫描中… (离线)")
 
         def _task():
             codes = get_stock_list()
             if not codes:
-                logging.warning("本地数据库为空, 请先同步数据")
-                return None
-            return main_script.run_pipeline_once(codes, use_ai=use_ai, progress_callback=cb)
+                logging.warning("本地数据库为空, 请先下载行情")
+                return "NO_CODES"
+            return main_script.run_pipeline_once(codes, use_ai=use_ai,
+                                                 progress_callback=cb, cancel_event=self._stop_event)
 
-        self._run_thread(_task, "猎手扫描",
-                         on_done=lambda ret: self.status_var.set("扫描完成 · 清单已刷新"))
+        self._run_thread(_task, "策略扫描",
+                         on_done=self._on_scan_done,
+                         on_fail=lambda e: self.status_var.set(f"策略扫描失败: {e}"))
+
+    def _on_scan_done(self, ret):
+        """策略扫描收尾文案: 区分 用户终止 / 无本地数据 / 正常完成。"""
+        if self._stop_event.is_set():
+            self.status_var.set("已终止 · 已扫描部分已保留, 未推送")
+        elif ret == "NO_CODES":
+            self.status_var.set("本地数据库为空, 请先点击「下载行情」")
+        else:
+            self.status_var.set("策略扫描完成 · 清单已刷新")
 
     def _run_thread(self, func, name, on_done=None, on_fail=None):
         def _wrap():
@@ -598,7 +625,7 @@ class TradingDashboard:
             except Exception as e:  # noqa: BLE001
                 err = e
                 logging.error(f"{name} 异常: {e}")
-            # 统一在 UI 线程收尾: 先刷新清单/状态, 再写结论, 最后收起进度条
+            # 统一在 UI 线程收尾: 先刷新清单/状态, 再写结论, 最后恢复按钮并收起进度条
             def _finish():
                 self._refresh()
                 if ok and on_done is not None:
@@ -607,6 +634,7 @@ class TradingDashboard:
                     on_fail(err)
                 elif not ok:
                     self.status_var.set(f"{name} 失败: {err}")
+                self._set_busy(False)
                 self._hide_progress()
             self.root.after(0, _finish)
         threading.Thread(target=_wrap, daemon=True).start()
@@ -621,10 +649,30 @@ class TradingDashboard:
         self.progress_bar.grid_remove()
         self.progress_var.set(0)
 
+    # ================= 手动终止 =================
+    def _set_busy(self, busy):
+        """操作运行中: 禁用两个动作按钮、显示红色"终止"; 结束后恢复。"""
+        if busy:
+            self.btn_hunter.configure(state=DISABLED)
+            self.btn_sync.configure(state=DISABLED)
+            self._stop_event.clear()
+            self.btn_stop.pack(side=LEFT, padx=5, after=self.btn_sync)
+            self.btn_stop.configure(state=NORMAL)
+        else:
+            self.btn_hunter.configure(state=NORMAL if self._hunter_ok else DISABLED)
+            self.btn_sync.configure(state=NORMAL if self._sync_ok else DISABLED)
+            self.btn_stop.pack_forget()
+
+    def _on_stop(self):
+        """红色"终止"被点击: 置位终止信号, 后台循环下一只股票处停下。"""
+        self._stop_event.set()
+        self.btn_stop.configure(state=DISABLED)
+        self.status_var.set("正在终止…")
+
     def _make_progress_cb(self, label, phase2=None):
         """生成后台进度回调(在后台线程被调用), 经 root.after 安全更新 UI。
 
-        label : 操作名(如 '行情同步' / '扫描')
+        label : 操作名(如 '下载行情' / '策略扫描')
         phase2: 扫描阶段1完成(done>=total)后显示的后续阶段文字(如 '分类与出图中…')
         """
         last = {"pct": -1}
@@ -639,7 +687,7 @@ class TradingDashboard:
             elif done >= total:
                 text = f"{label} 完成 ({pct}%)"
             else:
-                extra = f" · 命中 {info}" if label == "扫描" else ""
+                extra = f" · 命中 {info}" if label == "策略扫描" else ""
                 text = f"{label} {done}/{total} · {pct}%{extra}"
             self.root.after(0, self._apply_progress, pct, text)
 
