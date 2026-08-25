@@ -15,7 +15,7 @@ import threading
 import tkinter as tk
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import (  # 显式导入, 禁止 import *
-    BOTH, LEFT, RIGHT, X, NSEW, END, W, E, HORIZONTAL, DISABLED, NORMAL,
+    BOTH, LEFT, RIGHT, X, NSEW, EW, END, W, E, HORIZONTAL, DISABLED, NORMAL,
 )
 
 # ---- 业务模块 (优雅降级: 导入失败则对应按钮禁用, 界面仍可开) ----
