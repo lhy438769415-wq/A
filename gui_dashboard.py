@@ -218,6 +218,9 @@ class TradingDashboard:
             self.tree.column(c, width=w, minwidth=w, anchor=a)
         self.tree.grid(row=1, column=0, sticky=NSEW)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
+        # 关注列可点击: ♥ / 空 切换
+        self.tree.tag_configure("favorite", foreground="#ff375f")
+        self.tree.bind("<Button-1>", self._on_tree_click)
         # 右键菜单: 标记/取消关注
         self._context = tk.Menu(self.tree, tearoff=0)
         self._context.add_command(label="标记关注", command=self._toggle_favorite)
@@ -456,12 +459,14 @@ class TradingDashboard:
             self.tree.delete(item)
         for i, row in enumerate(rows):
             code = row.get("code", "")
-            mark = "♥" if code in self.favorites else ""
-            self.tree.insert("", END, iid=str(i), values=(
+            marked = code in self.favorites
+            values = (
                 code,
                 row.get("name") or "—",
-                mark,
-            ))
+                "♥" if marked else "",
+            )
+            self.tree.insert("", END, iid=str(i), values=values,
+                             tags=("favorite",) if marked else ())
 
     def _favorites_path(self):
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "gui_favorites.json")
@@ -505,12 +510,27 @@ class TradingDashboard:
         )
         self._context.post(event.x_root, event.y_root)
 
-    def _toggle_favorite(self):
-        """切换当前选中行的关注状态, 立即更新列表与文件。"""
-        sel = self.tree.selection()
-        if not sel:
+    def _on_tree_click(self, event):
+        """点击"关注"列时直接切换 ♥ 标记。"""
+        region = self.tree.identify("region", event.x, event.y)
+        if region != "cell":
             return
-        iid = sel[0]
+        if self.tree.identify_column(event.x) != "#3":
+            return
+        iid = self.tree.identify_row(event.y)
+        if not iid:
+            return
+        self.tree.selection_set(iid)
+        self._toggle_favorite(iid)
+        return "break"
+
+    def _toggle_favorite(self, iid=None):
+        """切换指定行的关注状态; 不传 iid 则取当前选中行。立即更新列表与文件。"""
+        if iid is None:
+            sel = self.tree.selection()
+            if not sel:
+                return
+            iid = sel[0]
         values = list(self.tree.item(iid, "values"))
         if not values:
             return
@@ -521,7 +541,8 @@ class TradingDashboard:
         else:
             self.favorites.add(code)
             values[2] = "♥"
-        self.tree.item(iid, values=tuple(values))
+        self.tree.item(iid, values=tuple(values),
+                       tags=("favorite",) if code in self.favorites else ())
         self._save_favorites()
 
     # ================= 详情 =================
