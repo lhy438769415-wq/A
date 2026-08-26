@@ -208,22 +208,19 @@ class TradingDashboard:
                                     foreground="#f5f5f7")
         self.list_title.grid(row=0, column=0, sticky=W, padx=4, pady=(0, 12))
 
-        cols = ("代码", "名称", "关注")
+        cols = ("序号", "代码", "名称")
         # 深色主题下用默认 Treeview, 不强制 light 变体
         self.tree = ttk.Treeview(center, columns=cols, show="headings")
-        # 宽度: 代码加宽到 130(可放下 sh.600046.SH), 关注 60 加大点击区, 名称唯一可伸缩
-        widths = (130, 165, 60)
-        anchors = (W, W, CENTER)
+        # 宽度: 序号 40(3 字符 999 + 留白), 代码 140(放下 sh.600046.SH), 名称唯一可伸缩
+        widths = (40, 140, 145)
+        anchors = (CENTER, W, W)
         for c, w, a in zip(cols, widths, anchors):
             self.tree.heading(c, text=c)
             self.tree.column(c, width=w, minwidth=w, anchor=a, stretch=(c == "名称"))
-        # 行高加大到 28, 让 ♥ 点击区域更大, 减少盲点
-        ttk.Style().configure("Treeview", rowheight=28)
         self.tree.grid(row=1, column=0, sticky=NSEW)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
-        # 关注列可点击: ♥ / 空 切换
+        # 已关注行显示红色字体
         self.tree.tag_configure("favorite", foreground="#ff375f")
-        self.tree.bind("<Button-1>", self._on_tree_click)
         # 右键菜单: 标记/取消关注
         self._context = tk.Menu(self.tree, tearoff=0)
         self._context.add_command(label="标记关注", command=self._toggle_favorite)
@@ -464,9 +461,9 @@ class TradingDashboard:
             code = row.get("code", "")
             marked = code in self.favorites
             values = (
+                i + 1,
                 code,
                 row.get("name") or "—",
-                "♥" if marked else "",
             )
             self.tree.insert("", END, iid=str(i), values=values,
                              tags=("favorite",) if marked else ())
@@ -503,7 +500,7 @@ class TradingDashboard:
             return
         self.tree.selection_set(iid)
         values = self.tree.item(iid, "values")
-        code = values[0] if values else None
+        code = values[1] if values else None
         if not code:
             return
         marked = code in self.favorites
@@ -512,20 +509,6 @@ class TradingDashboard:
             label="取消关注" if marked else "标记关注 ♥",
         )
         self._context.post(event.x_root, event.y_root)
-
-    def _on_tree_click(self, event):
-        """点击"关注"列时直接切换 ♥ 标记。"""
-        region = self.tree.identify("region", event.x, event.y)
-        if region != "cell":
-            return
-        if self.tree.identify_column(event.x) != "#3":
-            return
-        iid = self.tree.identify_row(event.y)
-        if not iid:
-            return
-        self.tree.selection_set(iid)
-        self._toggle_favorite(iid)
-        return "break"
 
     def _toggle_favorite(self, iid=None):
         """切换指定行的关注状态; 不传 iid 则取当前选中行。立即更新列表与文件。"""
@@ -537,15 +520,12 @@ class TradingDashboard:
         values = list(self.tree.item(iid, "values"))
         if not values:
             return
-        code = values[0]
+        code = values[1]
         if code in self.favorites:
             self.favorites.discard(code)
-            values[2] = ""
         else:
             self.favorites.add(code)
-            values[2] = "♥"
-        self.tree.item(iid, values=tuple(values),
-                       tags=("favorite",) if code in self.favorites else ())
+        self.tree.item(iid, tags=("favorite",) if code in self.favorites else ())
         self._save_favorites()
 
     # ================= 详情 =================
