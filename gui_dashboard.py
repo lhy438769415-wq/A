@@ -232,11 +232,11 @@ class TradingDashboard:
         self._tree_hover_iid = None
 
         # 右栏: 选中票详情 + 关注列表
-        # 右栏内部再分两列: 左列放K线图和详情(自适应), 右列固定200px放关注列表
+        # 右栏内部再分两列: 左列放K线图和详情(自适应), 右列固定260px放关注列表
         right = ttk.Frame(main, padding=(16, 0))
         right.grid(row=0, column=2, sticky=NSEW, padx=(16, 0))
         right.columnconfigure(0, weight=1)   # 图表区占满右栏剩余宽度
-        right.columnconfigure(1, weight=0, minsize=200)  # 关注列表固定宽度
+        right.columnconfigure(1, weight=0, minsize=260)  # 关注列表固定宽度
         right.rowconfigure(0, weight=1)      # 图表区优先占垂直空间
         right.rowconfigure(1, weight=0)
         right.rowconfigure(2, weight=0)
@@ -261,11 +261,13 @@ class TradingDashboard:
 
         self.btn_tv = ttk.Button(right, text="在 TradingView 打开", bootstyle="primary",
                                  command=self._open_tv, state=DISABLED)
-        self.btn_tv.grid(row=3, column=0, sticky=NSEW, pady=(8, 0), ipady=6)
+        # 按钮跨两列, 恢复原先占满右栏底部的宽度
+        self.btn_tv.grid(row=3, column=0, columnspan=2, sticky=NSEW, pady=(8, 0), ipady=6)
 
         # 右栏右侧: 关注列表 (复制策略清单里被标红的标的)
-        watch = ttk.Frame(right, width=200, padding=(0, 0))
-        watch.grid(row=0, column=1, rowspan=4, sticky=NSEW, padx=(16, 0))
+        watch = ttk.Frame(right, width=260, padding=(0, 0))
+        # 只占 row0~row2, 底部 row3 留给 TV 按钮
+        watch.grid(row=0, column=1, rowspan=3, sticky=NSEW, padx=(16, 0))
         watch.grid_propagate(False)
         watch.rowconfigure(1, weight=1)
         watch.columnconfigure(0, weight=1)
@@ -273,17 +275,16 @@ class TradingDashboard:
                   foreground="#a1a1a6").grid(row=0, column=0, sticky=W, padx=4, pady=(0, 12))
         watch_cols = ("序号", "代码", "名称")
         self.watch_tree = ttk.Treeview(watch, columns=watch_cols, show="headings")
-        # 宽度: 序号 36, 代码 82, 名称可伸缩
-        watch_widths = (36, 82, 82)
+        # 宽度: 序号 36, 代码 96, 名称可伸缩
+        watch_widths = (36, 96, 128)
         watch_anchors = (CENTER, W, W)
         for c, w, a in zip(watch_cols, watch_widths, watch_anchors):
             self.watch_tree.heading(c, text=c)
             self.watch_tree.column(c, width=w, minwidth=w, anchor=a, stretch=(c == "名称"))
         self.watch_tree.grid(row=1, column=0, sticky=NSEW)
         self.watch_tree.bind("<<TreeviewSelect>>", self._on_watchlist_select)
-        # TV 式: 悬停变灰, 选中变红
+        # 关注列表保持白色, 仅悬停变灰
         self.watch_tree.tag_configure("hover", background="#4a4a4e")
-        self.watch_tree.tag_configure("favorite", foreground="#ff375f")
         self.watch_tree.bind("<Motion>", self._on_watchlist_motion)
         self.watch_tree.bind("<Leave>", self._on_watchlist_leave)
         self._watch_hover_iid = None
@@ -606,8 +607,7 @@ class TradingDashboard:
         # favorites 字典保持插入顺序, reversed 后最新加入的在上
         for idx, code in enumerate(reversed(list(self.favorites.keys())), start=1):
             name = self.favorites.get(code) or self._watchlist_name_for_code(code) or code
-            self.watch_tree.insert("", END, iid=code, values=(idx, code, name),
-                                   tags=("favorite",))
+            self.watch_tree.insert("", END, iid=code, values=(idx, code, name))
 
     def _watchlist_name_for_code(self, code):
         """根据代码查名称; 优先当前列表, 否则去 signal_archive 找最新一条。"""
