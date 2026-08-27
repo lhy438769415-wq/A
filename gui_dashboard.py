@@ -212,28 +212,23 @@ class TradingDashboard:
                                     foreground="#f5f5f7")
         self.list_title.grid(row=0, column=0, sticky=W, padx=4, pady=(0, 12))
 
-        # 信号清单列: [标记] | 序号 | 代码 | 名称
-        cols = (" ", "序号", "代码", "名称")
-        self.tree = ttk.Treeview(center, columns=cols, show="headings")
-        # 宽度: 标记列 30(只放红点), 序号 40, 代码 130, 名称唯一可伸缩
-        widths = (30, 40, 130, 145)
-        anchors = (CENTER, CENTER, W, W)
+        # 信号清单列: [红点图] | 序号 | 代码 | 名称
+        # 红点用图片画在树形列(#0), 兼容所有 Tk 版本, 且仅圆点变红、整行文字保持白
+        cols = ("序号", "代码", "名称")
+        self.tree = ttk.Treeview(center, columns=cols, show="tree headings")
+        self.tree.heading("#0", text="")
+        self.tree.column("#0", width=26, minwidth=26, anchor=CENTER, stretch=False)
+        # 宽度: 序号 40, 代码 130, 名称唯一可伸缩
+        widths = (40, 130, 120)
+        anchors = (CENTER, W, W)
         for c, w, a in zip(cols, widths, anchors):
             self.tree.heading(c, text=c)
-            if c == " ":
-                # 标记列(红点)单独用红色样式, 行文字保持默认白
-                self.tree.column(c, width=w, minwidth=w, anchor=a, stretch=False,
-                                 style="MarkRed.Treeview")
-            else:
-                self.tree.column(c, width=w, minwidth=w, anchor=a, stretch=(c == "名称"))
+            self.tree.column(c, width=w, minwidth=w, anchor=a, stretch=(c == "名称"))
         self.tree.grid(row=1, column=0, sticky=NSEW)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
-        # 标记列红点样式: 仅标记列 ● 显示红色, 行文字保持白色
-        try:
-            ttk.Style().configure("MarkRed.Treeview", foreground="#ff375f")
-        except Exception:  # noqa: BLE001
-            pass
-        # TV 式关注效果: 悬停变灰; 已关注行不再整行标红(标记列红点已表示关注)
+        # 红点图片(已关注时显示在 #0 列); 引用挂 self 防被 GC 回收
+        self._dot_img = self._make_dot_image()
+        # TV 式关注效果: 悬停变灰; 已关注行不再整行标红(红点已表示关注)
         self.tree.tag_configure("hover", background="#4a4a4e")
         self.tree.bind("<Motion>", self._on_tree_motion)
         self.tree.bind("<Leave>", self._on_tree_leave)
@@ -500,6 +495,17 @@ class TradingDashboard:
         else:
             self._clear_detail()
 
+    def _make_dot_image(self):
+        """生成已关注的红色圆点图片(12x12), 画在树形列 #0。"""
+        img = tk.PhotoImage(width=12, height=12)
+        r = 5
+        cx = cy = 6
+        for y in range(12):
+            for x in range(12):
+                if (x - cx) ** 2 + (y - cy) ** 2 <= r * r:
+                    img.put("#ff375f", (x, y))
+        return img
+
     def _populate_list(self, rows):
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -507,12 +513,12 @@ class TradingDashboard:
             code = row.get("code", "")
             marked = code in self.favorites
             values = (
-                "●" if marked else "",
                 i + 1,
                 code,
                 row.get("name") or "—",
             )
-            self.tree.insert("", END, iid=str(i), values=values)
+            self.tree.insert("", END, iid=str(i), values=values,
+                             image=self._dot_img if marked else "")
 
     def _favorites_path(self):
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "gui_favorites.json")
@@ -552,15 +558,15 @@ class TradingDashboard:
         values = list(self.tree.item(iid, "values"))
         if not values:
             return
-        code = values[2]
+        code = values[1]
         if code in self.favorites:
             del self.favorites[code]
         else:
             name = self._watchlist_name_for_code(code) or code
             self.favorites[code] = name
         marked = code in self.favorites
-        values[0] = "●" if marked else ""
-        self.tree.item(iid, values=tuple(values))
+        # 只切换树形列 #0 的红点图片, 行文字列不变
+        self.tree.item(iid, image=self._dot_img if marked else "")
         self._save_favorites()
         self._refresh_watchlist()
 
@@ -572,7 +578,7 @@ class TradingDashboard:
             return
         iid = self.tree.identify_row(event.y)
         col = self.tree.identify_column(event.x)
-        if not iid or col != "#1":
+        if not iid or col != "#0":
             self._clear_tree_hover()
             return
         if self._tree_hover_iid == iid:
@@ -602,7 +608,7 @@ class TradingDashboard:
             return
         iid = self.tree.identify_row(event.y)
         col = self.tree.identify_column(event.x)
-        if not iid or col != "#1":
+        if not iid or col != "#0":
             return
         self._toggle_favorite(iid)
         return "break"
