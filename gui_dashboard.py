@@ -107,7 +107,7 @@ class TradingDashboard:
         self._hunter_ok = bool(main_script and get_stock_list)  # 扫描模块是否可用
         self._sync_ok = bool(update_daily_data_batch)  # 行情下载模块是否可用
         self._stop_event = threading.Event()  # 手动终止信号: 运行中置位, 后台循环检查
-        self.favorites = self._load_favorites()  # 用户手动标记的 "关注" 集合
+        self.favorites = self._load_favorites()  # 用户手动标记的 "关注" 字典: code -> name
         self._tree_hover_iid = None  # 信号清单当前悬停行
         self._watch_hover_iid = None  # 关注列表当前悬停行
 
@@ -508,24 +508,27 @@ class TradingDashboard:
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "gui_favorites.json")
 
     def _load_favorites(self):
-        """加载用户手动"关注"的股票代码集合。文件不存在或损坏则返回空集合。"""
+        """加载用户手动"关注"的股票字典 code -> name。兼容旧版 list 格式。"""
         path = self._favorites_path()
         try:
             if os.path.exists(path):
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    if isinstance(data, list):
-                        return set(data)
+                if isinstance(data, dict):
+                    return data
+                if isinstance(data, list):
+                    # 兼容旧格式: 代码列表 -> 字典, 查不到名称时直接用代码兜底
+                    return {code: self._lookup_name_in_db(code) or code for code in data}
         except Exception as e:  # noqa: BLE001
             logging.warning(f"加载关注列表失败: {e}")
-        return set()
+        return {}
 
     def _save_favorites(self):
-        """持久化关注集合到 JSON, 下次打开仍在。"""
+        """持久化关注字典到 JSON, 下次打开仍在。"""
         path = self._favorites_path()
         try:
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(sorted(self.favorites), f, ensure_ascii=False, indent=2)
+                json.dump(self.favorites, f, ensure_ascii=False, indent=2, sort_keys=True)
         except Exception as e:  # noqa: BLE001
             logging.warning(f"保存关注列表失败: {e}")
 
@@ -541,9 +544,10 @@ class TradingDashboard:
             return
         code = values[2]
         if code in self.favorites:
-            self.favorites.discard(code)
+            del self.favorites[code]
         else:
-            self.favorites.add(code)
+            name = self._watchlist_name_for_code(code) or code
+            self.favorites[code] = name
         marked = code in self.favorites
         values[0] = "●" if marked else ""
         self.tree.item(iid, values=tuple(values),
@@ -595,12 +599,12 @@ class TradingDashboard:
         return "break"
 
     def _refresh_watchlist(self):
-        """把当前 favorites 同步到左侧 Watchlist, 按加入时间倒序。"""
+        """把当前 favorites 同步到下方关注列表, 按加入时间倒序。"""
         for item in self.watch_tree.get_children():
             self.watch_tree.delete(item)
         # 倒序: 最新关注的在上面
-        for code in reversed(sorted(self.favorites)):
-            name = self._watchlist_name_for_code(code)
+        for code in reversed(sorted(self.favorites.keys())):
+            name = self.favorites.get(code) or self._watchlist_name_for_code(code) or code
             self.watch_tree.insert("", END, iid=code, values=(f"{code} {name}",),
                                    tags=("favorite",))
 
@@ -608,7 +612,11 @@ class TradingDashboard:
         """根据代码查名称; 优先当前列表, 否则去 signal_archive 找最新一条。"""
         for row in self.current_rows:
             if row.get("code") == code:
-                return row.get("name") or "—"
+                return row.get("name") or ""
+        return self._lookup_name_in_db(code)
+
+    def _lookup_name_in_db(self, code):
+        """从 signal_archive 查代码最近一次出现的中文名称; 查不到返回空串。"""
         try:
             with _db() as conn:
                 r = conn.execute(
@@ -619,7 +627,7 @@ class TradingDashboard:
                     return r[0]
         except Exception:  # noqa: BLE001
             pass
-        return "—"
+        return ""
 
     def _on_watchlist_motion(self, event):
         """Watchlist 悬停变灰。"""
