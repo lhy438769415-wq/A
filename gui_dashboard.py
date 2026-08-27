@@ -279,8 +279,8 @@ class TradingDashboard:
                   foreground="#a1a1a6").grid(row=0, column=0, sticky=W, padx=4, pady=(0, 12))
         watch_cols = ("序号", "代码", "名称")
         self.watch_tree = ttk.Treeview(watch, columns=watch_cols, show="headings")
-        # 宽度: 序号 36, 代码 96, 名称可伸缩
-        watch_widths = (36, 96, 128)
+        # 宽度: 序号 36, 代码 100, 名称可伸缩
+        watch_widths = (36, 100, 124)
         watch_anchors = (CENTER, W, W)
         for c, w, a in zip(watch_cols, watch_widths, watch_anchors):
             self.watch_tree.heading(c, text=c)
@@ -562,8 +562,8 @@ class TradingDashboard:
         if code in self.favorites:
             del self.favorites[code]
         else:
-            name = self._watchlist_name_for_code(code) or code
-            self.favorites[code] = name
+            # 存真实中文名; 当前查不到就存空串, 后续刷新会自动回填
+            self.favorites[code] = self._watchlist_name_for_code(code) or ""
         marked = code in self.favorites
         # 只切换树形列 #0 的红点图片, 行文字列不变
         self.tree.item(iid, image=self._dot_img if marked else "")
@@ -614,13 +614,33 @@ class TradingDashboard:
         return "break"
 
     def _refresh_watchlist(self):
-        """把当前 favorites 同步到右侧关注列表, 最新关注的排在最上面。"""
+        """把当前 favorites 同步到右侧关注列表, 最新关注的排在最上面。
+
+        每次刷新都会重新解析中文名: 如果当前清单或库里已经能查到名字,
+        就自动覆盖 favorites 里旧的名字(包括之前用代码兜底的情况)。
+        """
         for item in self.watch_tree.get_children():
             self.watch_tree.delete(item)
+        changed = False
         # favorites 字典保持插入顺序, reversed 后最新加入的在上
         for idx, code in enumerate(reversed(list(self.favorites.keys())), start=1):
-            name = self.favorites.get(code) or self._watchlist_name_for_code(code) or code
+            name = self._resolve_watchlist_name(code)
+            if self.favorites.get(code) != name:
+                self.favorites[code] = name
+                changed = True
             self.watch_tree.insert("", END, iid=code, values=(idx, code, name))
+        if changed:
+            self._save_favorites()
+
+    def _resolve_watchlist_name(self, code):
+        """综合解析关注标的的中文名; 实在没有才用代码本身兜底。"""
+        name = self._watchlist_name_for_code(code)
+        if name and name != code:
+            return name
+        stored = self.favorites.get(code)
+        if stored and stored != code:
+            return stored
+        return code
 
     def _watchlist_name_for_code(self, code):
         """根据代码查名称; 优先当前列表, 否则去 signal_archive 找最新一条。"""
