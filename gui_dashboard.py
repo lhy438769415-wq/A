@@ -183,13 +183,14 @@ class TradingDashboard:
 
         ttk.Separator(self.root, orient=HORIZONTAL).grid(row=0, column=0, sticky=E, padx=0)
 
-        # ---- 主区三栏 ----
+        # ---- 主区四栏 ----
         main = ttk.Frame(self.root, padding=(16, 12))
         main.grid(row=1, column=0, sticky=NSEW)
-        # 左栏/中栏固定宽度(导航用), 右栏随窗口缩放(给图表最大空间)
+        # 左栏/中栏/右栏固定宽度(导航用), 图表区随窗口缩放, 最右关注列表固定宽度
         main.columnconfigure(0, weight=0, minsize=180)
         main.columnconfigure(1, weight=0, minsize=360)
         main.columnconfigure(2, weight=1)
+        main.columnconfigure(3, weight=0, minsize=200)
         main.rowconfigure(0, weight=1)
 
         # 左栏: 策略导航 (收窄, 只放名字+数量)
@@ -202,28 +203,19 @@ class TradingDashboard:
         self.sidebar_inner = ttk.Frame(side)
         self.sidebar_inner.pack(fill=BOTH, expand=True)
 
-        # 中栏: 上方是今日信号清单, 下方是关注列表 (通过 Panedwindow 可拖动分隔)
+        # 中栏: 今日信号清单 (恢复独占中栏高度, 不再上下分)
         center = ttk.Frame(main, width=360, padding=(0, 0))
         center.grid(row=0, column=1, sticky=NSEW)
         center.grid_propagate(False)
-        center.rowconfigure(0, weight=1)
+        center.rowconfigure(1, weight=1)
         center.columnconfigure(0, weight=1)
-
-        paned = ttk.Panedwindow(center, orient=VERTICAL)
-        paned.grid(row=0, column=0, sticky=NSEW)
-
-        # 上半: 今日信号
-        top_frame = ttk.Frame(paned, padding=(0, 0))
-        paned.add(top_frame, weight=2)
-        top_frame.rowconfigure(1, weight=1)
-        top_frame.columnconfigure(0, weight=1)
-        self.list_title = ttk.Label(top_frame, text="今日信号", font=("Microsoft YaHei", 14, "bold"),
+        self.list_title = ttk.Label(center, text="今日信号", font=("Microsoft YaHei", 14, "bold"),
                                     foreground="#f5f5f7")
         self.list_title.grid(row=0, column=0, sticky=W, padx=4, pady=(0, 12))
 
         # 信号清单列: [标记] | 序号 | 代码 | 名称
         cols = (" ", "序号", "代码", "名称")
-        self.tree = ttk.Treeview(top_frame, columns=cols, show="headings")
+        self.tree = ttk.Treeview(center, columns=cols, show="headings")
         # 宽度: 标记列 30(只放红点), 序号 40, 代码 130, 名称唯一可伸缩
         widths = (30, 40, 130, 145)
         anchors = (CENTER, CENTER, W, W)
@@ -239,25 +231,6 @@ class TradingDashboard:
         self.tree.bind("<Leave>", self._on_tree_leave)
         self.tree.bind("<Button-1>", self._on_tree_click)
         self._tree_hover_iid = None
-
-        # 下半: 关注列表 (复制策略清单里被标红的标的)
-        bottom_frame = ttk.Frame(paned, padding=(0, 0))
-        paned.add(bottom_frame, weight=1)
-        bottom_frame.rowconfigure(1, weight=1)
-        bottom_frame.columnconfigure(0, weight=1)
-        ttk.Label(bottom_frame, text="关注列表", font=("Microsoft YaHei", 12, "bold"),
-                  foreground="#a1a1a6").grid(row=0, column=0, sticky=W, padx=4, pady=(12, 8))
-        self.watch_tree = ttk.Treeview(bottom_frame, columns=("名称",), show="headings")
-        self.watch_tree.heading("名称", text="名称")
-        self.watch_tree.column("名称", width=320, minwidth=100, anchor=W, stretch=True)
-        self.watch_tree.grid(row=1, column=0, sticky=NSEW)
-        self.watch_tree.bind("<<TreeviewSelect>>", self._on_watchlist_select)
-        # TV 式: 悬停变灰, 选中变红
-        self.watch_tree.tag_configure("hover", background="#4a4a4e")
-        self.watch_tree.tag_configure("favorite", foreground="#ff375f")
-        self.watch_tree.bind("<Motion>", self._on_watchlist_motion)
-        self.watch_tree.bind("<Leave>", self._on_watchlist_leave)
-        self._watch_hover_iid = None
 
         # 右栏: 选中票详情 (图表为主, 占满剩余空间)
         right = ttk.Frame(main, padding=(16, 0))
@@ -286,6 +259,31 @@ class TradingDashboard:
         self.btn_tv = ttk.Button(right, text="在 TradingView 打开", bootstyle="primary",
                                  command=self._open_tv, state=DISABLED)
         self.btn_tv.grid(row=3, column=0, sticky=NSEW, pady=(8, 0), ipady=6)
+
+        # 最右栏: 关注列表 (复制策略清单里被标红的标的)
+        watch = ttk.Frame(main, width=200, padding=(0, 0))
+        watch.grid(row=0, column=3, sticky=NSEW, padx=(16, 0))
+        watch.grid_propagate(False)
+        watch.rowconfigure(1, weight=1)
+        watch.columnconfigure(0, weight=1)
+        ttk.Label(watch, text="关注列表", font=("Microsoft YaHei", 12, "bold"),
+                  foreground="#a1a1a6").grid(row=0, column=0, sticky=W, padx=4, pady=(0, 12))
+        watch_cols = ("序号", "代码", "名称")
+        self.watch_tree = ttk.Treeview(watch, columns=watch_cols, show="headings")
+        # 宽度: 序号 36, 代码 82, 名称可伸缩
+        watch_widths = (36, 82, 82)
+        watch_anchors = (CENTER, W, W)
+        for c, w, a in zip(watch_cols, watch_widths, watch_anchors):
+            self.watch_tree.heading(c, text=c)
+            self.watch_tree.column(c, width=w, minwidth=w, anchor=a, stretch=(c == "名称"))
+        self.watch_tree.grid(row=1, column=0, sticky=NSEW)
+        self.watch_tree.bind("<<TreeviewSelect>>", self._on_watchlist_select)
+        # TV 式: 悬停变灰, 选中变红
+        self.watch_tree.tag_configure("hover", background="#4a4a4e")
+        self.watch_tree.tag_configure("favorite", foreground="#ff375f")
+        self.watch_tree.bind("<Motion>", self._on_watchlist_motion)
+        self.watch_tree.bind("<Leave>", self._on_watchlist_leave)
+        self._watch_hover_iid = None
 
         # ---- 状态栏 ----
         status = ttk.Frame(self.root, padding=(18, 8))
@@ -599,13 +597,13 @@ class TradingDashboard:
         return "break"
 
     def _refresh_watchlist(self):
-        """把当前 favorites 同步到下方关注列表, 按加入时间倒序。"""
+        """把当前 favorites 同步到右侧关注列表, 最新关注的排在最上面。"""
         for item in self.watch_tree.get_children():
             self.watch_tree.delete(item)
-        # 倒序: 最新关注的在上面
-        for code in reversed(sorted(self.favorites.keys())):
+        # favorites 字典保持插入顺序, reversed 后最新加入的在上
+        for idx, code in enumerate(reversed(list(self.favorites.keys())), start=1):
             name = self.favorites.get(code) or self._watchlist_name_for_code(code) or code
-            self.watch_tree.insert("", END, iid=code, values=(f"{code} {name}",),
+            self.watch_tree.insert("", END, iid=code, values=(idx, code, name),
                                    tags=("favorite",))
 
     def _watchlist_name_for_code(self, code):
