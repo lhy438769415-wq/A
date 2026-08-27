@@ -183,14 +183,13 @@ class TradingDashboard:
 
         ttk.Separator(self.root, orient=HORIZONTAL).grid(row=0, column=0, sticky=E, padx=0)
 
-        # ---- 主区四栏 ----
+        # ---- 主区三栏 ----
         main = ttk.Frame(self.root, padding=(16, 12))
         main.grid(row=1, column=0, sticky=NSEW)
-        # 左栏/中栏/右栏固定宽度(导航用), 图表区随窗口缩放, 最右关注列表固定宽度
+        # 左栏/中栏固定宽度(导航用), 右栏随窗口缩放(给图表最大空间)
         main.columnconfigure(0, weight=0, minsize=180)
         main.columnconfigure(1, weight=0, minsize=360)
         main.columnconfigure(2, weight=1)
-        main.columnconfigure(3, weight=0, minsize=200)
         main.rowconfigure(0, weight=1)
 
         # 左栏: 策略导航 (收窄, 只放名字+数量)
@@ -232,12 +231,16 @@ class TradingDashboard:
         self.tree.bind("<Button-1>", self._on_tree_click)
         self._tree_hover_iid = None
 
-        # 右栏: 选中票详情 (图表为主, 占满剩余空间)
+        # 右栏: 选中票详情 + 关注列表
+        # 右栏内部再分两列: 左列放K线图和详情(自适应), 右列固定200px放关注列表
         right = ttk.Frame(main, padding=(16, 0))
         right.grid(row=0, column=2, sticky=NSEW, padx=(16, 0))
-        right.columnconfigure(0, weight=1)
-        right.rowconfigure(0, weight=1)  # 图表区优先占垂直空间
+        right.columnconfigure(0, weight=1)   # 图表区占满右栏剩余宽度
+        right.columnconfigure(1, weight=0, minsize=200)  # 关注列表固定宽度
+        right.rowconfigure(0, weight=1)      # 图表区优先占垂直空间
+        right.rowconfigure(1, weight=0)
         right.rowconfigure(2, weight=0)
+        right.rowconfigure(3, weight=0)
 
         # 图表容器: 尺寸只由 grid 权重决定, 不随图片内容膨胀 (切断 resize 反馈回路)
         self.chart_frame = ttk.Frame(right)
@@ -260,9 +263,9 @@ class TradingDashboard:
                                  command=self._open_tv, state=DISABLED)
         self.btn_tv.grid(row=3, column=0, sticky=NSEW, pady=(8, 0), ipady=6)
 
-        # 最右栏: 关注列表 (复制策略清单里被标红的标的)
-        watch = ttk.Frame(main, width=200, padding=(0, 0))
-        watch.grid(row=0, column=3, sticky=NSEW, padx=(16, 0))
+        # 右栏右侧: 关注列表 (复制策略清单里被标红的标的)
+        watch = ttk.Frame(right, width=200, padding=(0, 0))
+        watch.grid(row=0, column=1, rowspan=4, sticky=NSEW, padx=(16, 0))
         watch.grid_propagate(False)
         watch.rowconfigure(1, weight=1)
         watch.columnconfigure(0, weight=1)
