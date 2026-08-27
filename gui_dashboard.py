@@ -108,8 +108,11 @@ class TradingDashboard:
         self._sync_ok = bool(update_daily_data_batch)  # 行情下载模块是否可用
         self._stop_event = threading.Event()  # 手动终止信号: 运行中置位, 后台循环检查
         self.favorites = self._load_favorites()  # 用户手动标记的 "关注" 集合
+        self._tree_hover_iid = None  # 信号清单当前悬停行
+        self._watch_hover_iid = None  # 关注列表当前悬停行
 
         self._build_ui()
+        self._refresh_watchlist()
         self._refresh()
 
     # ================= UI 构建 =================
@@ -180,17 +183,38 @@ class TradingDashboard:
 
         ttk.Separator(self.root, orient=HORIZONTAL).grid(row=0, column=0, sticky=E, padx=0)
 
-        # ---- 主区三栏 ----
+        # ---- 主区四栏 ----
         main = ttk.Frame(self.root, padding=(16, 12))
         main.grid(row=1, column=0, sticky=NSEW)
-        # 中栏固定宽度(导航用), 右栏随窗口缩放(给图表最大空间)
-        main.columnconfigure(1, weight=0, minsize=360)
-        main.columnconfigure(2, weight=1)
+        # 左栏/中栏固定宽度(导航用), 右栏随窗口缩放(给图表最大空间)
+        main.columnconfigure(0, weight=0, minsize=160)
+        main.columnconfigure(1, weight=0, minsize=180)
+        main.columnconfigure(2, weight=0, minsize=360)
+        main.columnconfigure(3, weight=1)
         main.rowconfigure(0, weight=1)
+
+        # 最左栏: 关注列表 (Watchlist), 单列, 复制策略清单里被标红的标的
+        watch = ttk.Frame(main, width=160, padding=(0, 0))
+        watch.grid(row=0, column=0, sticky=NSEW, padx=(0, 16))
+        watch.rowconfigure(1, weight=1)
+        watch.grid_propagate(False)
+        ttk.Label(watch, text="关注列表", font=("Microsoft YaHei", 12, "bold"),
+                  foreground="#a1a1a6").pack(anchor=W, pady=(0, 10))
+        self.watch_tree = ttk.Treeview(watch, columns=("名称",), show="headings")
+        self.watch_tree.heading("名称", text="名称")
+        self.watch_tree.column("名称", width=140, minwidth=100, anchor=W)
+        self.watch_tree.pack(fill=BOTH, expand=True)
+        self.watch_tree.bind("<<TreeviewSelect>>", self._on_watchlist_select)
+        # TV 式: 悬停变灰, 选中变红
+        self.watch_tree.tag_configure("hover", background="#4a4a4e")
+        self.watch_tree.tag_configure("favorite", foreground="#ff375f")
+        self.watch_tree.bind("<Motion>", self._on_watchlist_motion)
+        self.watch_tree.bind("<Leave>", self._on_watchlist_leave)
+        self._watch_hover_iid = None
 
         # 左栏: 策略导航 (收窄, 只放名字+数量)
         side = ttk.Frame(main, width=180, padding=(0, 0))
-        side.grid(row=0, column=0, sticky=NSEW, padx=(0, 16))
+        side.grid(row=0, column=1, sticky=NSEW, padx=(0, 16))
         side.rowconfigure(1, weight=1)
         side.grid_propagate(False)
         ttk.Label(side, text="策略", font=("Microsoft YaHei", 12, "bold"),
@@ -200,7 +224,7 @@ class TradingDashboard:
 
         # 中栏: 清单 (紧凑导航)
         center = ttk.Frame(main, width=360, padding=(0, 0))
-        center.grid(row=0, column=1, sticky=NSEW)
+        center.grid(row=0, column=2, sticky=NSEW)
         center.grid_propagate(False)
         center.rowconfigure(1, weight=1)
         center.columnconfigure(0, weight=1)
@@ -208,27 +232,29 @@ class TradingDashboard:
                                     foreground="#f5f5f7")
         self.list_title.grid(row=0, column=0, sticky=W, padx=4, pady=(0, 12))
 
-        cols = ("序号", "代码", "名称")
+        # 信号清单列: [标记] | 序号 | 代码 | 名称
+        cols = (" ", "序号", "代码", "名称")
         # 深色主题下用默认 Treeview, 不强制 light 变体
         self.tree = ttk.Treeview(center, columns=cols, show="headings")
-        # 宽度: 序号 40(3 字符 999 + 留白), 代码 140(放下 sh.600046.SH), 名称唯一可伸缩
-        widths = (40, 140, 145)
-        anchors = (CENTER, W, W)
+        # 宽度: 标记列 30(只放红点), 序号 40, 代码 130, 名称唯一可伸缩
+        widths = (30, 40, 130, 145)
+        anchors = (CENTER, CENTER, W, W)
         for c, w, a in zip(cols, widths, anchors):
             self.tree.heading(c, text=c)
             self.tree.column(c, width=w, minwidth=w, anchor=a, stretch=(c == "名称"))
         self.tree.grid(row=1, column=0, sticky=NSEW)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
-        # 已关注行显示红色字体
+        # TV 式关注效果: 悬停变灰, 点击标记列标红; 已关注行整体红字
         self.tree.tag_configure("favorite", foreground="#ff375f")
-        # 右键菜单: 标记/取消关注
-        self._context = tk.Menu(self.tree, tearoff=0)
-        self._context.add_command(label="标记关注", command=self._toggle_favorite)
-        self.tree.bind("<Button-3>", self._on_right_click)
+        self.tree.tag_configure("hover", background="#4a4a4e")
+        self.tree.bind("<Motion>", self._on_tree_motion)
+        self.tree.bind("<Leave>", self._on_tree_leave)
+        self.tree.bind("<Button-1>", self._on_tree_click)
+        self._tree_hover_iid = None
 
         # 右栏: 选中票详情 (图表为主, 占满剩余空间)
         right = ttk.Frame(main, padding=(16, 0))
-        right.grid(row=0, column=2, sticky=NSEW, padx=(16, 0))
+        right.grid(row=0, column=3, sticky=NSEW, padx=(16, 0))
         right.columnconfigure(0, weight=1)
         right.rowconfigure(0, weight=1)  # 图表区优先占垂直空间
         right.rowconfigure(2, weight=0)
@@ -299,6 +325,7 @@ class TradingDashboard:
             self._clear_sidebar()
             self._clear_detail()
             self._update_status(None, {})
+            self._refresh_watchlist()
             return
 
         # 若当前选中日不在列表(或从未选), 默认切到最新
@@ -372,6 +399,7 @@ class TradingDashboard:
             self.list_title.configure(text=f"{date_label} 信号 (无命中)")
             self._clear_detail()
         self._update_status(self.selected_date, counts)
+        self._refresh_watchlist()
 
     def _on_year_change(self, event=None):
         y = self.year_var.get()
@@ -461,6 +489,7 @@ class TradingDashboard:
             code = row.get("code", "")
             marked = code in self.favorites
             values = (
+                "●" if marked else "",
                 i + 1,
                 code,
                 row.get("name") or "—",
@@ -493,25 +522,8 @@ class TradingDashboard:
         except Exception as e:  # noqa: BLE001
             logging.warning(f"保存关注列表失败: {e}")
 
-    def _on_right_click(self, event):
-        """右键点击列表行, 弹出关注/取消菜单。"""
-        iid = self.tree.identify_row(event.y)
-        if not iid:
-            return
-        self.tree.selection_set(iid)
-        values = self.tree.item(iid, "values")
-        code = values[1] if values else None
-        if not code:
-            return
-        marked = code in self.favorites
-        self._context.entryconfigure(
-            0,
-            label="取消关注" if marked else "标记关注 ♥",
-        )
-        self._context.post(event.x_root, event.y_root)
-
     def _toggle_favorite(self, iid=None):
-        """切换指定行的关注状态; 不传 iid 则取当前选中行。立即更新列表与文件。"""
+        """切换指定行的关注状态; 不传 iid 则取当前选中行。立即更新列表与文件, 并同步关注列表。"""
         if iid is None:
             sel = self.tree.selection()
             if not sel:
@@ -520,13 +532,146 @@ class TradingDashboard:
         values = list(self.tree.item(iid, "values"))
         if not values:
             return
-        code = values[1]
+        code = values[2]
         if code in self.favorites:
             self.favorites.discard(code)
         else:
             self.favorites.add(code)
-        self.tree.item(iid, tags=("favorite",) if code in self.favorites else ())
+        marked = code in self.favorites
+        values[0] = "●" if marked else ""
+        self.tree.item(iid, values=tuple(values),
+                       tags=("favorite",) if marked else ())
         self._save_favorites()
+        self._refresh_watchlist()
+
+    def _on_tree_motion(self, event):
+        """TV 式: 鼠标悬停在标记列时, 整行背景变灰。"""
+        region = self.tree.identify("region", event.x, event.y)
+        if region != "cell":
+            self._clear_tree_hover()
+            return
+        iid = self.tree.identify_row(event.y)
+        col = self.tree.identify_column(event.x)
+        if not iid or col != "#1":
+            self._clear_tree_hover()
+            return
+        if self._tree_hover_iid == iid:
+            return
+        self._clear_tree_hover()
+        self._tree_hover_iid = iid
+        tags = list(self.tree.item(iid, "tags"))
+        if "hover" not in tags:
+            tags.append("hover")
+            self.tree.item(iid, tags=tags)
+
+    def _on_tree_leave(self, event=None):
+        self._clear_tree_hover()
+
+    def _clear_tree_hover(self):
+        iid = self._tree_hover_iid
+        if not iid:
+            return
+        self._tree_hover_iid = None
+        tags = [t for t in self.tree.item(iid, "tags") if t != "hover"]
+        self.tree.item(iid, tags=tags)
+
+    def _on_tree_click(self, event):
+        """TV 式: 点击标记列切换关注; 点击其他列保持选中行。"""
+        region = self.tree.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+        iid = self.tree.identify_row(event.y)
+        col = self.tree.identify_column(event.x)
+        if not iid or col != "#1":
+            return
+        self._toggle_favorite(iid)
+        return "break"
+
+    def _refresh_watchlist(self):
+        """把当前 favorites 同步到左侧 Watchlist, 按加入时间倒序。"""
+        for item in self.watch_tree.get_children():
+            self.watch_tree.delete(item)
+        # 倒序: 最新关注的在上面
+        for code in reversed(sorted(self.favorites)):
+            name = self._watchlist_name_for_code(code)
+            self.watch_tree.insert("", END, iid=code, values=(f"{code} {name}",),
+                                   tags=("favorite",))
+
+    def _watchlist_name_for_code(self, code):
+        """根据代码查名称; 优先当前列表, 否则去 signal_archive 找最新一条。"""
+        for row in self.current_rows:
+            if row.get("code") == code:
+                return row.get("name") or "—"
+        try:
+            with _db() as conn:
+                r = conn.execute(
+                    "SELECT name FROM signal_archive WHERE code=? ORDER BY signal_date DESC LIMIT 1",
+                    (code,),
+                ).fetchone()
+                if r and r[0]:
+                    return r[0]
+        except Exception:  # noqa: BLE001
+            pass
+        return "—"
+
+    def _on_watchlist_motion(self, event):
+        """Watchlist 悬停变灰。"""
+        iid = self.watch_tree.identify_row(event.y)
+        if self._watch_hover_iid == iid:
+            return
+        self._clear_watchlist_hover()
+        if not iid:
+            return
+        self._watch_hover_iid = iid
+        tags = list(self.watch_tree.item(iid, "tags"))
+        if "hover" not in tags:
+            tags.append("hover")
+            self.watch_tree.item(iid, tags=tags)
+
+    def _on_watchlist_leave(self, event=None):
+        self._clear_watchlist_hover()
+
+    def _clear_watchlist_hover(self):
+        iid = self._watch_hover_iid
+        if not iid:
+            return
+        self._watch_hover_iid = None
+        tags = [t for t in self.watch_tree.item(iid, "tags") if t != "hover"]
+        self.watch_tree.item(iid, tags=tags)
+
+    def _on_watchlist_select(self, event):
+        """点击 Watchlist 行: 右侧显示该票 K 线。"""
+        sel = self.watch_tree.selection()
+        if not sel:
+            return
+        code = sel[0]
+        row = None
+        # 优先在当前策略列表里找完整信息
+        for r in self.current_rows:
+            if r.get("code") == code:
+                row = r
+                break
+        if row is None:
+            # 从库里取最新一条信号记录(可能跨日期/策略)
+            try:
+                with _db() as conn:
+                    col_names = [d[0] for d in conn.execute("SELECT * FROM signal_archive LIMIT 0").description]
+                    r = conn.execute(
+                        f"SELECT * FROM signal_archive WHERE code=? AND strategy IN ({_KEY_PH}) "
+                        "ORDER BY signal_date DESC LIMIT 1",
+                        (code,) + _VALID_KEYS,
+                    ).fetchone()
+                    if r:
+                        row = dict(zip(col_names, r))
+            except Exception:  # noqa: BLE001
+                pass
+        if not row:
+            self.status_var.set(f"{code} 无本地信号记录")
+            return
+        self.current_detail_row = row
+        self._render_detail_text(row)
+        self.btn_tv.configure(state=NORMAL)
+        self._show_thumbnail(row)
 
     # ================= 详情 =================
     def _on_select(self, event):
