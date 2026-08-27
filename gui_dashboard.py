@@ -220,11 +220,20 @@ class TradingDashboard:
         anchors = (CENTER, CENTER, W, W)
         for c, w, a in zip(cols, widths, anchors):
             self.tree.heading(c, text=c)
-            self.tree.column(c, width=w, minwidth=w, anchor=a, stretch=(c == "名称"))
+            if c == " ":
+                # 标记列(红点)单独用红色样式, 行文字保持默认白
+                self.tree.column(c, width=w, minwidth=w, anchor=a, stretch=False,
+                                 style="MarkRed.Treeview")
+            else:
+                self.tree.column(c, width=w, minwidth=w, anchor=a, stretch=(c == "名称"))
         self.tree.grid(row=1, column=0, sticky=NSEW)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
-        # TV 式关注效果: 悬停变灰, 点击标记列标红; 已关注行整体红字
-        self.tree.tag_configure("favorite", foreground="#ff375f")
+        # 标记列红点样式: 仅标记列 ● 显示红色, 行文字保持白色
+        try:
+            ttk.Style().configure("MarkRed.Treeview", foreground="#ff375f")
+        except Exception:  # noqa: BLE001
+            pass
+        # TV 式关注效果: 悬停变灰; 已关注行不再整行标红(标记列红点已表示关注)
         self.tree.tag_configure("hover", background="#4a4a4e")
         self.tree.bind("<Motion>", self._on_tree_motion)
         self.tree.bind("<Leave>", self._on_tree_leave)
@@ -503,8 +512,7 @@ class TradingDashboard:
                 code,
                 row.get("name") or "—",
             )
-            self.tree.insert("", END, iid=str(i), values=values,
-                             tags=("favorite",) if marked else ())
+            self.tree.insert("", END, iid=str(i), values=values)
 
     def _favorites_path(self):
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "gui_favorites.json")
@@ -552,8 +560,7 @@ class TradingDashboard:
             self.favorites[code] = name
         marked = code in self.favorites
         values[0] = "●" if marked else ""
-        self.tree.item(iid, values=tuple(values),
-                       tags=("favorite",) if marked else ())
+        self.tree.item(iid, values=tuple(values))
         self._save_favorites()
         self._refresh_watchlist()
 
