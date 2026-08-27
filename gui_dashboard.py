@@ -17,7 +17,7 @@ import threading
 import tkinter as tk
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import (  # 显式导入, 禁止 import *
-    BOTH, LEFT, RIGHT, X, NSEW, EW, END, W, E, CENTER, HORIZONTAL, DISABLED, NORMAL,
+    BOTH, LEFT, RIGHT, X, NSEW, EW, END, W, E, CENTER, HORIZONTAL, VERTICAL, DISABLED, NORMAL,
 )
 
 # ---- 业务模块 (优雅降级: 导入失败则对应按钮禁用, 界面仍可开) ----
@@ -183,38 +183,18 @@ class TradingDashboard:
 
         ttk.Separator(self.root, orient=HORIZONTAL).grid(row=0, column=0, sticky=E, padx=0)
 
-        # ---- 主区四栏 ----
+        # ---- 主区三栏 ----
         main = ttk.Frame(self.root, padding=(16, 12))
         main.grid(row=1, column=0, sticky=NSEW)
         # 左栏/中栏固定宽度(导航用), 右栏随窗口缩放(给图表最大空间)
-        main.columnconfigure(0, weight=0, minsize=160)
-        main.columnconfigure(1, weight=0, minsize=180)
-        main.columnconfigure(2, weight=0, minsize=360)
-        main.columnconfigure(3, weight=1)
+        main.columnconfigure(0, weight=0, minsize=180)
+        main.columnconfigure(1, weight=0, minsize=360)
+        main.columnconfigure(2, weight=1)
         main.rowconfigure(0, weight=1)
-
-        # 最左栏: 关注列表 (Watchlist), 单列, 复制策略清单里被标红的标的
-        watch = ttk.Frame(main, width=160, padding=(0, 0))
-        watch.grid(row=0, column=0, sticky=NSEW, padx=(0, 16))
-        watch.rowconfigure(1, weight=1)
-        watch.grid_propagate(False)
-        ttk.Label(watch, text="关注列表", font=("Microsoft YaHei", 12, "bold"),
-                  foreground="#a1a1a6").pack(anchor=W, pady=(0, 10))
-        self.watch_tree = ttk.Treeview(watch, columns=("名称",), show="headings")
-        self.watch_tree.heading("名称", text="名称")
-        self.watch_tree.column("名称", width=140, minwidth=100, anchor=W)
-        self.watch_tree.pack(fill=BOTH, expand=True)
-        self.watch_tree.bind("<<TreeviewSelect>>", self._on_watchlist_select)
-        # TV 式: 悬停变灰, 选中变红
-        self.watch_tree.tag_configure("hover", background="#4a4a4e")
-        self.watch_tree.tag_configure("favorite", foreground="#ff375f")
-        self.watch_tree.bind("<Motion>", self._on_watchlist_motion)
-        self.watch_tree.bind("<Leave>", self._on_watchlist_leave)
-        self._watch_hover_iid = None
 
         # 左栏: 策略导航 (收窄, 只放名字+数量)
         side = ttk.Frame(main, width=180, padding=(0, 0))
-        side.grid(row=0, column=1, sticky=NSEW, padx=(0, 16))
+        side.grid(row=0, column=0, sticky=NSEW, padx=(0, 16))
         side.rowconfigure(1, weight=1)
         side.grid_propagate(False)
         ttk.Label(side, text="策略", font=("Microsoft YaHei", 12, "bold"),
@@ -222,20 +202,28 @@ class TradingDashboard:
         self.sidebar_inner = ttk.Frame(side)
         self.sidebar_inner.pack(fill=BOTH, expand=True)
 
-        # 中栏: 清单 (紧凑导航)
+        # 中栏: 上方是今日信号清单, 下方是关注列表 (通过 Panedwindow 可拖动分隔)
         center = ttk.Frame(main, width=360, padding=(0, 0))
-        center.grid(row=0, column=2, sticky=NSEW)
+        center.grid(row=0, column=1, sticky=NSEW)
         center.grid_propagate(False)
-        center.rowconfigure(1, weight=1)
+        center.rowconfigure(0, weight=1)
         center.columnconfigure(0, weight=1)
-        self.list_title = ttk.Label(center, text="今日信号", font=("Microsoft YaHei", 14, "bold"),
+
+        paned = ttk.Panedwindow(center, orient=VERTICAL)
+        paned.grid(row=0, column=0, sticky=NSEW)
+
+        # 上半: 今日信号
+        top_frame = ttk.Frame(paned, padding=(0, 0))
+        paned.add(top_frame, weight=2)
+        top_frame.rowconfigure(1, weight=1)
+        top_frame.columnconfigure(0, weight=1)
+        self.list_title = ttk.Label(top_frame, text="今日信号", font=("Microsoft YaHei", 14, "bold"),
                                     foreground="#f5f5f7")
         self.list_title.grid(row=0, column=0, sticky=W, padx=4, pady=(0, 12))
 
         # 信号清单列: [标记] | 序号 | 代码 | 名称
         cols = (" ", "序号", "代码", "名称")
-        # 深色主题下用默认 Treeview, 不强制 light 变体
-        self.tree = ttk.Treeview(center, columns=cols, show="headings")
+        self.tree = ttk.Treeview(top_frame, columns=cols, show="headings")
         # 宽度: 标记列 30(只放红点), 序号 40, 代码 130, 名称唯一可伸缩
         widths = (30, 40, 130, 145)
         anchors = (CENTER, CENTER, W, W)
@@ -252,9 +240,28 @@ class TradingDashboard:
         self.tree.bind("<Button-1>", self._on_tree_click)
         self._tree_hover_iid = None
 
+        # 下半: 关注列表 (复制策略清单里被标红的标的)
+        bottom_frame = ttk.Frame(paned, padding=(0, 0))
+        paned.add(bottom_frame, weight=1)
+        bottom_frame.rowconfigure(1, weight=1)
+        bottom_frame.columnconfigure(0, weight=1)
+        ttk.Label(bottom_frame, text="关注列表", font=("Microsoft YaHei", 12, "bold"),
+                  foreground="#a1a1a6").grid(row=0, column=0, sticky=W, padx=4, pady=(12, 8))
+        self.watch_tree = ttk.Treeview(bottom_frame, columns=("名称",), show="headings")
+        self.watch_tree.heading("名称", text="名称")
+        self.watch_tree.column("名称", width=320, minwidth=100, anchor=W, stretch=True)
+        self.watch_tree.grid(row=1, column=0, sticky=NSEW)
+        self.watch_tree.bind("<<TreeviewSelect>>", self._on_watchlist_select)
+        # TV 式: 悬停变灰, 选中变红
+        self.watch_tree.tag_configure("hover", background="#4a4a4e")
+        self.watch_tree.tag_configure("favorite", foreground="#ff375f")
+        self.watch_tree.bind("<Motion>", self._on_watchlist_motion)
+        self.watch_tree.bind("<Leave>", self._on_watchlist_leave)
+        self._watch_hover_iid = None
+
         # 右栏: 选中票详情 (图表为主, 占满剩余空间)
         right = ttk.Frame(main, padding=(16, 0))
-        right.grid(row=0, column=3, sticky=NSEW, padx=(16, 0))
+        right.grid(row=0, column=2, sticky=NSEW, padx=(16, 0))
         right.columnconfigure(0, weight=1)
         right.rowconfigure(0, weight=1)  # 图表区优先占垂直空间
         right.rowconfigure(2, weight=0)
