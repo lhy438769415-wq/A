@@ -236,11 +236,10 @@ class TradingDashboard:
         self._tree_hover_iid = None
 
         # 右栏: 选中票详情 + 关注列表
-        # 右栏内部再分两列: 左列放K线图和详情(自适应), 右列固定260px放关注列表
+        # 右栏只有一列(图表区占满), 关注列表用 place 浮在右侧留白区, 不抢列宽
         right = ttk.Frame(main, padding=(16, 0))
         right.grid(row=0, column=2, sticky=NSEW, padx=(16, 0))
-        right.columnconfigure(0, weight=1)   # 图表区占满右栏剩余宽度
-        right.columnconfigure(1, weight=0, minsize=360)  # 关注列表固定宽度
+        right.columnconfigure(0, weight=1)   # 图表区占满右栏宽度(与无关注列表时一致)
         right.rowconfigure(0, weight=1)      # 图表区优先占垂直空间
         right.rowconfigure(1, weight=0)
         right.rowconfigure(2, weight=0)
@@ -253,7 +252,8 @@ class TradingDashboard:
         self.chart_frame.rowconfigure(0, weight=1)
         self.chart_frame.bind("<Configure>", self._on_chart_configure)
         self.chart_label = ttk.Label(self.chart_frame, text="选中左侧标的查看缩略图",
-                                     foreground="#8e8e93", font=("Microsoft YaHei", 11))
+                                     foreground="#8e8e93", font=("Microsoft YaHei", 11),
+                                     anchor="w")
         self.chart_label.grid(row=0, column=0, sticky=NSEW)
 
         self.lbl_strat = ttk.Label(right, text="", font=("Microsoft YaHei", 14, "bold"),
@@ -266,14 +266,14 @@ class TradingDashboard:
         self.btn_tv = ttk.Button(right, text="在 TradingView 打开", bootstyle="primary",
                                  command=self._open_tv, state=DISABLED)
         # 按钮跨两列, 恢复原先占满右栏底部的宽度
-        self.btn_tv.grid(row=3, column=0, columnspan=2, sticky=NSEW, pady=(8, 0), ipady=6)
+        self.btn_tv.grid(row=3, column=0, sticky=NSEW, pady=(8, 0), ipady=6)
 
-        # 右栏右侧: 关注列表 (复制策略清单里被标红的标的)
-        # 宽度与左侧信号清单一致: 序号40 / 代码130 / 名称可伸缩; 避免代码被截断
+        # 关注列表: 用 place 浮在右栏右侧空白区(K线图左对齐后, 其右侧留白本就空着)
+        # 关键: 不另开一列抢宽度 -> 图表容器保持原宽, K线图尺寸不变, 仅占用原有留白
         watch = ttk.Frame(right, width=360, padding=(0, 0))
-        # 只占 row0~row2, 底部 row3 留给 TV 按钮
-        watch.grid(row=0, column=1, rowspan=3, sticky=NSEW, padx=(16, 0))
+        watch.place(relx=1.0, x=-8, rely=0.0, relheight=1.0, height=-56, anchor="ne")
         watch.grid_propagate(False)
+        self.watch_frame = watch  # 供几何自检/后续使用
         watch.rowconfigure(1, weight=1)
         watch.columnconfigure(0, weight=1)
         ttk.Label(watch, text="关注列表", font=("Microsoft YaHei", 12, "bold"),
