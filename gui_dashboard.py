@@ -240,7 +240,7 @@ class TradingDashboard:
         right = ttk.Frame(main, padding=(16, 0))
         right.grid(row=0, column=2, sticky=NSEW, padx=(16, 0))
         right.columnconfigure(0, weight=1)   # 图表区占满右栏剩余宽度
-        right.columnconfigure(1, weight=0, minsize=260)  # 关注列表固定宽度
+        right.columnconfigure(1, weight=0, minsize=360)  # 关注列表固定宽度
         right.rowconfigure(0, weight=1)      # 图表区优先占垂直空间
         right.rowconfigure(1, weight=0)
         right.rowconfigure(2, weight=0)
@@ -269,7 +269,8 @@ class TradingDashboard:
         self.btn_tv.grid(row=3, column=0, columnspan=2, sticky=NSEW, pady=(8, 0), ipady=6)
 
         # 右栏右侧: 关注列表 (复制策略清单里被标红的标的)
-        watch = ttk.Frame(right, width=260, padding=(0, 0))
+        # 宽度与左侧信号清单一致: 序号40 / 代码130 / 名称可伸缩; 避免代码被截断
+        watch = ttk.Frame(right, width=360, padding=(0, 0))
         # 只占 row0~row2, 底部 row3 留给 TV 按钮
         watch.grid(row=0, column=1, rowspan=3, sticky=NSEW, padx=(16, 0))
         watch.grid_propagate(False)
@@ -279,8 +280,8 @@ class TradingDashboard:
                   foreground="#a1a1a6").grid(row=0, column=0, sticky=W, padx=4, pady=(0, 12))
         watch_cols = ("序号", "代码", "名称")
         self.watch_tree = ttk.Treeview(watch, columns=watch_cols, show="headings")
-        # 宽度: 序号 36, 代码 100, 名称可伸缩
-        watch_widths = (36, 100, 124)
+        # 宽度: 序号 40, 代码 130, 名称可伸缩(与信号清单三列宽度一致)
+        watch_widths = (40, 130, 120)
         watch_anchors = (CENTER, W, W)
         for c, w, a in zip(watch_cols, watch_widths, watch_anchors):
             self.watch_tree.heading(c, text=c)
