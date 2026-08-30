@@ -16,12 +16,19 @@ import core.data_provider as dp
 from ._shared import logger, PENDING_EXPIRY, ACTIVE_EXPIRY
 
 
-def track_signals(timeframe=None):
+def track_signals(timeframe=None, real_scan_only=False):
     """
     检查所有 PENDING/ACTIVE 信号的最新价格, 推进状态机。
-    
+
     🟢 V9.3: 不再逐个推送结算通知, 改为收集事件列表, 由仪表盘统一按状态分组推送。
-    
+
+    Args:
+        timeframe: 只追踪该周期的信号 (None = 全部周期)。
+        real_scan_only: 只追踪「真实扫描」产生的信号, 即 date(scan_date)=date(created_at)。
+            🟢 用途: 库里有 2622 条 2026-05 一次性回测回填的周线信号, 它们是历史回测产物,
+               一旦被状态机推进就会污染回测口径, 必须排除。
+            🔴 该判据**只对周线成立** — 日线存在跨午夜扫描(信号日与入库日差一天), 开了会误伤。
+
     Returns:
         dict: {'updated': N, 'activated': N, 'wins': N, 'losses': N, 'expired': N}
     """
@@ -40,7 +47,9 @@ def track_signals(timeframe=None):
             if timeframe:
                 where += " AND timeframe = ?"
                 params.append(timeframe)
-            
+            if real_scan_only:
+                where += " AND date(scan_date) = date(created_at)"
+
             rows = conn.execute(f"SELECT * FROM signal_archive {where}", params).fetchall()
             col_names = [desc[0] for desc in conn.execute(f"SELECT * FROM signal_archive LIMIT 0").description]
             

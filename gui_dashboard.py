@@ -44,6 +44,11 @@ try:
     from core.scan_engine import run_weekly_scan
 except Exception as e:  # noqa: BLE001 - 允许降级, 不阻断界面
     logging.warning(f"周线扫描模块导入失败(周线扫描按钮将不可用): {e}")
+track_signals = None
+try:
+    from core.signal_tracker.tracking import track_signals
+except Exception as e:  # noqa: BLE001 - 允许降级, 不阻断界面
+    logging.warning(f"信号追踪模块导入失败(周线扫描后将跳过状态跟进): {e}")
 
 
 # ---- 注册表 key 顺序 (决定左栏展示顺序) ----
@@ -969,6 +974,17 @@ class TradingDashboard:
                           "STRATEGY_GAP_H2", "STRATEGY_3K"]
             run_weekly_scan(strats, weeks=4, all_codes=codes,
                             progress_callback=cb, cancel_event=self._stop_event)
+
+            # 🟢 扫描后顺带把周线信号的状态推进一遍(进场/止盈/止损/过期)。
+            #    零自动化: 这是同一个手动动作里的第二步, 不是定时任务。
+            #    🔴 必须跑两轮才收敛 — _track_pending 把「待确认」推进到「已入场」后,
+            #       本轮不再检查持仓是否超期, 要等下一轮才结得掉(周线持仓上限 20 根周线)。
+            #       补跑实测: 第1轮了结 185 条, 第2轮归零。只跑一轮会剩下一堆假活口。
+            #    real_scan_only=True: 跳过 2026-05 那批回测回填数据, 不污染回测口径。
+            if track_signals and not self._stop_event.is_set():
+                self.root.after(0, self._apply_progress, 100, "跟进信号状态…")
+                for _round in range(2):
+                    track_signals(timeframe="weekly", real_scan_only=True)
             return None
 
         self._run_thread(_task, "周线扫描",
@@ -982,7 +998,8 @@ class TradingDashboard:
         elif ret == "NO_CODES":
             self.status_var.set("本地数据库为空, 请先点击「下载行情」")
         else:
-            self.status_var.set("策略扫描完成 · 清单已刷新")
+            extra = " · 信号状态已跟进" if self._is_weekly() and track_signals else ""
+            self.status_var.set(f"策略扫描完成 · 清单已刷新{extra}")
 
     def _run_thread(self, func, name, on_done=None, on_fail=None):
         def _wrap():
