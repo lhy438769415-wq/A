@@ -923,51 +923,38 @@ def run_weekly_scan(active_strategies, weeks=4, limit=0, all_codes=None,
         pass
 
     active = [s.upper() for s in (active_strategies or [])]
-    # [P1-1 修复] 周线 3K 与缺口家族改为并行路由, 不再互斥:
-    # 原 `if STRATEGY_3K in active` 的独占分支导致"选了 3K 就不扫 gap",
-    # 既漏信号又违背用户多选意图。现各自独立判定、按需都跑。
+    # 周线只跑缺口家族三个策略 (GAP H1 / GAP PINBAR / GAP H2)。
+    # 3K 不在周线范围内 —— 它是某次 agent 自作主张加进周线的, 用户已明确周线只考虑 gap。
     WEEKLY_GAP_STRATS = {
         'STRATEGY_STRUCTURAL_GAP', 'STRATEGY_GAP_PINBAR', 'STRATEGY_GAP_H2',
     }
-    do_3k = 'STRATEGY_3K' in active
-    do_gap = bool(set(active) & WEEKLY_GAP_STRATS)
+    gap_strats = [s for s in active_strategies if s.upper() in WEEKLY_GAP_STRATS]
+    do_gap = bool(gap_strats)
 
-    # 🟢 扫描回执: 让界面能如实报告"每个家族各扫出几条", 而不是让 0 命中看起来像没跑
-    stats = {'ran_gap': do_gap, 'ran_3k': do_3k,
+    # 🟢 扫描回执: 让界面能如实报告"缺口家族扫出几条", 而不是让 0 命中看起来像没跑
+    stats = {'ran_gap': do_gap, 'ran_3k': False,
              'gap': 0, 'k3_breakout': 0, 'k3_gap_test': 0,
              'stocks': len(all_codes)}
 
-    if not (do_3k or do_gap):
-        print(f"\n⚠️ 周线扫描: 未识别到任何周线策略 ({', '.join(active) or '空'})。"
-              f"支持: STRATEGY_3K / {', '.join(sorted(WEEKLY_GAP_STRATS))}")
+    if not do_gap:
+        print(f"\n⚠️ 周线扫描: 未识别到任何周线缺口策略 ({', '.join(active) or '空'})。"
+              f"支持: {', '.join(sorted(WEEKLY_GAP_STRATS))}")
         _safe_progress(1, 1, 0)
         return stats
 
-    # 🟢 [GUI] 进度总量: 两个家族都跑时, 工作量 = 2 × 股票数 (缺口先跑, 3K 后跑接续计数)
-    total_all = len(all_codes) * (int(do_gap) + int(do_3k))
+    # 🟢 [GUI] 进度总量 = 股票数 (单阶段, 缺口家族一次跑完, 不再有 3K 叠加的 6624)
+    total_all = len(all_codes)
 
     def _gap_cb(done, _total, info=None):
         _safe_progress(done, total_all, info)
 
-    def _3k_cb(done, _total, info=None):
-        _safe_progress(len(all_codes) + done, total_all, info)
+    print(f"\n🌙 周线缺口扫描: {len(all_codes)} 只股票, 检查最近 {weeks} 周, "
+          f"策略: {', '.join(gap_strats)}")
+    gap_results = scan_weekly_gap_signals(all_codes, strategies=gap_strats, recent_weeks=weeks,
+                                          progress_callback=_gap_cb, cancel_event=cancel_event)
+    stats['gap'] = len(gap_results.get('signals_gap') or [])
+    format_push_weekly_gap(gap_results, total_stocks=len(all_codes))
 
-    if do_gap:
-        gap_strats = [s for s in active_strategies if s.upper() in WEEKLY_GAP_STRATS]
-        print(f"\n🌙 周线缺口扫描: {len(all_codes)} 只股票, 检查最近 {weeks} 周, "
-              f"策略: {', '.join(gap_strats)}")
-        gap_results = scan_weekly_gap_signals(all_codes, strategies=gap_strats, recent_weeks=weeks,
-                                              progress_callback=_gap_cb, cancel_event=cancel_event)
-        stats['gap'] = len(gap_results.get('signals_gap') or [])
-        format_push_weekly_gap(gap_results, total_stocks=len(all_codes))
-    if do_3k:
-        print(f"\n🌙 周线 3K 扫描: {len(all_codes)} 只股票, 检查最近 {weeks} 周")
-        k3_results = scan_weekly_3k_signals(all_codes, recent_weeks=weeks,
-                                            progress_callback=_3k_cb, cancel_event=cancel_event)
-        stats['k3_breakout'] = len(k3_results.get('signals_3k') or [])
-        stats['k3_gap_test'] = len(k3_results.get('signals_gap_test') or [])
-        format_push_weekly_3k(k3_results, total_stocks=len(all_codes), weeks=weeks)
-
-    # 🟢 [GUI] 收尾报满进度 (中途终止时进度条不会卡在半截)
+    # 🟢 [GUI] 收尾报满进度 (中途终止时进度条不会卡在半半截)
     _safe_progress(total_all, total_all, 0)
     return stats

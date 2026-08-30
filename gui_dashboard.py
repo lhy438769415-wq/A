@@ -559,7 +559,7 @@ class TradingDashboard:
             self._refresh_watchlist()
             return
 
-        keys = list(STRATEGY_ORDER)
+        keys = self._sidebar_strategies()
         for k in counts:
             if k not in keys:
                 keys.append(k)
@@ -663,9 +663,23 @@ class TradingDashboard:
             w.destroy()
         self.strat_buttons = {}
 
+    def _sidebar_strategies(self):
+        """当前周期允许的策略 key (决定左栏按钮), 保持 STRATEGY_ORDER 展示顺序。
+
+        周线只显示缺口家族三个; 日线显示其周期内策略。避免把另一周期的
+        策略按钮(如日线的 3K/MTR)误摆在周线左栏。
+        """
+        tf = "weekly" if self._is_weekly() else "daily"
+        try:
+            from core.strategy_registry import StrategyRegistry
+            valid = set(StrategyRegistry.get_strategies_by_timeframe(tf))
+        except Exception:  # noqa: BLE001 - 注册表不可用则退回全量
+            valid = set(STRATEGY_ORDER)
+        return [k for k in STRATEGY_ORDER if k in valid]
+
     def _build_sidebar(self, counts):
         self._clear_sidebar()
-        keys = list(STRATEGY_ORDER)
+        keys = self._sidebar_strategies()
         for k in counts:
             if k not in keys:
                 keys.append(k)
@@ -1138,7 +1152,7 @@ class TradingDashboard:
             self.status_var.set("行情下载完成 (无新数据)")
 
     def start_hunter(self):
-        """策略扫描: 日线走原流水线, 周线走周线引擎 (缺口家族 + 3K)。"""
+        """策略扫描: 日线走原流水线, 周线走周线引擎 (仅缺口家族三个策略)。"""
         if self._is_weekly():
             self._start_scan_weekly()
         else:
@@ -1170,10 +1184,12 @@ class TradingDashboard:
         if not run_weekly_scan:
             self.status_var.set("周线扫描模块不可用")
             return
-        cb = self._make_weekly_progress_cb()
+        # 周线只跑 3 个 gap 家族策略 (用户 2026-08-30 拍板), 故总进度 = 股票数本身,
+        # 不再有"两个家族 × 2"的翻倍, 用普通进度回调即可。
+        cb = self._make_progress_cb("周线扫描")
         self._set_busy(True)
         self._show_progress()
-        self.status_var.set("周线扫描中… (缺口家族 + 3K)")
+        self.status_var.set("周线扫描中… (缺口家族)")
 
         def _task():
             codes = get_stock_list()
@@ -1183,9 +1199,9 @@ class TradingDashboard:
             try:
                 from core.strategy_registry import StrategyRegistry
                 strats = StrategyRegistry.get_strategies_by_timeframe("weekly")
-            except Exception:  # noqa: BLE001 - 注册表不可用则退回已知周线策略
+            except Exception:  # noqa: BLE001 - 注册表不可用则退回已知周线策略 (仅 gap 家族, 不含 3K)
                 strats = ["STRATEGY_STRUCTURAL_GAP", "STRATEGY_GAP_PINBAR",
-                          "STRATEGY_GAP_H2", "STRATEGY_3K"]
+                          "STRATEGY_GAP_H2"]
             stats = run_weekly_scan(strats, weeks=4, all_codes=codes,
                                     progress_callback=cb, cancel_event=self._stop_event)
 
@@ -1223,18 +1239,13 @@ class TradingDashboard:
     def _weekly_scan_summary(s):
         """把周线扫描回执翻译成一句人话。
 
-        为什么要这句: 周线扫描内部分「缺口家族」和「3K」两条线跑, 3K 信号本身极稀有
-        (全市场常为 0 条)。没有这句, 界面只说"扫描完成", 你分不清
-        "3K 跑了但 0 命中" 和 "3K 压根没跑" —— 后者是真 bug, 必须能一眼看出来。
+        为什么要这句: 扫描跑完只说"完成"两个字, 你分不清"扫了但 0 命中"
+        和"压根没扫"。后者是真 bug, 必须能一眼看出来。
         """
-        parts = []
-        if s.get("ran_gap"):
-            parts.append(f"缺口家族 {s.get('gap', 0)} 条")
-        if s.get("ran_3k"):
-            parts.append(f"3K 突破 {s.get('k3_breakout', 0)} 条 / 缺口测试 {s.get('k3_gap_test', 0)} 条")
-        if not parts:
-            return "周线扫描完成 · 未识别到周线策略"
-        return f"周线扫描完成 · 扫 {s.get('stocks', 0)} 只 · " + " · ".join(parts)
+        if not s.get("ran_gap"):
+            return "周线扫描完成 · 未识别到周线缺口策略"
+        return (f"周线扫描完成 · 扫 {s.get('stocks', 0)} 只 · "
+                f"缺口家族 {s.get('gap', 0)} 条")
 
     def _run_thread(self, func, name, on_done=None, on_fail=None):
         def _wrap():
@@ -1311,36 +1322,15 @@ class TradingDashboard:
             elif done >= total:
                 text = f"{label} 完成 ({pct}%)"
             else:
-                extra = f" · 命中 {info}" if label == "策略扫描" else ""
+                extra = f" · 命中 {info}" if label in ("策略扫描", "周线扫描") else ""
                 text = f"{label} {done}/{total} · {pct}%{extra}"
             self.root.after(0, self._apply_progress, pct, text)
 
         return cb
 
-    def _make_weekly_progress_cb(self):
-        """周线扫描专用进度回调。
-
-        周线扫描同时跑 gap 家族 + 3K 两个阶段, run_weekly_scan 把总进度
-        计为 3312 × 2 = 6624。这里把文字拆成"缺口家族 1/3312" /
-        "3K 1/3312", 避免用户误以为全市场有 6000+ 只股票。
-        """
-        last = {"pct": -1}
-
-        def cb(done, total, info=0):
-            pct = int(done * 100 / total) if total else 0
-            if pct == last["pct"]:
-                return
-            last["pct"] = pct
-            half = total // 2 if total else 0
-            if done < half or half == 0:
-                phase, d, t = "缺口家族", done, half or total
-            else:
-                phase, d, t = "3K", done - half, half or (total - half)
-            extra = f" · 命中 {info}" if info else ""
-            text = f"周线扫描 · {phase} {d}/{t} · {pct}%{extra}"
-            self.root.after(0, self._apply_progress, pct, text)
-
-        return cb
+    # 注: 原 _make_weekly_progress_cb (把 3312×2=6624 拆成"缺口家族/3K"两段显示)
+    # 已于 2026-08-30 删除 —— 周线不再跑 3K, 总进度回归股票数本身, 用通用的
+    # _make_progress_cb('周线扫描') 即可, 无需专门的分阶段回调。
 
     def _apply_progress(self, pct, text):
         self.progress_bar.grid()

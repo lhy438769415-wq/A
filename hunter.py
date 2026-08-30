@@ -1217,7 +1217,7 @@ def main():
             tf_choice = '1'
         
         if tf_choice == '2':
-            print(f"\n🌙 周线模式启动 (扫描有效缺口结构 / 3K 埋伏)")
+            print(f"\n🌙 周线模式启动 (扫描有效缺口结构)")
             from core.strategy_registry import StrategyRegistry
             from core.scan_engine import run_weekly_scan
             all_codes = data_provider.get_stock_list()
@@ -1225,18 +1225,16 @@ def main():
             if args.limit > 0: all_codes = all_codes[:args.limit]
 
             # 🟢 [P1] 使用 StrategyRegistry 动态获取支持周线的策略列表
+            # 🔴 周线只跑 3 个 gap 家族策略 (用户 2026-08-30 拍板: 周线不考虑非 gap 策略)。
+            #    此处**不得**再硬编码补入 STRATEGY_3K —— 3K 已不声明周线, 补入等于绕开用户决定。
             weekly_supported = StrategyRegistry.get_strategies_by_timeframe('weekly')
-            # 🟢 3K 的周线能力已在 three_k_strategy 声明 (supported_timeframes 含 weekly),
-            #    注册表现已能查到, 不再需要此处硬编码补入; 保留去重兜底仅为兼容旧注册表。
             menu_options = list(weekly_supported)
-            if 'STRATEGY_3K' not in menu_options:
-                menu_options.append('STRATEGY_3K')
             print("\n" + "="*40)
             print("🔍 周线扫描策略选择")
             print("="*40)
             for i, s in enumerate(menu_options):
                 print(f"  {i+1}. {s}")
-            print(f"  {len(menu_options)+1}. ALL (全量扫描: 缺口家族 + 3K)")
+            print(f"  {len(menu_options)+1}. ALL (全量扫描: 缺口家族)")
             print("="*40)
 
             try:

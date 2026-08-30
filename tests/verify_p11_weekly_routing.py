@@ -1,8 +1,9 @@
-"""P1-1 回归: 周线 3K/GAP 并行路由 + StrategyRegistry fail-fast。
+"""P1-1 回归: 周线只路由缺口家族 + StrategyRegistry fail-fast。
 
-两项不变量:
-1. run_weekly_scan 必须并行路由 3K 与缺口家族 —— 原 `if STRATEGY_3K in active`
-   独占分支导致"选了 3K 就不扫 gap"(漏信号)。
+不变量:
+1. run_weekly_scan 只路由缺口家族三个策略 (GAP H1 / GAP PINBAR / GAP H2)。
+   3K 不在周线范围内 (用户明确周线只考虑 gap), 即使误传 STRATEGY_3K 也要被忽略,
+   不能跑去 3K 分支, 也不能因为含非 gap key 而漏掉 gap。
 2. StrategyRegistry._resolve_class 对未知名必须显式报错(fail-fast), 不再静默
    回退 MTR(藏错: CLI 拼错策略名会悄悄跑 MTR)。
 """
@@ -55,30 +56,32 @@ class TestWeeklyRouting(unittest.TestCase):
             m_3k.return_value = {}
             scan_engine.run_weekly_scan(active, weeks=4, all_codes=['sh.600000'])
 
-    def test_both_3k_and_gap_run(self):
+    def test_all_three_gap_route_to_gap_only(self):
         m_gap = MagicMock(); m_3k = MagicMock()
         m_fgap = MagicMock(); m_f3k = MagicMock()
-        self._run(['STRATEGY_3K', 'STRATEGY_STRUCTURAL_GAP'], m_gap, m_3k, m_fgap, m_f3k)
+        self._run(['STRATEGY_STRUCTURAL_GAP', 'STRATEGY_GAP_PINBAR', 'STRATEGY_GAP_H2'],
+                  m_gap, m_3k, m_fgap, m_f3k)
         self.assertTrue(m_gap.called, "缺口扫描应被调用")
-        self.assertTrue(m_3k.called, "3K 扫描应被调用")
-        # 缺口扫描器只应收到缺口策略, 不应混入 3K
+        self.assertFalse(m_3k.called, "周线绝不跑 3K")
         gap_arg = m_gap.call_args.kwargs['strategies']
-        self.assertIn('STRATEGY_STRUCTURAL_GAP', gap_arg)
-        self.assertNotIn('STRATEGY_3K', gap_arg)
+        self.assertEqual(set(gap_arg),
+                         {'STRATEGY_STRUCTURAL_GAP', 'STRATEGY_GAP_PINBAR', 'STRATEGY_GAP_H2'})
 
-    def test_gap_only_runs_gap_not_3k(self):
+    def test_single_gap_runs_only_that_gap(self):
         m_gap = MagicMock(); m_3k = MagicMock()
         m_fgap = MagicMock(); m_f3k = MagicMock()
         self._run(['STRATEGY_GAP_H2'], m_gap, m_3k, m_fgap, m_f3k)
         self.assertTrue(m_gap.called)
-        self.assertFalse(m_3k.called, "仅选 gap 时不应跑 3K")
+        self.assertFalse(m_3k.called, "周线不应跑 3K")
+        self.assertEqual(m_gap.call_args.kwargs['strategies'], ['STRATEGY_GAP_H2'])
 
-    def test_3k_only_runs_3k_not_gap(self):
+    def test_3k_is_ignored_in_weekly(self):
+        """3K 不是周线策略, 误传也不应触发任何扫描 (不跑 gap 也不跑 3K)。"""
         m_gap = MagicMock(); m_3k = MagicMock()
         m_fgap = MagicMock(); m_f3k = MagicMock()
         self._run(['STRATEGY_3K'], m_gap, m_3k, m_fgap, m_f3k)
-        self.assertFalse(m_gap.called, "仅选 3K 时不应跑 gap")
-        self.assertTrue(m_3k.called)
+        self.assertFalse(m_gap.called, "3K 不是缺口策略, 不应触发缺口扫描")
+        self.assertFalse(m_3k.called, "周线不应跑 3K 分支")
 
     def test_unknown_only_runs_nothing(self):
         m_gap = MagicMock(); m_3k = MagicMock()

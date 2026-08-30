@@ -58,9 +58,11 @@ class ThreeKStrategy(BaseStrategy):
             'tp_columns': ['tp_3k_gap_test'],
             'score_column': '',
             'signal_column': 'signal_3k_gap_test',
-            # 🟢 周线能力为既有事实(scan_engine.scan_weekly_3k_signals 一直在跑), 此前声明遗漏,
-            #    导致 StrategyRegistry 查不到 3K 支持周线、只能靠 hunter.py 硬编码补入。声明补齐后消除该不一致。
-            'supported_timeframes': ['daily', 'weekly'],
+            # 🔴 3K 只声明日线。周线扫描(桌面端 + 命令行)只跑 3 个 gap 家族策略,
+            #    3K 不参与 —— 用户 2026-08-30 拍板: "我周线都没有考虑过非 gap 策略"。
+            #    注: scan_engine.scan_weekly_3k_signals 这条扫描能力仍在(研究用), 但不再
+            #    通过注册表自动进入任何周线扫描入口; 命令行亦不得再硬编码补入 3K。
+            'supported_timeframes': ['daily'],
             'tp_multiplier': 1.0,
             'ai_audit': False,
         }
