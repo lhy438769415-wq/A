@@ -13,6 +13,7 @@ import json
 import webbrowser
 import logging
 import threading
+import datetime
 
 import tkinter as tk
 import ttkbootstrap as ttk
@@ -258,9 +259,18 @@ class TradingDashboard:
         center.grid_propagate(False)
         center.rowconfigure(1, weight=1)
         center.columnconfigure(0, weight=1)
+        center.columnconfigure(1, weight=0)
         self.list_title = ttk.Label(center, text="今日信号", font=("Microsoft YaHei", 14, "bold"),
                                     foreground="#f5f5f7")
         self.list_title.grid(row=0, column=0, sticky=W, padx=4, pady=(0, 12))
+        # 周线模式专用视图切换: 已确认信号 / 待建仓(pending, 形态成立但价格未到位)
+        self.view_var = tk.StringVar(value="已确认")
+        self.view_combo = ttk.Combobox(center, textvariable=self.view_var,
+                                       values=["已确认", "待建仓"], state="readonly",
+                                       width=8, font=("Microsoft YaHei", 9))
+        self.view_combo.grid(row=0, column=1, sticky=E, padx=(8, 0), pady=(0, 12))
+        self.view_combo.bind("<<ComboboxSelected>>", self._on_view_change)
+        self.view_combo.grid_remove()  # 日线默认隐藏
 
         # 信号清单列: [红点图] | 序号 | 代码 | 名称
         # 红点用图片画在树形列(#0), 兼容所有 Tk 版本, 且仅圆点变红、整行文字保持白
@@ -369,6 +379,12 @@ class TradingDashboard:
         """手动切换日线/周线: 两个周期的信号完全隔离, 切换后各自回到自己最新的信号日。"""
         # 同一个日期下拉在周线下的含义是「截至哪一周」, 标签跟着改
         self.date_label.configure(text="截至周" if self._is_weekly() else "信号日")
+        # 周线模式才显示"已确认/待建仓"切换, 日线隐藏
+        if self._is_weekly():
+            self.view_combo.grid()
+        else:
+            self.view_combo.grid_remove()
+        self.view_var.set("已确认")  # 切周期时重置为已确认视图
         self.selected_date = None  # 置空 -> _refresh 自动定位到该周期的最新信号日
         self._refresh()
 
@@ -403,8 +419,46 @@ class TradingDashboard:
         d = self.selected_date or "—"
         return f"截至 {d} 那周" if self._is_weekly() else f"{d} 信号"
 
+    def _weekly_fridays(self):
+        """返回 weekly_bars 中所有可用周线日期, 统一到当周周五, 降序(最新在前)。"""
+        try:
+            with _db() as conn:
+                rows = conn.execute(
+                    "SELECT DISTINCT trade_date FROM weekly_bars "
+                    "WHERE trade_date LIKE ? ORDER BY trade_date DESC",
+                    (_DATE_LIKE,),
+                ).fetchall()
+            dates = []
+            for (d,) in rows:
+                if not d:
+                    continue
+                try:
+                    dt = datetime.datetime.strptime(d, "%Y-%m-%d").date()
+                    # 统一到当周周五: 周线视角下用户认的是"第几周"
+                    friday = dt + datetime.timedelta(days=(4 - dt.weekday()))
+                    dates.append(friday.strftime("%Y-%m-%d"))
+                except ValueError:
+                    continue
+            # 去重并保持降序
+            seen = set()
+            result = []
+            for d in dates:
+                if d not in seen:
+                    seen.add(d)
+                    result.append(d)
+            return result
+        except Exception:  # noqa: BLE001
+            return []
+
     def _signal_dates(self):
-        """返回所有真实信号日, 降序(最新在前), 过滤脏日期与无效策略。"""
+        """返回所有真实信号日, 降序(最新在前), 过滤脏日期与无效策略。
+
+        日线: 从 signal_archive 取有真实信号的那一天。
+        周线: 从 weekly_bars 取所有可用周线日期(统一到周五), 这样即使某周没有新命中,
+              用户也能切到那一周看"截至该周仍存活"的信号。
+        """
+        if self._is_weekly():
+            return self._weekly_fridays()
         try:
             with _db() as conn:
                 rows = conn.execute(
@@ -496,6 +550,13 @@ class TradingDashboard:
 
         self._build_sidebar(counts)
 
+        # 周线待建仓视图: 读扫描产物中的 pending 信号, 不动库
+        if self._is_weekly() and self.view_var.get() == "待建仓":
+            self._show_pending_list()
+            self._update_status(self.selected_date, counts)
+            self._refresh_watchlist()
+            return
+
         keys = list(STRATEGY_ORDER)
         for k in counts:
             if k not in keys:
@@ -509,6 +570,57 @@ class TradingDashboard:
             self._clear_detail()
         self._update_status(self.selected_date, counts)
         self._refresh_watchlist()
+
+    def _on_view_change(self, event=None):
+        """周线模式下切换"已确认 / 待建仓"视图。"""
+        self._refresh_content()
+
+    def _load_pending_signals(self, filter_strategy=None):
+        """读取周线扫描产物 weekly_gap_watchlist.json 中 is_pending=True 的信号, 不动库。"""
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "weekly_gap_watchlist.json")
+        if not os.path.exists(path):
+            return []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            sigs = data.get("signals_gap", [])
+            rows = []
+            for s in sigs:
+                if not s.get("is_pending"):
+                    continue
+                if filter_strategy and s.get("strategy_name") != filter_strategy:
+                    continue
+                rows.append({
+                    "code": s.get("code", ""),
+                    "name": s.get("name", ""),
+                    "strategy": s.get("strategy_name", ""),
+                    "entry_price": s.get("entry"),
+                    "sl_price": s.get("sl"),
+                    "tp_price": s.get("tp"),
+                    "signal_date": s.get("date"),
+                    "sig_quality": s.get("sig_quality", 0),
+                    "bears": s.get("bears", 0),
+                    "is_pending": True,
+                })
+            return rows
+        except Exception:  # noqa: BLE001
+            return []
+
+    def _show_pending_list(self, filter_strategy=None):
+        """显示待建仓列表 (周线模式专用)。"""
+        rows = self._load_pending_signals(filter_strategy)
+        self.current_rows = rows
+        self._populate_list(rows)
+        disp = strategy_display(filter_strategy) if filter_strategy else "全部"
+        tail = " (无扫描产物或文件为空)" if not rows else ""
+        self.list_title.configure(
+            text=f"待建仓 · {disp} · 共 {len(rows)} 只{tail}"
+        )
+        if rows:
+            self.tree.selection_set(self.tree.get_children()[0])
+            self._on_select(None)
+        else:
+            self._clear_detail()
 
     def _on_year_change(self, event=None):
         y = self.year_var.get()
@@ -568,6 +680,11 @@ class TradingDashboard:
         self.current_strategy = key
         for k, b in self.strat_buttons.items():
             b.configure(bootstyle="primary" if k == key else "light")
+
+        # 周线待建仓视图下, 策略按钮用于过滤 pending 信号
+        if self._is_weekly() and self.view_var.get() == "待建仓":
+            self._show_pending_list(filter_strategy=key)
+            return
 
         rows = []
         if self.selected_date:
@@ -868,10 +985,34 @@ class TradingDashboard:
         def _run():
             try:
                 from tools.notifier import generate_chart_bytes
-                buf = generate_chart_bytes(
-                    row.get("code", ""), row.get("name") or row.get("code", ""),
-                    row.get("strategy", ""), float(row.get("sl_price") or 0),
-                )
+                code = row.get("code", "")
+                name = row.get("name") or code
+                strategy = row.get("strategy", "")
+                sl = float(row.get("sl_price") or 0)
+                entry = float(row.get("entry_price") or 0)
+                tp = float(row.get("tp_price") or 0)
+                if self._is_weekly():
+                    # 周线模式必须画周K, 否则看不出"最新一周有没有走出建仓形态"
+                    from core.scan_engine import fetch_weekly_data
+                    from core.calculator import add_indicators
+                    from core.strategy_registry import StrategyRegistry
+                    df = fetch_weekly_data(code, weeks=300)
+                    if df is None or df.empty:
+                        return
+                    df = add_indicators(df)
+                    strat = StrategyRegistry.get_strategy(strategy)
+                    df = strat.calculate_signals(df)
+                    buf = generate_chart_bytes(
+                        code, name, strategy, sl, tp1=tp, entry=entry,
+                        df_override=df, timeframe='周K',
+                        sig_quality=row.get('sig_quality', 0),
+                        bears=row.get('bears', 0),
+                    )
+                else:
+                    buf = generate_chart_bytes(
+                        code, name, strategy, sl, tp1=tp, entry=entry,
+                        timeframe='日K',
+                    )
                 if buf is None:
                     return
                 from PIL import Image
