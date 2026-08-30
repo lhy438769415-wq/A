@@ -84,6 +84,25 @@ _DATE_LIKE = "____-__-__"  # SQLite LIKE: 匹配 YYYY-MM-DD
 _STRAT_NORM_SQL = ("CASE WHEN strategy='STRUCTURAL_GAP' THEN 'STRATEGY_STRUCTURAL_GAP' "
                    "ELSE strategy END")
 
+# 🔴 重复归档去重(只读层处理, 不动库)
+# 病根: signal_id 的生成格式中途变过 — 旧格式缺周期字段
+#   (sz.003004_STRATEGY_STRUCTURAL_GAP_2026-06-18),
+#   新格式带周期 (sz.003004_STRATEGY_STRUCTURAL_GAP_weekly_2026-06-18)。
+#   INSERT OR IGNORE 靠 signal_id 防重, 格式一变老数据就对不上新 ID,
+#   于是同一条信号被存了两份(入场价一字不差)。周线真实组 526 行里有 150 行是这样的双份。
+# 判重口径: 同 票 + 同 周 + 同 策略(归一后) + 同 周期 + 同 入场价 = 同一条信号, 只留最新入库那份。
+# ⚠️ 只用于展示, 不修正库里的数据 — 清库属于动数据, 需用户另行批准。
+_DEDUP_FROM = (
+    "(SELECT * FROM signal_archive sa WHERE sa.rowid = ("
+    "  SELECT s2.rowid FROM signal_archive s2 "
+    "  WHERE s2.code = sa.code AND s2.signal_date = sa.signal_date "
+    "    AND s2.timeframe = sa.timeframe AND s2.entry_price = sa.entry_price "
+    f"   AND CASE WHEN s2.strategy='STRUCTURAL_GAP' THEN 'STRATEGY_STRUCTURAL_GAP' ELSE s2.strategy END "
+    f"     = CASE WHEN sa.strategy='STRUCTURAL_GAP' THEN 'STRATEGY_STRUCTURAL_GAP' ELSE sa.strategy END "
+    "  ORDER BY s2.created_at DESC, s2.rowid DESC LIMIT 1"
+    ")) AS sa_dedup"
+)
+
 
 def _db():
     """返回 signal_archive 所在库的只读连接 (core.database 单一来源)。"""
@@ -187,8 +206,10 @@ class TradingDashboard:
         self.chk_ai.pack(side=LEFT, padx=(16, 0))
 
         # 信号日选择 (拆成年/月/日, 默认最新, 可联动筛选)
-        ttk.Label(top, text="信号日", font=("Microsoft YaHei", 10),
-                  foreground="#a1a1a6").pack(side=LEFT, padx=(20, 4))
+        # 周线模式下同一个下拉的含义变为「截至哪一周」, 标签跟着改, 免得看岔。
+        self.date_label = ttk.Label(top, text="信号日", font=("Microsoft YaHei", 10),
+                                    foreground="#a1a1a6")
+        self.date_label.pack(side=LEFT, padx=(20, 4))
         self.year_var = tk.StringVar()
         self.month_var = tk.StringVar()
         self.day_var = tk.StringVar()
@@ -346,6 +367,8 @@ class TradingDashboard:
 
     def _on_timeframe_change(self):
         """手动切换日线/周线: 两个周期的信号完全隔离, 切换后各自回到自己最新的信号日。"""
+        # 同一个日期下拉在周线下的含义是「截至哪一周」, 标签跟着改
+        self.date_label.configure(text="截至周" if self._is_weekly() else "信号日")
         self.selected_date = None  # 置空 -> _refresh 自动定位到该周期的最新信号日
         self._refresh()
 
@@ -360,6 +383,25 @@ class TradingDashboard:
         if self.tf_var.get() == "weekly":
             return " AND timeframe='weekly' AND date(scan_date)=date(created_at)"
         return " AND timeframe='daily'"
+
+    def _scope_where(self):
+        """选中日的范围口径。返回 (SQL 片段, 该片段所需参数元组)。
+
+        日线: 只看「那一天触发」的信号 — 日线每天都有新货, 按天切片没问题。
+        周线: 看「截至那一周仍存活」的信号 — 周线信号会活好几周,
+              按天切片会让最新周只剩一两条(不是信号少, 是切法不对)。
+              存活 = 信号已出现(触发日 <= 那一周) 且 尚未了结(无了结日, 或了结日在那一周之后)。
+        """
+        if self._is_weekly():
+            return (" AND signal_date<=?"
+                    " AND (resolved_date IS NULL OR resolved_date='' OR resolved_date>?)",
+                    (self.selected_date, self.selected_date))
+        return " AND signal_date=?", (self.selected_date,)
+
+    def _date_title(self):
+        """当前选中日在标题里的说法: 日线=那一天, 周线=截至那一周(含所有仍存活的信号)。"""
+        d = self.selected_date or "—"
+        return f"截至 {d} 那周" if self._is_weekly() else f"{d} 信号"
 
     def _signal_dates(self):
         """返回所有真实信号日, 降序(最新在前), 过滤脏日期与无效策略。"""
@@ -439,13 +481,14 @@ class TradingDashboard:
         """按 selected_date 刷新策略计数、列表、详情、状态。不重建日期下拉。"""
         counts = {}
         if self.selected_date:
+            scope, sparams = self._scope_where()
             try:
                 with _db() as conn:
                     for strat, cnt in conn.execute(
-                        f"SELECT {_STRAT_NORM_SQL} AS s, COUNT(*) FROM signal_archive "
-                        f"WHERE signal_date=? AND {_STRAT_NORM_SQL} IN ({_KEY_PH})"
+                        f"SELECT {_STRAT_NORM_SQL} AS s, COUNT(*) FROM {_DEDUP_FROM} "
+                        f"WHERE 1=1{scope} AND {_STRAT_NORM_SQL} IN ({_KEY_PH})"
                         f"{self._tf_sql()} GROUP BY s",
-                        (self.selected_date,) + _VALID_KEYS,
+                        sparams + _VALID_KEYS,
                     ):
                         counts[strat] = cnt
             except Exception:  # noqa: BLE001
@@ -462,8 +505,7 @@ class TradingDashboard:
         if first:
             self._on_strategy(first)
         else:
-            date_label = self.selected_date or "—"
-            self.list_title.configure(text=f"{date_label} 信号 (无命中)")
+            self.list_title.configure(text=f"{self._date_title()} (无命中)")
             self._clear_detail()
         self._update_status(self.selected_date, counts)
         self._refresh_watchlist()
@@ -529,21 +571,30 @@ class TradingDashboard:
 
         rows = []
         if self.selected_date:
+            scope, sparams = self._scope_where()
             try:
                 with _db() as conn:
                     col_names = [d[0] for d in conn.execute("SELECT * FROM signal_archive LIMIT 0").description]
                     # 按代码稳定排序 (库内无可靠的信号质量分, 不做假排名)
-                    sql = (f"SELECT * FROM signal_archive WHERE signal_date=? "
+                    # 周线按「截至该周仍存活」取, 并按状态分组排(先活口后了结), 便于交易员盯盘
+                    order = ("ORDER BY CASE WHEN status IN ('PENDING','ACTIVE') THEN 0 ELSE 1 END,"
+                             " code ASC" if self._is_weekly() else "ORDER BY code ASC")
+                    sql = (f"SELECT * FROM {_DEDUP_FROM} WHERE 1=1{scope} "
                            f"AND {_STRAT_NORM_SQL}=?{self._tf_sql()} "
-                           f"ORDER BY code ASC LIMIT 100")
-                    for r in conn.execute(sql, (self.selected_date, key)):
+                           f"{order} LIMIT 100")
+                    for r in conn.execute(sql, sparams + (key,)):
                         rows.append(dict(zip(col_names, r)))
             except Exception:  # noqa: BLE001
                 pass
 
         self.current_rows = rows
         self._populate_list(rows)
-        self.list_title.configure(text=f"{strategy_display(key)} · 共 {len(rows)} 只")
+        # 周线额外报存活条数: 清单里混着已了结的, 一眼看出还有几个活口
+        alive = sum(1 for r in rows if r.get("status") in ("PENDING", "ACTIVE"))
+        tail = f" · 存活 {alive}" if self._is_weekly() and rows else ""
+        self.list_title.configure(
+            text=f"{self._date_title()} · {strategy_display(key)} · 共 {len(rows)} 只{tail}"
+        )
         if rows:
             self.tree.selection_set(self.tree.get_children()[0])
             self._on_select(None)
@@ -1103,17 +1154,29 @@ class TradingDashboard:
                         "SELECT MAX(date(created_at)) FROM signal_archive "
                         "WHERE timeframe='weekly' AND date(scan_date)=date(created_at)"
                     ).fetchone()[0]
-                n = conn.execute(
-                    f"SELECT COUNT(*) FROM signal_archive WHERE signal_date=? "
-                    f"AND {_STRAT_NORM_SQL} IN ({_KEY_PH}){self._tf_sql()}",
-                    (signal_date,) + _VALID_KEYS,
-                ).fetchone()[0] if signal_date else 0
+                n = 0
+                alive_n = 0
+                if signal_date:
+                    scope, sparams = self._scope_where()
+                    n = conn.execute(
+                        f"SELECT COUNT(*) FROM {_DEDUP_FROM} WHERE 1=1{scope} "
+                        f"AND {_STRAT_NORM_SQL} IN ({_KEY_PH}){self._tf_sql()}",
+                        sparams + _VALID_KEYS,
+                    ).fetchone()[0]
+                    if self._is_weekly():
+                        # 周线额外报「仍存活」条数: 未了结 = 待确认/已入场
+                        alive_n = conn.execute(
+                            f"SELECT COUNT(*) FROM {_DEDUP_FROM} WHERE 1=1{scope} "
+                            f"AND status IN ('PENDING','ACTIVE') "
+                            f"AND {_STRAT_NORM_SQL} IN ({_KEY_PH}){self._tf_sql()}",
+                            sparams + _VALID_KEYS,
+                        ).fetchone()[0]
             # scan_date 列含历史脏数据(99/97...), 不可信, 不显示; 仅展示真实数据日期与信号日。
             # 🔴 红线 B: 状态栏只报数(数据到哪天/上次哪天扫的), 不做任何"该跑了"的提醒或建议。
             if self._is_weekly():
                 self.status_var.set(
                     f"就绪 · 周线数据 {d or '—'} · 上次周线扫描 {last_scan or '—'}"
-                    f" · 信号日 {signal_date or '—'} · 共 {n} 标的"
+                    f" · 截至 {signal_date or '—'} 那周 · 共 {n} 条(存活 {alive_n})"
                 )
             else:
                 self.status_var.set(
