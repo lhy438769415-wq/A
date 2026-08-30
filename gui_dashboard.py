@@ -1073,14 +1073,35 @@ class TradingDashboard:
     def _update_status(self, signal_date, counts=None):
         try:
             with _db() as conn:
-                d = conn.execute("SELECT MAX(trade_date) FROM daily_bars").fetchone()[0]
+                # 周线看周线库、日线看日线库: 两个周期的数据新鲜度互不相干
+                freshness_sql = ("SELECT MAX(trade_date) FROM weekly_bars"
+                                 if self._is_weekly() else
+                                 "SELECT MAX(trade_date) FROM daily_bars")
+                d = conn.execute(freshness_sql).fetchone()[0]
+                # 「上次周线扫描」= 最近一次真实周线扫描的入库日。
+                # 判定口径与 _tf_sql 一致(扫描日=入库日), 用于排除 2026-05 那批历史回测回填。
+                last_scan = None
+                if self._is_weekly():
+                    last_scan = conn.execute(
+                        "SELECT MAX(date(created_at)) FROM signal_archive "
+                        "WHERE timeframe='weekly' AND date(scan_date)=date(created_at)"
+                    ).fetchone()[0]
                 n = conn.execute(
                     f"SELECT COUNT(*) FROM signal_archive WHERE signal_date=? "
                     f"AND {_STRAT_NORM_SQL} IN ({_KEY_PH}){self._tf_sql()}",
                     (signal_date,) + _VALID_KEYS,
                 ).fetchone()[0] if signal_date else 0
-            # scan_date 列含历史脏数据(99/97...), 不可信, 不显示; 仅展示真实数据日期与信号日
-            self.status_var.set(f"就绪 · 数据 {d or '—'} · 信号日 {signal_date or '—'} · 共 {n} 标的")
+            # scan_date 列含历史脏数据(99/97...), 不可信, 不显示; 仅展示真实数据日期与信号日。
+            # 🔴 红线 B: 状态栏只报数(数据到哪天/上次哪天扫的), 不做任何"该跑了"的提醒或建议。
+            if self._is_weekly():
+                self.status_var.set(
+                    f"就绪 · 周线数据 {d or '—'} · 上次周线扫描 {last_scan or '—'}"
+                    f" · 信号日 {signal_date or '—'} · 共 {n} 标的"
+                )
+            else:
+                self.status_var.set(
+                    f"就绪 · 数据 {d or '—'} · 信号日 {signal_date or '—'} · 共 {n} 标的"
+                )
         except Exception as e:  # noqa: BLE001
             self.status_var.set(f"就绪 · 数据库读取失败: {e}")
 
