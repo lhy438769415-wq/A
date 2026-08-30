@@ -217,7 +217,7 @@ class TradingDashboard:
         cols = ("序号", "代码", "名称")
         self.tree = ttk.Treeview(center, columns=cols, show="tree headings")
         self.tree.heading("#0", text="")
-        self.tree.column("#0", width=26, minwidth=26, anchor=CENTER, stretch=False)
+        self.tree.column("#0", width=32, minwidth=32, anchor=CENTER, stretch=False)
         # 宽度: 序号 40, 代码 130, 名称唯一可伸缩
         widths = (40, 130, 120)
         anchors = (CENTER, W, W)
@@ -233,6 +233,7 @@ class TradingDashboard:
         self.tree.bind("<Motion>", self._on_tree_motion)
         self.tree.bind("<Leave>", self._on_tree_leave)
         self.tree.bind("<Button-1>", self._on_tree_click)
+        self.tree.bind("<Button-3>", self._on_tree_right_click)
         self._tree_hover_iid = None
 
         # 右栏: 选中票详情 + 关注列表
@@ -497,12 +498,12 @@ class TradingDashboard:
             self._clear_detail()
 
     def _make_dot_image(self):
-        """生成已关注的红色圆点图片(12x12), 画在树形列 #0。"""
-        img = tk.PhotoImage(width=12, height=12)
-        r = 5
-        cx = cy = 6
-        for y in range(12):
-            for x in range(12):
+        """生成已关注的红色圆点图片(14x14), 画在树形列 #0, 便于看清/点击。"""
+        img = tk.PhotoImage(width=14, height=14)
+        r = 6
+        cx = cy = 7
+        for y in range(14):
+            for x in range(14):
                 if (x - cx) ** 2 + (y - cy) ** 2 <= r * r:
                     img.put("#ff375f", (x, y))
         return img
@@ -574,7 +575,8 @@ class TradingDashboard:
     def _on_tree_motion(self, event):
         """TV 式: 鼠标悬停在标记列时, 整行背景变灰。"""
         region = self.tree.identify("region", event.x, event.y)
-        if region != "cell":
+        # 树形列 #0 在 ttk 里属于 "tree" 区域(非 "cell"), 也要允许悬停/点击
+        if region not in ("cell", "tree"):
             self._clear_tree_hover()
             return
         iid = self.tree.identify_row(event.y)
@@ -605,7 +607,8 @@ class TradingDashboard:
     def _on_tree_click(self, event):
         """TV 式: 点击标记列切换关注; 点击其他列保持选中行。"""
         region = self.tree.identify("region", event.x, event.y)
-        if region != "cell":
+        # 树形列 #0 的区域是 "tree" 不是 "cell"; 点其它列不触发关注
+        if region not in ("cell", "tree"):
             return
         iid = self.tree.identify_row(event.y)
         col = self.tree.identify_column(event.x)
@@ -613,6 +616,13 @@ class TradingDashboard:
             return
         self._toggle_favorite(iid)
         return "break"
+
+    def _on_tree_right_click(self, event):
+        """右键单击任意行切换关注(兜底交互, 避免树形列太难点不到)。"""
+        iid = self.tree.identify_row(event.y)
+        if not iid:
+            return
+        self._toggle_favorite(iid)
 
     def _refresh_watchlist(self):
         """把当前 favorites 同步到右侧关注列表, 最新关注的排在最上面。
