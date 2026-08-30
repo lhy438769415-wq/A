@@ -1186,8 +1186,8 @@ class TradingDashboard:
             except Exception:  # noqa: BLE001 - 注册表不可用则退回已知周线策略
                 strats = ["STRATEGY_STRUCTURAL_GAP", "STRATEGY_GAP_PINBAR",
                           "STRATEGY_GAP_H2", "STRATEGY_3K"]
-            run_weekly_scan(strats, weeks=4, all_codes=codes,
-                            progress_callback=cb, cancel_event=self._stop_event)
+            stats = run_weekly_scan(strats, weeks=4, all_codes=codes,
+                                    progress_callback=cb, cancel_event=self._stop_event)
 
             # 🟢 扫描后顺带把周线信号的状态推进一遍(进场/止盈/止损/过期)。
             #    零自动化: 这是同一个手动动作里的第二步, 不是定时任务。
@@ -1199,7 +1199,8 @@ class TradingDashboard:
                 self.root.after(0, self._apply_progress, 100, "跟进信号状态…")
                 for _round in range(2):
                     track_signals(timeframe="weekly", real_scan_only=True)
-            return None
+            # 回执用专属 key 包一层: 日线 run_pipeline_once 的返回值绝不会带 weekly_stats
+            return {"weekly_stats": stats} if isinstance(stats, dict) else None
 
         self._run_thread(_task, "周线扫描",
                          on_done=self._on_scan_done,
@@ -1213,7 +1214,27 @@ class TradingDashboard:
             self.status_var.set("本地数据库为空, 请先点击「下载行情」")
         else:
             extra = " · 信号状态已跟进" if self._is_weekly() and track_signals else ""
-            self.status_var.set(f"策略扫描完成 · 清单已刷新{extra}")
+            if isinstance(ret, dict) and "weekly_stats" in ret:
+                self.status_var.set(self._weekly_scan_summary(ret["weekly_stats"]) + extra)
+            else:
+                self.status_var.set(f"策略扫描完成 · 清单已刷新{extra}")
+
+    @staticmethod
+    def _weekly_scan_summary(s):
+        """把周线扫描回执翻译成一句人话。
+
+        为什么要这句: 周线扫描内部分「缺口家族」和「3K」两条线跑, 3K 信号本身极稀有
+        (全市场常为 0 条)。没有这句, 界面只说"扫描完成", 你分不清
+        "3K 跑了但 0 命中" 和 "3K 压根没跑" —— 后者是真 bug, 必须能一眼看出来。
+        """
+        parts = []
+        if s.get("ran_gap"):
+            parts.append(f"缺口家族 {s.get('gap', 0)} 条")
+        if s.get("ran_3k"):
+            parts.append(f"3K 突破 {s.get('k3_breakout', 0)} 条 / 缺口测试 {s.get('k3_gap_test', 0)} 条")
+        if not parts:
+            return "周线扫描完成 · 未识别到周线策略"
+        return f"周线扫描完成 · 扫 {s.get('stocks', 0)} 只 · " + " · ".join(parts)
 
     def _run_thread(self, func, name, on_done=None, on_fail=None):
         def _wrap():

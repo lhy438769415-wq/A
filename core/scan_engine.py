@@ -882,7 +882,14 @@ def run_weekly_scan(active_strategies, weeks=4, limit=0, all_codes=None,
         progress_callback: [GUI] 可选, 形如 f(done, total, info) 的进度回报函数
         cancel_event: [GUI] 可选, threading.Event; 置位后停止扫描, 已扫部分保留
 
-    返回: 无 (扫描 + 格式化 + 推送 + 归档 全部在此完成, 与旧 scanner 主流程行为一致)
+    返回: dict 扫描回执 (扫描 + 格式化 + 推送 + 归档 全部在此完成, 与旧 scanner 主流程行为一致)
+
+    🟢 返回回执的原因: 周线扫描内部按「缺口家族 / 3K」两个家族分别路由, 之前返回 None,
+       界面无法区分"3K 跑了但 0 命中"与"3K 根本没跑"。3K 信号本身很稀有(实测全市场
+       常为 0 条), 没有回执用户就只能靠猜。回执形如:
+       {'ran_gap': True, 'ran_3k': True, 'gap': 24, 'k3_breakout': 0, 'k3_gap_test': 1,
+        'stocks': 3312}
+       注: 返回值此前无人使用 (hunter.py 两处调用均丢弃), 故加返回值向后兼容。
     """
     def _safe_progress(done, total, info=None):
         """[GUI] 进度回报: 界面异常绝不能拖垮扫描。"""
@@ -924,11 +931,17 @@ def run_weekly_scan(active_strategies, weeks=4, limit=0, all_codes=None,
     }
     do_3k = 'STRATEGY_3K' in active
     do_gap = bool(set(active) & WEEKLY_GAP_STRATS)
+
+    # 🟢 扫描回执: 让界面能如实报告"每个家族各扫出几条", 而不是让 0 命中看起来像没跑
+    stats = {'ran_gap': do_gap, 'ran_3k': do_3k,
+             'gap': 0, 'k3_breakout': 0, 'k3_gap_test': 0,
+             'stocks': len(all_codes)}
+
     if not (do_3k or do_gap):
         print(f"\n⚠️ 周线扫描: 未识别到任何周线策略 ({', '.join(active) or '空'})。"
               f"支持: STRATEGY_3K / {', '.join(sorted(WEEKLY_GAP_STRATS))}")
         _safe_progress(1, 1, 0)
-        return
+        return stats
 
     # 🟢 [GUI] 进度总量: 两个家族都跑时, 工作量 = 2 × 股票数 (缺口先跑, 3K 后跑接续计数)
     total_all = len(all_codes) * (int(do_gap) + int(do_3k))
@@ -945,12 +958,16 @@ def run_weekly_scan(active_strategies, weeks=4, limit=0, all_codes=None,
               f"策略: {', '.join(gap_strats)}")
         gap_results = scan_weekly_gap_signals(all_codes, strategies=gap_strats, recent_weeks=weeks,
                                               progress_callback=_gap_cb, cancel_event=cancel_event)
+        stats['gap'] = len(gap_results.get('signals_gap') or [])
         format_push_weekly_gap(gap_results, total_stocks=len(all_codes))
     if do_3k:
         print(f"\n🌙 周线 3K 扫描: {len(all_codes)} 只股票, 检查最近 {weeks} 周")
         k3_results = scan_weekly_3k_signals(all_codes, recent_weeks=weeks,
                                             progress_callback=_3k_cb, cancel_event=cancel_event)
+        stats['k3_breakout'] = len(k3_results.get('signals_3k') or [])
+        stats['k3_gap_test'] = len(k3_results.get('signals_gap_test') or [])
         format_push_weekly_3k(k3_results, total_stocks=len(all_codes), weeks=weeks)
 
     # 🟢 [GUI] 收尾报满进度 (中途终止时进度条不会卡在半截)
     _safe_progress(total_all, total_all, 0)
+    return stats
