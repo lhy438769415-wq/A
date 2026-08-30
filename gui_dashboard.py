@@ -22,20 +22,28 @@ from ttkbootstrap.constants import (  # 显式导入, 禁止 import *
 
 # ---- 业务模块 (优雅降级: 导入失败则对应按钮禁用, 界面仍可开) ----
 # 真实入口 (经 grep 核实, 非凭记忆):
-#   同步   = core.data_provider.update_daily_data_batch
+#   日线同步 = core.data_provider.update_daily_data_batch
+#   周线同步 = core.data_provider.update_weekly_data_batch
 #   股票清单 = core.data_provider.get_stock_list   (扫描需要传入 all_codes)
-#   扫描   = hunter.run_pipeline_once
+#   日线扫描 = hunter.run_pipeline_once
+#   周线扫描 = core.scan_engine.run_weekly_scan
 update_daily_data_batch = None
+update_weekly_data_batch = None
 get_stock_list = None
 main_script = None
+run_weekly_scan = None
 try:
-    from core.data_provider import update_daily_data_batch, get_stock_list
+    from core.data_provider import update_daily_data_batch, update_weekly_data_batch, get_stock_list
 except Exception as e:  # noqa: BLE001 - 允许降级, 不阻断界面
     logging.warning(f"数据同步模块导入失败(同步按钮将不可用): {e}")
 try:
     import hunter as main_script
 except Exception as e:  # noqa: BLE001 - 允许降级, 不阻断界面
     logging.warning(f"扫描模块导入失败(扫描按钮将不可用): {e}")
+try:
+    from core.scan_engine import run_weekly_scan
+except Exception as e:  # noqa: BLE001 - 允许降级, 不阻断界面
+    logging.warning(f"周线扫描模块导入失败(周线扫描按钮将不可用): {e}")
 
 
 # ---- 注册表 key 顺序 (决定左栏展示顺序) ----
@@ -60,10 +68,16 @@ def strategy_display(key):
     return name
 
 
-# 只统计这 6 个现行策略 key, 过滤历史脏数据 (STRUCTURAL_GAP / MTR_V35_STRUCTURAL / TEST_STRAT / UNKNOWN 等)
+# 只统计这 6 个现行策略 key, 过滤历史脏数据 (旧写法 / MTR_V35_STRUCTURAL / TEST_STRAT / UNKNOWN 等)
 _VALID_KEYS = tuple(STRATEGY_ORDER)
 _KEY_PH = ",".join("?" * len(_VALID_KEYS))
 _DATE_LIKE = "____-__-__"  # SQLite LIKE: 匹配 YYYY-MM-DD
+
+# 历史脏数据归一: 库里有一批信号把「结构性缺口 GAP H1」记成了早期内部写法,
+# 它与现行注册表 key STRATEGY_STRUCTURAL_GAP 是同一个策略(花名 GAP H1), 并非独立策略。
+# 不归一的话, 按现行 key 查询会整批漏掉这些信号 (周线里占比很高)。
+_STRAT_NORM_SQL = ("CASE WHEN strategy='STRUCTURAL_GAP' THEN 'STRATEGY_STRUCTURAL_GAP' "
+                   "ELSE strategy END")
 
 
 def _db():
@@ -102,6 +116,8 @@ class TradingDashboard:
         self.strat_buttons = {}
         self.photo = None  # 防止 PhotoImage 被 GC
         self.selected_date = None  # 当前选中的信号日; None 时自动取最新
+        # 周期: 'daily' | 'weekly'。只由用户手动点顶部切换, 程序不按星期自动判断。
+        self.tf_var = tk.StringVar(value="daily")
         self._chart_orig = None  # 原始 K 线 PIL Image, 用于自适应重绘
         self._chart_last_size = (0, 0)  # 上次渲染尺寸, 避免 resize 死循环
         self._hunter_ok = bool(main_script and get_stock_list)  # 扫描模块是否可用
@@ -126,6 +142,14 @@ class TradingDashboard:
         top.grid(row=0, column=0, sticky=NSEW)
         ttk.Label(top, text="Brooks-AI 操盘台", font=("Microsoft YaHei", 16, "bold"),
                   foreground="#f5f5f7").pack(side=LEFT, padx=(4, 20))
+
+        # 周期切换 (日线 / 周线): 默认日线; 只由用户手动点, 程序不按星期自动判断
+        tf_f = ttk.Frame(top)
+        tf_f.pack(side=LEFT, padx=(0, 18))
+        ttk.Radiobutton(tf_f, text="日线", value="daily", variable=self.tf_var,
+                        bootstyle="toolbutton", command=self._on_timeframe_change).pack(side=LEFT)
+        ttk.Radiobutton(tf_f, text="周线", value="weekly", variable=self.tf_var,
+                        bootstyle="toolbutton", command=self._on_timeframe_change).pack(side=LEFT)
 
         # 搜索框 (回车 -> 直接送 TradingView 深研)
         search_f = ttk.Frame(top)
@@ -311,13 +335,35 @@ class TradingDashboard:
                   foreground="#a1a1a6").grid(row=0, column=1, sticky=E, padx=(8, 0))
 
     # ================= 数据读取 =================
+    def _is_weekly(self):
+        """当前是否处于周线模式 (只取用户手动选择的结果, 不做任何自动判断)。"""
+        return self.tf_var.get() == "weekly"
+
+    def _on_timeframe_change(self):
+        """手动切换日线/周线: 两个周期的信号完全隔离, 切换后各自回到自己最新的信号日。"""
+        self.selected_date = None  # 置空 -> _refresh 自动定位到该周期的最新信号日
+        self._refresh()
+
+    def _tf_sql(self):
+        """当前周期的 SQL 过滤片段 (无参数, 条件为常量)。
+
+        日线: 只取 timeframe='daily'
+        周线: 只取 timeframe='weekly', 并排除历史回测回填
+              (判据: 扫描日期与入库日期同一天 = 真实扫描; 回填的扫描日期是历史日期)
+              ⚠️ 该判据只对周线成立, 日线存在跨午夜扫描导致两日期差一天的情况, 不可套用。
+        """
+        if self.tf_var.get() == "weekly":
+            return " AND timeframe='weekly' AND date(scan_date)=date(created_at)"
+        return " AND timeframe='daily'"
+
     def _signal_dates(self):
         """返回所有真实信号日, 降序(最新在前), 过滤脏日期与无效策略。"""
         try:
             with _db() as conn:
                 rows = conn.execute(
                     f"SELECT DISTINCT signal_date FROM signal_archive "
-                    f"WHERE signal_date LIKE ? AND strategy IN ({_KEY_PH}) "
+                    f"WHERE signal_date LIKE ? AND {_STRAT_NORM_SQL} IN ({_KEY_PH}) "
+                    f"{self._tf_sql()} "
                     f"ORDER BY signal_date DESC",
                     (_DATE_LIKE,) + _VALID_KEYS,
                 ).fetchall()
@@ -391,8 +437,9 @@ class TradingDashboard:
             try:
                 with _db() as conn:
                     for strat, cnt in conn.execute(
-                        f"SELECT strategy, COUNT(*) FROM signal_archive "
-                        f"WHERE signal_date=? AND strategy IN ({_KEY_PH}) GROUP BY strategy",
+                        f"SELECT {_STRAT_NORM_SQL} AS s, COUNT(*) FROM signal_archive "
+                        f"WHERE signal_date=? AND {_STRAT_NORM_SQL} IN ({_KEY_PH})"
+                        f"{self._tf_sql()} GROUP BY s",
                         (self.selected_date,) + _VALID_KEYS,
                     ):
                         counts[strat] = cnt
@@ -481,8 +528,9 @@ class TradingDashboard:
                 with _db() as conn:
                     col_names = [d[0] for d in conn.execute("SELECT * FROM signal_archive LIMIT 0").description]
                     # 按代码稳定排序 (库内无可靠的信号质量分, 不做假排名)
-                    sql = ("SELECT * FROM signal_archive WHERE signal_date=? AND strategy=? "
-                           "ORDER BY code ASC LIMIT 100")
+                    sql = (f"SELECT * FROM signal_archive WHERE signal_date=? "
+                           f"AND {_STRAT_NORM_SQL}=?{self._tf_sql()} "
+                           f"ORDER BY code ASC LIMIT 100")
                     for r in conn.execute(sql, (self.selected_date, key)):
                         rows.append(dict(zip(col_names, r)))
             except Exception:  # noqa: BLE001
@@ -717,7 +765,8 @@ class TradingDashboard:
                 with _db() as conn:
                     col_names = [d[0] for d in conn.execute("SELECT * FROM signal_archive LIMIT 0").description]
                     r = conn.execute(
-                        f"SELECT * FROM signal_archive WHERE code=? AND strategy IN ({_KEY_PH}) "
+                        f"SELECT * FROM signal_archive WHERE code=? "
+                        f"AND {_STRAT_NORM_SQL} IN ({_KEY_PH}){self._tf_sql()} "
                         "ORDER BY signal_date DESC LIMIT 1",
                         (code,) + _VALID_KEYS,
                     ).fetchone()
@@ -840,14 +889,22 @@ class TradingDashboard:
             webbrowser.open(_tv_url(code))
 
     def start_sync(self):
+        """下载行情: 按顶部所选周期路由 (日线走日线同步, 周线走周线同步)。"""
         if not self._sync_ok:
+            return
+        if self._is_weekly() and not update_weekly_data_batch:
+            self.status_var.set("周线同步模块不可用")
             return
         cb = self._make_progress_cb("下载行情")
         self._set_busy(True)
         self._show_progress()
-        self.status_var.set("行情下载中…")
+        self.status_var.set("周线行情下载中…" if self._is_weekly() else "行情下载中…")
+
         def _task():
+            if self._is_weekly():
+                return update_weekly_data_batch(progress_callback=cb, cancel_event=self._stop_event)
             return update_daily_data_batch(progress_callback=cb, cancel_event=self._stop_event)
+
         self._run_thread(_task, "行情下载",
                          on_done=self._on_sync_done,
                          on_fail=lambda e: self.status_var.set(f"行情下载失败: {e}"))
@@ -862,6 +919,13 @@ class TradingDashboard:
             self.status_var.set("行情下载完成 (无新数据)")
 
     def start_hunter(self):
+        """策略扫描: 日线走原流水线, 周线走周线引擎 (缺口家族 + 3K)。"""
+        if self._is_weekly():
+            self._start_scan_weekly()
+        else:
+            self._start_scan_daily()
+
+    def _start_scan_daily(self):
         if not self._hunter_ok:
             return
         use_ai = bool(self.ai_var.get())
@@ -881,6 +945,35 @@ class TradingDashboard:
         self._run_thread(_task, "策略扫描",
                          on_done=self._on_scan_done,
                          on_fail=lambda e: self.status_var.set(f"策略扫描失败: {e}"))
+
+    def _start_scan_weekly(self):
+        """周线扫描: 结果直接推送并归档进库, 界面从库里读 (与日线一致的数据流)。"""
+        if not run_weekly_scan:
+            self.status_var.set("周线扫描模块不可用")
+            return
+        cb = self._make_progress_cb("周线扫描")
+        self._set_busy(True)
+        self._show_progress()
+        self.status_var.set("周线扫描中… (缺口家族 + 3K)")
+
+        def _task():
+            codes = get_stock_list()
+            if not codes:
+                logging.warning("本地数据库为空, 请先下载行情")
+                return "NO_CODES"
+            try:
+                from core.strategy_registry import StrategyRegistry
+                strats = StrategyRegistry.get_strategies_by_timeframe("weekly")
+            except Exception:  # noqa: BLE001 - 注册表不可用则退回已知周线策略
+                strats = ["STRATEGY_STRUCTURAL_GAP", "STRATEGY_GAP_PINBAR",
+                          "STRATEGY_GAP_H2", "STRATEGY_3K"]
+            run_weekly_scan(strats, weeks=4, all_codes=codes,
+                            progress_callback=cb, cancel_event=self._stop_event)
+            return None
+
+        self._run_thread(_task, "周线扫描",
+                         on_done=self._on_scan_done,
+                         on_fail=lambda e: self.status_var.set(f"周线扫描失败: {e}"))
 
     def _on_scan_done(self, ret):
         """策略扫描收尾文案: 区分 用户终止 / 无本地数据 / 正常完成。"""
@@ -982,7 +1075,8 @@ class TradingDashboard:
             with _db() as conn:
                 d = conn.execute("SELECT MAX(trade_date) FROM daily_bars").fetchone()[0]
                 n = conn.execute(
-                    f"SELECT COUNT(*) FROM signal_archive WHERE signal_date=? AND strategy IN ({_KEY_PH})",
+                    f"SELECT COUNT(*) FROM signal_archive WHERE signal_date=? "
+                    f"AND {_STRAT_NORM_SQL} IN ({_KEY_PH}){self._tf_sql()}",
                     (signal_date,) + _VALID_KEYS,
                 ).fetchone()[0] if signal_date else 0
             # scan_date 列含历史脏数据(99/97...), 不可信, 不显示; 仅展示真实数据日期与信号日
