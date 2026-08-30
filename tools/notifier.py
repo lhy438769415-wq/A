@@ -176,11 +176,12 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
     # 🟢 [Fix] Explicit copy and .loc to silence SettingWithCopyWarning
     if 'date' in plot_df.columns:
         plot_df = plot_df.copy()
-        plot_df.loc[:, 'date'] = pd.to_datetime(plot_df['date'])
+        # pandas>=3.0 string dtype 列无法用 .loc 赋 datetime 数组, 直接改列
+        plot_df['date'] = pd.to_datetime(plot_df['date'])
         plot_df.set_index('date', inplace=True)
     elif 'trade_date' in plot_df.columns:
         plot_df = plot_df.copy()
-        plot_df.loc[:, 'trade_date'] = pd.to_datetime(plot_df['trade_date'])
+        plot_df['trade_date'] = pd.to_datetime(plot_df['trade_date'])
         plot_df.set_index('trade_date', inplace=True)
     elif not isinstance(plot_df.index, pd.DatetimeIndex):
         plot_df = plot_df.copy()

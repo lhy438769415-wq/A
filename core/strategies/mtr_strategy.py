@@ -294,15 +294,22 @@ class MTRStrategy(BaseStrategy):
                     signal_bar = res.get('signal_bar')
                     if signal_bar and signal_bar['idx'] < len(df):
                         sb_idx = signal_bar['idx']
-                        df.at[df.index[sb_idx], 'signal_mtr'] = True
-                        # 🟢 [Bugfix] 把评级所需的 mtr_score / mtr_stage 一并写到信号K线,
-                        #    否则 run_scanner_all 读最新 bar 的 signal_mtr=True 时,
-                        #    mtr_score 仍为 0 (只在检测 bar i 写了) -> 评级恒判 D.
-                        df.at[df.index[sb_idx], 'mtr_score'] = res['score']
-                        df.at[df.index[sb_idx], 'mtr_stage'] = res['stage']
+                        # 检测位置(detection bar)记录内部索引和质量
                         df.at[df.index[i], 'mtr_signal_bar_idx'] = sb_idx
                         df.at[df.index[i], 'mtr_entry_price'] = signal_bar['high']
                         df.at[df.index[i], 'mtr_signal_bar_quality'] = signal_bar.get('quality', 0)
+
+                        # 🟢 [Bugfix] 把信号信息同步写到信号K线位置，因为下游
+                        #    run_scanner_all/绘图/归档读取的是 signal_mtr=True 的那一行。
+                        df.at[df.index[sb_idx], 'signal_mtr'] = True
+                        df.at[df.index[sb_idx], 'mtr_score'] = res['score']
+                        df.at[df.index[sb_idx], 'mtr_stage'] = res['stage']
+                        df.at[df.index[sb_idx], 'mtr_entry_price'] = signal_bar['high']
+                        # 结构价格也复制到信号K线，供下游计算 SL/TP 与绘图标注
+                        for name, pt in res['points'].items():
+                            if pt:
+                                df.at[df.index[sb_idx], f'mtr_{name}_price'] = pt.price
+                                df.at[df.index[sb_idx], f'mtr_{name}_idx'] = pt.index
                     else:
                         # 无信号K时仍标记当前位置（向后兼容）
                         df.at[df.index[i], 'signal_mtr'] = True
