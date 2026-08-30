@@ -148,7 +148,8 @@ class TradingDashboard:
         self._hunter_ok = bool(main_script and get_stock_list)  # 扫描模块是否可用
         self._sync_ok = bool(update_daily_data_batch)  # 行情下载模块是否可用
         self._stop_event = threading.Event()  # 手动终止信号: 运行中置位, 后台循环检查
-        self.favorites = self._load_favorites()  # 用户手动标记的 "关注" 字典: code -> name
+        # 用户手动标记的 "关注" 按周期隔离: {"daily": {code: name}, "weekly": {code: name}}
+        self.favorites = self._load_favorites()
         self._tree_hover_iid = None  # 信号清单当前悬停行
         self._watch_hover_iid = None  # 关注列表当前悬停行
 
@@ -239,7 +240,7 @@ class TradingDashboard:
         main.grid(row=1, column=0, sticky=NSEW)
         # 左栏/中栏固定宽度(导航用), 右栏随窗口缩放(给图表最大空间)
         main.columnconfigure(0, weight=0, minsize=180)
-        main.columnconfigure(1, weight=0, minsize=360)
+        main.columnconfigure(1, weight=0, minsize=420)  # 中栏加宽, 避免三列被挤
         main.columnconfigure(2, weight=1)
         main.rowconfigure(0, weight=1)
 
@@ -254,7 +255,7 @@ class TradingDashboard:
         self.sidebar_inner.pack(fill=BOTH, expand=True)
 
         # 中栏: 今日信号清单 (恢复独占中栏高度, 不再上下分)
-        center = ttk.Frame(main, width=360, padding=(0, 0))
+        center = ttk.Frame(main, width=420, padding=(0, 0))
         center.grid(row=0, column=1, sticky=NSEW)
         center.grid_propagate(False)
         center.rowconfigure(1, weight=1)
@@ -277,14 +278,15 @@ class TradingDashboard:
         cols = ("序号", "代码", "名称")
         self.tree = ttk.Treeview(center, columns=cols, show="tree headings")
         self.tree.heading("#0", text="")
-        self.tree.column("#0", width=32, minwidth=32, anchor=CENTER, stretch=False)
-        # 宽度: 序号 40, 代码 130, 名称唯一可伸缩
-        widths = (40, 130, 120)
+        self.tree.column("#0", width=24, minwidth=24, anchor=CENTER, stretch=False)
+        # 宽度: 序号 36, 代码 120, 名称 150(唯一可伸缩)
+        widths = (36, 120, 150)
         anchors = (CENTER, W, W)
         for c, w, a in zip(cols, widths, anchors):
             self.tree.heading(c, text=c)
             self.tree.column(c, width=w, minwidth=w, anchor=a, stretch=(c == "名称"))
-        self.tree.grid(row=1, column=0, sticky=NSEW)
+        # Treeview 跨中栏两列, 避免右侧视图下拉占用列宽导致列表被挤压
+        self.tree.grid(row=1, column=0, columnspan=2, sticky=NSEW)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
         # 红点图片(已关注时显示在 #0 列); 引用挂 self 防被 GC 回收
         self._dot_img = self._make_dot_image()
@@ -732,9 +734,10 @@ class TradingDashboard:
     def _populate_list(self, rows):
         for item in self.tree.get_children():
             self.tree.delete(item)
+        fav = self._current_favorites()
         for i, row in enumerate(rows):
             code = row.get("code", "")
-            marked = code in self.favorites
+            marked = code in fav
             values = (
                 i + 1,
                 code,
@@ -747,29 +750,46 @@ class TradingDashboard:
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "gui_favorites.json")
 
     def _load_favorites(self):
-        """加载用户手动"关注"的股票字典 code -> name。兼容旧版 list 格式。"""
+        """加载用户手动"关注"的股票, 按日线/周线隔离。
+
+        新格式: {"daily": {code: name}, "weekly": {code: name}}
+        兼容旧格式:
+          - list -> 视为日线关注
+          - dict(不含 daily/weekly 键) -> 视为日线关注
+        """
         path = self._favorites_path()
+        empty = {"daily": {}, "weekly": {}}
         try:
             if os.path.exists(path):
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                if isinstance(data, dict):
-                    return data
                 if isinstance(data, list):
-                    # 兼容旧格式: 代码列表 -> 字典, 查不到名称时直接用代码兜底
-                    return {code: self._lookup_name_in_db(code) or code for code in data}
+                    return {"daily": {code: self._lookup_name_in_db(code) or code for code in data},
+                            "weekly": {}}
+                if isinstance(data, dict):
+                    if "daily" in data or "weekly" in data:
+                        return {
+                            "daily": data.get("daily", {}),
+                            "weekly": data.get("weekly", {}),
+                        }
+                    # 旧版单一字典 -> 全部视为日线关注
+                    return {"daily": dict(data), "weekly": {}}
         except Exception as e:  # noqa: BLE001
             logging.warning(f"加载关注列表失败: {e}")
-        return {}
+        return empty
 
     def _save_favorites(self):
-        """持久化关注字典到 JSON, 下次打开仍在。"""
+        """持久化关注字典到 JSON, 按日线/周线隔离, 下次打开仍在。"""
         path = self._favorites_path()
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(self.favorites, f, ensure_ascii=False, indent=2, sort_keys=True)
         except Exception as e:  # noqa: BLE001
             logging.warning(f"保存关注列表失败: {e}")
+
+    def _current_favorites(self):
+        """当前周期(daily/weekly)下的关注字典。"""
+        return self.favorites.setdefault(self.tf_var.get(), {})
 
     def _toggle_favorite(self, iid=None):
         """切换指定行的关注状态; 不传 iid 则取当前选中行。立即更新列表与文件, 并同步关注列表。"""
@@ -782,12 +802,13 @@ class TradingDashboard:
         if not values:
             return
         code = values[1]
-        if code in self.favorites:
-            del self.favorites[code]
+        fav = self._current_favorites()
+        if code in fav:
+            del fav[code]
         else:
             # 存真实中文名; 当前查不到就存空串, 后续刷新会自动回填
-            self.favorites[code] = self._watchlist_name_for_code(code) or ""
-        marked = code in self.favorites
+            fav[code] = self._watchlist_name_for_code(code) or ""
+        marked = code in fav
         # 只切换树形列 #0 的红点图片, 行文字列不变
         self.tree.item(iid, image=self._dot_img if marked else "")
         self._save_favorites()
@@ -846,19 +867,20 @@ class TradingDashboard:
         self._toggle_favorite(iid)
 
     def _refresh_watchlist(self):
-        """把当前 favorites 同步到右侧关注列表, 最新关注的排在最上面。
+        """把当前周期 favorites 同步到右侧关注列表, 最新关注的排在最上面。
 
         每次刷新都会重新解析中文名: 如果当前清单或库里已经能查到名字,
         就自动覆盖 favorites 里旧的名字(包括之前用代码兜底的情况)。
         """
         for item in self.watch_tree.get_children():
             self.watch_tree.delete(item)
+        fav = self._current_favorites()
         changed = False
         # favorites 字典保持插入顺序, reversed 后最新加入的在上
-        for idx, code in enumerate(reversed(list(self.favorites.keys())), start=1):
+        for idx, code in enumerate(reversed(list(fav.keys())), start=1):
             name = self._resolve_watchlist_name(code)
-            if self.favorites.get(code) != name:
-                self.favorites[code] = name
+            if fav.get(code) != name:
+                fav[code] = name
                 changed = True
             self.watch_tree.insert("", END, iid=code, values=(idx, code, name))
         if changed:
@@ -869,7 +891,7 @@ class TradingDashboard:
         name = self._watchlist_name_for_code(code)
         if name and name != code:
             return name
-        stored = self.favorites.get(code)
+        stored = self._current_favorites().get(code)
         if stored and stored != code:
             return stored
         return code
@@ -1148,7 +1170,7 @@ class TradingDashboard:
         if not run_weekly_scan:
             self.status_var.set("周线扫描模块不可用")
             return
-        cb = self._make_progress_cb("周线扫描")
+        cb = self._make_weekly_progress_cb()
         self._set_busy(True)
         self._show_progress()
         self.status_var.set("周线扫描中… (缺口家族 + 3K)")
@@ -1270,6 +1292,31 @@ class TradingDashboard:
             else:
                 extra = f" · 命中 {info}" if label == "策略扫描" else ""
                 text = f"{label} {done}/{total} · {pct}%{extra}"
+            self.root.after(0, self._apply_progress, pct, text)
+
+        return cb
+
+    def _make_weekly_progress_cb(self):
+        """周线扫描专用进度回调。
+
+        周线扫描同时跑 gap 家族 + 3K 两个阶段, run_weekly_scan 把总进度
+        计为 3312 × 2 = 6624。这里把文字拆成"缺口家族 1/3312" /
+        "3K 1/3312", 避免用户误以为全市场有 6000+ 只股票。
+        """
+        last = {"pct": -1}
+
+        def cb(done, total, info=0):
+            pct = int(done * 100 / total) if total else 0
+            if pct == last["pct"]:
+                return
+            last["pct"] = pct
+            half = total // 2 if total else 0
+            if done < half or half == 0:
+                phase, d, t = "缺口家族", done, half or total
+            else:
+                phase, d, t = "3K", done - half, half or (total - half)
+            extra = f" · 命中 {info}" if info else ""
+            text = f"周线扫描 · {phase} {d}/{t} · {pct}%{extra}"
             self.root.after(0, self._apply_progress, pct, text)
 
         return cb
