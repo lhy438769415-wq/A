@@ -1137,10 +1137,24 @@ def _fast_local_weekly_aggregation(symbols_to_agg: List[str]):
         logger.error(f"❌ 极速本地合并周线失败: {e}")
 
 
-def update_weekly_data_batch(max_workers=settings.MAX_WORKERS):
+def update_weekly_data_batch(max_workers=settings.MAX_WORKERS, progress_callback=None, cancel_event=None):
     """
     [周线雷达] 全量/增量极速下载总调度 (复用日线的多进程队列框架)
+
+    Args:
+        max_workers: 并行进程数
+        progress_callback: [GUI] 可选, 形如 f(done, total, info) 的进度回报函数
+        cancel_event: [GUI] 可选, threading.Event; 置位后取消剩余下载, 已下载部分保留
     """
+    def _safe_progress(done, total, info=None):
+        """[GUI] 进度回报: 界面异常绝不能拖垮数据同步 (与日线同策略)。"""
+        if not progress_callback:
+            return
+        try:
+            progress_callback(done, total, info)
+        except Exception:  # noqa: BLE001 - 进度回调绝不能拖垮数据同步
+            pass
+
     init_db()
     target_date = get_latest_trade_date()
 
@@ -1169,9 +1183,12 @@ def update_weekly_data_batch(max_workers=settings.MAX_WORKERS):
     # 只需要把近期（最近数周）的日线数据在内存中转换成周线，瞬间写入即可！
     # ==========================================
     if maintenance_tasks:
+        # 🟢 [GUI] 本地聚合是整批处理(非逐票), 只能报一个"开始/结束"的粗进度
+        _safe_progress(0, 1, f"合并本地日线 {len(maintenance_tasks)} 只")
         _fast_local_weekly_aggregation(maintenance_tasks)
         # 既然已经本地合并完毕，就不再投入排队等待网络下载
         maintenance_tasks = []
+        _safe_progress(1, 1, "本地合并完成")
 
     discovery_tasks = []
     try:
@@ -1206,6 +1223,8 @@ def update_weekly_data_batch(max_workers=settings.MAX_WORKERS):
 
     if not final_tasks:
         logger.info("🎉 周线库所有数据已是最新！")
+        # 🟢 [GUI] 提前返回也必须报满进度, 否则界面进度条会卡在 0% 后突然完成
+        _safe_progress(1, 1, "已是最新")
         return
 
     data_queue = queue.Queue(maxsize=1000)
@@ -1216,6 +1235,7 @@ def update_weekly_data_batch(max_workers=settings.MAX_WORKERS):
 
     if not to_update:
         logger.info("🎉 All weekly data is already up to date!")
+        _safe_progress(1, 1, "已是最新")
         writer_thread.stop()
         writer_thread.join()
         return
@@ -1259,6 +1279,14 @@ def update_weekly_data_batch(max_workers=settings.MAX_WORKERS):
             if i % 10 == 0 or i == len(to_update) - 1:
                 q_size = data_queue.qsize()
                 logger.info(f"⏳ 周线进度: {i+1}/{len(to_update)} ({(i+1)/len(to_update)*100:.1f}%) | Downloaded: {download_count} | WriteQueue: {q_size}")
+
+            # 🟢 [GUI] 进度回调 + 手动终止 (与日线同策略: 已下载部分保留入库)
+            _safe_progress(i + 1, len(to_update), download_count)
+            if cancel_event is not None and cancel_event.is_set():
+                logger.info("🛑 用户手动终止, 取消剩余周线下载任务...")
+                for f in futures:
+                    f.cancel()
+                break
 
     logger.info(f"✅ Download Finished. Waiting for DB Writer to commit {data_queue.qsize()} chunks...")
     

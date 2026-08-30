@@ -341,15 +341,29 @@ def scan_single_code_weekly(code: str, signal_lookback: int = 60, strategies: li
     return results
 
 
-def scan_weekly_gap_signals(all_codes: list, strategies: list = None, recent_weeks: int = 4) -> dict:
+def scan_weekly_gap_signals(all_codes: list, strategies: list = None, recent_weeks: int = 4,
+                            progress_callback=None, cancel_event=None) -> dict:
     """
     🟢 [P3 Opt 2] 并行扫描全市场周线 Structural Gap 信号
     使用 ThreadPoolExecutor 进行多线程并发（因数据读取涉及 SQLite，线程比进程更安全）
+
+    Args:
+        progress_callback: [GUI] 可选, 形如 f(done, total, info) 的进度回报函数
+        cancel_event: [GUI] 可选, threading.Event; 置位后停止收集剩余结果, 已扫部分保留
 
     Returns:
         {'signals_gap': [...]}  — 与旧 scanner_weekly_gap.scan_weekly_gap 返回结构一致
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _safe_progress(done, total, info=None):
+        """[GUI] 进度回报: 界面异常绝不能拖垮扫描。"""
+        if not progress_callback:
+            return
+        try:
+            progress_callback(done, total, info)
+        except Exception:  # noqa: BLE001 - 进度回调绝不能拖垮扫描
+            pass
 
     results_gap = []
     total = len(all_codes)
@@ -363,10 +377,20 @@ def scan_weekly_gap_signals(all_codes: list, strategies: list = None, recent_wee
         futures = {executor.submit(scan_single_code_weekly, code, strategies=strategies): code for code in all_codes}
 
         for future in as_completed(futures):
+            # 🟢 [GUI] 手动终止: 停止收集剩余结果 (已在跑的线程无法强杀, 但不再等待其产出)
+            if cancel_event is not None and cancel_event.is_set():
+                logger.info("🛑 用户手动终止周线缺口扫描, 已扫部分保留")
+                for f in futures:
+                    f.cancel()
+                break
+
             completed += 1
             if completed % 50 == 0:
                 sys.stdout.write(f"\r  ⏳ 扫描进度: {completed}/{total}... 累计命中: {len(results_gap)}")
                 sys.stdout.flush()
+
+            # 🟢 [GUI] 进度回调
+            _safe_progress(completed, total, len(results_gap))
 
             code = futures[future]
             try:
@@ -385,19 +409,41 @@ def scan_weekly_gap_signals(all_codes: list, strategies: list = None, recent_wee
 # =====================================================
 # 周线 3K 扫描 (原 scanner_weekly_3k.scan_weekly_3k, 原样搬入)
 # =====================================================
-def scan_weekly_3k_signals(all_codes: list, recent_weeks: int = 4) -> dict:
+def scan_weekly_3k_signals(all_codes: list, recent_weeks: int = 4,
+                           progress_callback=None, cancel_event=None) -> dict:
     """
     周线 3K 策略扫描 (原 scanner_weekly_3k.scan_weekly_3k, 原样搬入 scan_engine).
+
+    Args:
+        progress_callback: [GUI] 可选, 形如 f(done, total, info) 的进度回报函数
+        cancel_event: [GUI] 可选, threading.Event; 置位后立即停止扫描, 已扫部分保留
 
     Returns:
         {'signals_3k': [...], 'signals_gap_test': [...]}  — 与旧 scanner 结构一致
     """
+    def _safe_progress(done, total, info=None):
+        """[GUI] 进度回报: 界面异常绝不能拖垮扫描。"""
+        if not progress_callback:
+            return
+        try:
+            progress_callback(done, total, info)
+        except Exception:  # noqa: BLE001 - 进度回调绝不能拖垮扫描
+            pass
+
     from core.strategies.three_k_strategy import ThreeKStrategy
     strategy = ThreeKStrategy()
     results_3k = []
     results_gt = []
 
     for i, code in enumerate(all_codes):
+        # 🟢 [GUI] 手动终止: 串行循环可立即退出, 已扫部分保留
+        if cancel_event is not None and cancel_event.is_set():
+            logger.info("🛑 用户手动终止周线 3K 扫描, 已扫部分保留")
+            break
+
+        # 🟢 [GUI] 进度回调 (串行扫描, 逐票回报)
+        _safe_progress(i + 1, len(all_codes), len(results_3k))
+
         if (i + 1) % 200 == 0:
             print(f"  进度: {i+1}/{len(all_codes)}...")
 
@@ -823,7 +869,8 @@ def format_push_weekly_3k(results: dict, total_stocks: int = 0, weeks: int = 4):
 # =====================================================
 # Phase 3 统一编排入口: 周线单引擎 (消除 hunter 两处周线委托重复 + 独立 3K 脚本)
 # =====================================================
-def run_weekly_scan(active_strategies, weeks=4, limit=0, all_codes=None):
+def run_weekly_scan(active_strategies, weeks=4, limit=0, all_codes=None,
+                    progress_callback=None, cancel_event=None):
     """
     周线统一编排入口 (Phase 3 入口/编排层单引擎; 注: 3K 硬编码例外刻意保留, core->tools 倒置见 :30 为已知债): 取列表 -> 按家族路由 -> 扫描 + 格式化/推送.
 
@@ -831,8 +878,21 @@ def run_weekly_scan(active_strategies, weeks=4, limit=0, all_codes=None):
     - 否则 -> 走 gap 家族路径 (STRUCTURAL_GAP/PINBAR/H2, 含 Signal Tracker 归档)
     - 日线 _scan_market 路径不受影响 (本函数仅服务周线)
 
+    Args:
+        progress_callback: [GUI] 可选, 形如 f(done, total, info) 的进度回报函数
+        cancel_event: [GUI] 可选, threading.Event; 置位后停止扫描, 已扫部分保留
+
     返回: 无 (扫描 + 格式化 + 推送 + 归档 全部在此完成, 与旧 scanner 主流程行为一致)
     """
+    def _safe_progress(done, total, info=None):
+        """[GUI] 进度回报: 界面异常绝不能拖垮扫描。"""
+        if not progress_callback:
+            return
+        try:
+            progress_callback(done, total, info)
+        except Exception:  # noqa: BLE001 - 进度回调绝不能拖垮扫描
+            pass
+
     if all_codes is None:
         all_codes = dp.get_stock_list()
     if not all_codes:
@@ -867,14 +927,30 @@ def run_weekly_scan(active_strategies, weeks=4, limit=0, all_codes=None):
     if not (do_3k or do_gap):
         print(f"\n⚠️ 周线扫描: 未识别到任何周线策略 ({', '.join(active) or '空'})。"
               f"支持: STRATEGY_3K / {', '.join(sorted(WEEKLY_GAP_STRATS))}")
+        _safe_progress(1, 1, 0)
         return
+
+    # 🟢 [GUI] 进度总量: 两个家族都跑时, 工作量 = 2 × 股票数 (缺口先跑, 3K 后跑接续计数)
+    total_all = len(all_codes) * (int(do_gap) + int(do_3k))
+
+    def _gap_cb(done, _total, info=None):
+        _safe_progress(done, total_all, info)
+
+    def _3k_cb(done, _total, info=None):
+        _safe_progress(len(all_codes) + done, total_all, info)
+
     if do_gap:
         gap_strats = [s for s in active_strategies if s.upper() in WEEKLY_GAP_STRATS]
         print(f"\n🌙 周线缺口扫描: {len(all_codes)} 只股票, 检查最近 {weeks} 周, "
               f"策略: {', '.join(gap_strats)}")
-        gap_results = scan_weekly_gap_signals(all_codes, strategies=gap_strats, recent_weeks=weeks)
+        gap_results = scan_weekly_gap_signals(all_codes, strategies=gap_strats, recent_weeks=weeks,
+                                              progress_callback=_gap_cb, cancel_event=cancel_event)
         format_push_weekly_gap(gap_results, total_stocks=len(all_codes))
     if do_3k:
         print(f"\n🌙 周线 3K 扫描: {len(all_codes)} 只股票, 检查最近 {weeks} 周")
-        k3_results = scan_weekly_3k_signals(all_codes, recent_weeks=weeks)
+        k3_results = scan_weekly_3k_signals(all_codes, recent_weeks=weeks,
+                                            progress_callback=_3k_cb, cancel_event=cancel_event)
         format_push_weekly_3k(k3_results, total_stocks=len(all_codes), weeks=weeks)
+
+    # 🟢 [GUI] 收尾报满进度 (中途终止时进度条不会卡在半截)
+    _safe_progress(total_all, total_all, 0)

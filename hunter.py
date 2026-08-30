@@ -1226,14 +1226,17 @@ def main():
 
             # 🟢 [P1] 使用 StrategyRegistry 动态获取支持周线的策略列表
             weekly_supported = StrategyRegistry.get_strategies_by_timeframe('weekly')
-            # 🟢 [Phase 3] 3K 也纳入周线菜单 (经 run_weekly_scan 路由, 不归档)
-            menu_options = list(weekly_supported) + ['STRATEGY_3K']
+            # 🟢 3K 的周线能力已在 three_k_strategy 声明 (supported_timeframes 含 weekly),
+            #    注册表现已能查到, 不再需要此处硬编码补入; 保留去重兜底仅为兼容旧注册表。
+            menu_options = list(weekly_supported)
+            if 'STRATEGY_3K' not in menu_options:
+                menu_options.append('STRATEGY_3K')
             print("\n" + "="*40)
             print("🔍 周线扫描策略选择")
             print("="*40)
             for i, s in enumerate(menu_options):
                 print(f"  {i+1}. {s}")
-            print(f"  {len(menu_options)+1}. ALL (全量扫描, 仅缺口家族)")
+            print(f"  {len(menu_options)+1}. ALL (全量扫描: 缺口家族 + 3K)")
             print("="*40)
 
             try:
