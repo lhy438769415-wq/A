@@ -717,6 +717,49 @@ def get_stock_data_weekly(full_code: str, limit: int = None) -> Optional[pd.Data
         logger.error(f"Failed to get stock weekly data for {full_code}: {e}")
         return None
 
+def get_monthly_bars(symbol: str, adjust: str = 'qfq', limit: int = None) -> Optional[pd.DataFrame]:
+    """
+    [MONTHLY_RANGE_BREAK] 月线数据源：本地 daily_bars(qfq) 内存聚合为月线。
+
+    - 完全离线、不改 schema、不写新表（符合数据库结构冻结护栏）。
+    - 月内聚合规则：open=当月首日均价开盘, close=当月末日收盘, high=max, low=min, volume=sum。
+    - 额外保留 'ym' 列（YYYY-MM）便于策略按自然月锚定窗口。
+    返回列：symbol, ym, trade_date(当月最后交易日), open, high, low, close, volume, adjust
+    """
+    sym = symbol.split('.')[-1]  # 兼容 sh/sz 前缀与纯 6 位码
+    try:
+        with get_db_connection() as conn:
+            query = """
+                SELECT trade_date, open, high, low, close, volume, adjust
+                FROM daily_bars
+                WHERE symbol=? AND adjust=?
+                ORDER BY trade_date ASC
+            """
+            df = _read_sql_safe(query, conn, params=(sym, adjust))
+        if df is None or df.empty:
+            return None
+
+        df['trade_date'] = pd.to_datetime(df['trade_date'])
+        df['ym'] = df['trade_date'].dt.strftime('%Y-%m')
+        monthly = df.groupby('ym').agg(
+            trade_date=('trade_date', 'max'),
+            open=('open', 'first'),
+            high=('high', 'max'),
+            low=('low', 'min'),
+            close=('close', 'last'),
+            volume=('volume', 'sum'),
+            adjust=('adjust', 'last'),
+        ).reset_index()
+        monthly['trade_date'] = monthly['trade_date'].dt.strftime('%Y-%m-%d')
+        monthly.insert(0, 'symbol', sym)
+        if limit:
+            monthly = monthly.tail(limit)
+        return monthly
+
+    except Exception as e:
+        logger.error(f"Failed to get monthly bars for {symbol}: {e}")
+        return None
+
 # ==========================================
 # 🔄 Update Logic
 # ==========================================

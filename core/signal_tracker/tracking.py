@@ -125,7 +125,7 @@ def _track_single(sig: dict) -> dict:
         logger.debug(f"获取 {code} 行情失败: {e}")
         return None
 
-    # [P0-2.5] 生命周期计数: 周线信号必须用周线 bar 数, 否则 8周≈8日 提前过期。
+    # [P0-2.5] 生命周期计数: 周期信号必须用对应 bar 数, 否则 8周≈8日 / 6月≈6日 提前过期。
     # 触发判断仍用日线 post_df (实时性), 仅过期判断用正确的 lifecycle_bars。
     if tf == 'weekly':
         try:
@@ -135,6 +135,20 @@ def _track_single(sig: dict) -> dict:
                 if wdate_col:
                     wdf[wdate_col] = wdf[wdate_col].astype(str)
                     lifecycle_bars = len(wdf[wdf[wdate_col] > sig['signal_date']])
+                else:
+                    lifecycle_bars = len(post_df)
+            else:
+                lifecycle_bars = len(post_df)
+        except Exception:
+            lifecycle_bars = len(post_df)
+    elif tf == 'monthly':
+        try:
+            mdf = dp.get_monthly_bars(code, limit=300)
+            if mdf is not None and not mdf.empty:
+                mdate_col = 'trade_date' if 'trade_date' in mdf.columns else ('date' if 'date' in mdf.columns else None)
+                if mdate_col:
+                    mdf[mdate_col] = mdf[mdate_col].astype(str)
+                    lifecycle_bars = len(mdf[mdf[mdate_col] > sig['signal_date']])
                 else:
                     lifecycle_bars = len(post_df)
             else:

@@ -33,18 +33,19 @@ update_weekly_data_batch = None
 get_stock_list = None
 main_script = None
 run_weekly_scan = None
+run_monthly_scan = None
 try:
     from core.data_provider import update_daily_data_batch, update_weekly_data_batch, get_stock_list
 except Exception as e:  # noqa: BLE001 - 允许降级, 不阻断界面
     logging.warning(f"数据同步模块导入失败(同步按钮将不可用): {e}")
 try:
+    from core.scan_engine import run_weekly_scan, run_monthly_scan
+except Exception as e:  # noqa: BLE001 - 允许降级, 不阻断界面
+    logging.warning(f"扫描引擎导入失败(扫描按钮将不可用): {e}")
+try:
     import hunter as main_script
 except Exception as e:  # noqa: BLE001 - 允许降级, 不阻断界面
     logging.warning(f"扫描模块导入失败(扫描按钮将不可用): {e}")
-try:
-    from core.scan_engine import run_weekly_scan
-except Exception as e:  # noqa: BLE001 - 允许降级, 不阻断界面
-    logging.warning(f"周线扫描模块导入失败(周线扫描按钮将不可用): {e}")
 track_signals = None
 try:
     from core.signal_tracker.tracking import track_signals
@@ -141,7 +142,7 @@ class TradingDashboard:
         self.strat_buttons = {}
         self.photo = None  # 防止 PhotoImage 被 GC
         self.selected_date = None  # 当前选中的信号日; None 时自动取最新
-        # 周期: 'daily' | 'weekly'。只由用户手动点顶部切换, 程序不按星期自动判断。
+        # 周期: 'daily' | 'weekly' | 'monthly'。只由用户手动点顶部切换, 程序不按星期自动判断。
         self.tf_var = tk.StringVar(value="daily")
         self._chart_orig = None  # 原始 K 线 PIL Image, 用于自适应重绘
         self._chart_last_size = (0, 0)  # 上次渲染尺寸, 避免 resize 死循环
@@ -169,12 +170,14 @@ class TradingDashboard:
         ttk.Label(top, text="Brooks-AI 操盘台", font=("Microsoft YaHei", 16, "bold"),
                   foreground="#f5f5f7").pack(side=LEFT, padx=(4, 20))
 
-        # 周期切换 (日线 / 周线): 默认日线; 只由用户手动点, 程序不按星期自动判断
+        # 周期切换 (日线 / 周线 / 月线): 默认日线; 只由用户手动点, 程序不按星期自动判断
         tf_f = ttk.Frame(top)
         tf_f.pack(side=LEFT, padx=(0, 18))
         ttk.Radiobutton(tf_f, text="日线", value="daily", variable=self.tf_var,
                         bootstyle="toolbutton", command=self._on_timeframe_change).pack(side=LEFT)
         ttk.Radiobutton(tf_f, text="周线", value="weekly", variable=self.tf_var,
+                        bootstyle="toolbutton", command=self._on_timeframe_change).pack(side=LEFT)
+        ttk.Radiobutton(tf_f, text="月线", value="monthly", variable=self.tf_var,
                         bootstyle="toolbutton", command=self._on_timeframe_change).pack(side=LEFT)
 
         # 搜索框 (回车 -> 直接送 TradingView 深研)
@@ -377,11 +380,20 @@ class TradingDashboard:
         """当前是否处于周线模式 (只取用户手动选择的结果, 不做任何自动判断)。"""
         return self.tf_var.get() == "weekly"
 
+    def _is_monthly(self):
+        """当前是否处于月线模式 (区间破位弹簧线扫描)。"""
+        return self.tf_var.get() == "monthly"
+
     def _on_timeframe_change(self):
-        """手动切换日线/周线: 两个周期的信号完全隔离, 切换后各自回到自己最新的信号日。"""
-        # 同一个日期下拉在周线下的含义是「截至哪一周」, 标签跟着改
-        self.date_label.configure(text="截至周" if self._is_weekly() else "信号日")
-        # 周线模式才显示"已确认/待建仓"切换, 日线隐藏
+        """手动切换日线/周线/月线: 三个周期的信号完全隔离, 切换后各自回到自己最新的信号日。"""
+        # 同一个日期下拉在不同周期下的含义不同: 「截至哪一周」/「信号月」/「信号日」
+        if self._is_weekly():
+            self.date_label.configure(text="截至周")
+        elif self._is_monthly():
+            self.date_label.configure(text="信号月")
+        else:
+            self.date_label.configure(text="信号日")
+        # 仅周线模式显示"已确认/待建仓"切换, 日线/月线隐藏
         if self._is_weekly():
             self.view_combo.grid()
         else:
@@ -400,6 +412,8 @@ class TradingDashboard:
         """
         if self.tf_var.get() == "weekly":
             return " AND timeframe='weekly' AND date(scan_date)=date(created_at)"
+        if self.tf_var.get() == "monthly":
+            return " AND timeframe='monthly'"
         return " AND timeframe='daily'"
 
     def _scope_where(self):
@@ -409,17 +423,24 @@ class TradingDashboard:
         周线: 看「截至那一周仍存活」的信号 — 周线信号会活好几周,
               按天切片会让最新周只剩一两条(不是信号少, 是切法不对)。
               存活 = 信号已出现(触发日 <= 那一周) 且 尚未了结(无了结日, 或了结日在那一周之后)。
+        月线: 按月切片 (selected_date 形如 'YYYY-MM'), 看那一个月触发的区间破位信号。
         """
         if self._is_weekly():
             return (" AND signal_date<=?"
                     " AND (resolved_date IS NULL OR resolved_date='' OR resolved_date>?)",
                     (self.selected_date, self.selected_date))
+        if self._is_monthly():
+            return " AND substr(signal_date,1,7)=?", (self.selected_date,)
         return " AND signal_date=?", (self.selected_date,)
 
     def _date_title(self):
-        """当前选中日在标题里的说法: 日线=那一天, 周线=截至那一周(含所有仍存活的信号)。"""
+        """当前选中日在标题里的说法: 日线=那一天, 周线=截至那一周, 月线=那个月。"""
         d = self.selected_date or "—"
-        return f"截至 {d} 那周" if self._is_weekly() else f"{d} 信号"
+        if self._is_weekly():
+            return f"截至 {d} 那周"
+        if self._is_monthly():
+            return f"{d[:7]} 月信号" if d != "—" else "—"
+        return f"{d} 信号"
 
     def _weekly_fridays(self):
         """返回 weekly_bars 中所有可用周线日期, 统一到当周周五, 降序(最新在前)。"""
@@ -461,6 +482,19 @@ class TradingDashboard:
         """
         if self._is_weekly():
             return self._weekly_fridays()
+        if self._is_monthly():
+            try:
+                with _db() as conn:
+                    rows = conn.execute(
+                        f"SELECT DISTINCT substr(signal_date,1,7) AS ym FROM signal_archive "
+                        f"WHERE signal_date LIKE ? AND {_STRAT_NORM_SQL} IN ({_KEY_PH}) "
+                        f"AND timeframe='monthly' "
+                        f"ORDER BY ym DESC",
+                        (_DATE_LIKE,) + _VALID_KEYS,
+                    ).fetchall()
+                    return [r[0] for r in rows if r[0]]
+            except Exception:  # noqa: BLE001
+                return []
         try:
             with _db() as conn:
                 rows = conn.execute(
@@ -669,7 +703,12 @@ class TradingDashboard:
         周线只显示缺口家族三个; 日线显示其周期内策略。避免把另一周期的
         策略按钮(如日线的 3K/MTR)误摆在周线左栏。
         """
-        tf = "weekly" if self._is_weekly() else "daily"
+        if self._is_monthly():
+            tf = "monthly"
+        elif self._is_weekly():
+            tf = "weekly"
+        else:
+            tf = "daily"
         try:
             from core.strategy_registry import StrategyRegistry
             valid = set(StrategyRegistry.get_strategies_by_timeframe(tf))
@@ -772,22 +811,23 @@ class TradingDashboard:
           - dict(不含 daily/weekly 键) -> 视为日线关注
         """
         path = self._favorites_path()
-        empty = {"daily": {}, "weekly": {}}
+        empty = {"daily": {}, "weekly": {}, "monthly": {}}
         try:
             if os.path.exists(path):
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 if isinstance(data, list):
                     return {"daily": {code: self._lookup_name_in_db(code) or code for code in data},
-                            "weekly": {}}
+                            "weekly": {}, "monthly": {}}
                 if isinstance(data, dict):
-                    if "daily" in data or "weekly" in data:
+                    if "daily" in data or "weekly" in data or "monthly" in data:
                         return {
                             "daily": data.get("daily", {}),
                             "weekly": data.get("weekly", {}),
+                            "monthly": data.get("monthly", {}),
                         }
                     # 旧版单一字典 -> 全部视为日线关注
-                    return {"daily": dict(data), "weekly": {}}
+                    return {"daily": dict(data), "weekly": {}, "monthly": {}}
         except Exception as e:  # noqa: BLE001
             logging.warning(f"加载关注列表失败: {e}")
         return empty
@@ -1044,6 +1084,23 @@ class TradingDashboard:
                         sig_quality=row.get('sig_quality', 0),
                         bears=row.get('bears', 0),
                     )
+                elif self._is_monthly():
+                    # 月线模式必须画月K (整数索引 + trade_date 列, 横轴 0..N-1)
+                    from core.data_provider import get_monthly_bars
+                    from core.calculator import add_indicators
+                    from core.strategy_registry import StrategyRegistry
+                    mdf = get_monthly_bars(code, limit=300)
+                    if mdf is None or mdf.empty:
+                        return
+                    mdf = add_indicators(mdf)
+                    mstrat = StrategyRegistry.get_strategy(strategy)
+                    mdf = mstrat.calculate_signals(mdf)
+                    buf = generate_chart_bytes(
+                        code, name, strategy, sl, tp1=tp, entry=entry,
+                        df_override=mdf, timeframe='月K',
+                        sig_quality=row.get('sig_quality', 0),
+                        bears=row.get('bears', 0),
+                    )
                 else:
                     buf = generate_chart_bytes(
                         code, name, strategy, sl, tp1=tp, entry=entry,
@@ -1152,9 +1209,11 @@ class TradingDashboard:
             self.status_var.set("行情下载完成 (无新数据)")
 
     def start_hunter(self):
-        """策略扫描: 日线走原流水线, 周线走周线引擎 (仅缺口家族三个策略)。"""
+        """策略扫描: 日线走原流水线, 周线走周线引擎, 月线走月线引擎 (区间破位弹簧线)。"""
         if self._is_weekly():
             self._start_scan_weekly()
+        elif self._is_monthly():
+            self._start_scan_monthly()
         else:
             self._start_scan_daily()
 
@@ -1222,6 +1281,41 @@ class TradingDashboard:
                          on_done=self._on_scan_done,
                          on_fail=lambda e: self.status_var.set(f"周线扫描失败: {e}"))
 
+    def _start_scan_monthly(self):
+        """月线扫描: 结果直接推送并归档进库, 界面从库里读 (与周线一致的数据流)。"""
+        if not run_monthly_scan:
+            self.status_var.set("月线扫描模块不可用")
+            return
+        cb = self._make_progress_cb("月线扫描")
+        self._set_busy(True)
+        self._show_progress()
+        self.status_var.set("月线扫描中… (区间破位弹簧线)")
+
+        def _task():
+            codes = get_stock_list()
+            if not codes:
+                logging.warning("本地数据库为空, 请先下载行情")
+                return "NO_CODES"
+            try:
+                from core.strategy_registry import StrategyRegistry
+                strats = StrategyRegistry.get_strategies_by_timeframe("monthly")
+            except Exception:  # noqa: BLE001 - 注册表不可用则退回已知月线策略
+                strats = ["STRATEGY_MONTHLY_RANGE_BREAK"]
+            stats = run_monthly_scan(strats, months=6, all_codes=codes,
+                                    progress_callback=cb, cancel_event=self._stop_event)
+
+            # 扫描后顺带把月线信号的状态推进一遍 (进场/止盈/止损/过期), 零自动化:
+            # 同一手动动作里的第二步。同样需跑两轮才收敛 (见周线同款注释)。
+            if track_signals and not self._stop_event.is_set():
+                self.root.after(0, self._apply_progress, 100, "跟进信号状态…")
+                for _round in range(2):
+                    track_signals(timeframe="monthly", real_scan_only=True)
+            return {"monthly_stats": stats} if isinstance(stats, dict) else None
+
+        self._run_thread(_task, "月线扫描",
+                         on_done=self._on_scan_done,
+                         on_fail=lambda e: self.status_var.set(f"月线扫描失败: {e}"))
+
     def _on_scan_done(self, ret):
         """策略扫描收尾文案: 区分 用户终止 / 无本地数据 / 正常完成。"""
         if self._stop_event.is_set():
@@ -1229,9 +1323,11 @@ class TradingDashboard:
         elif ret == "NO_CODES":
             self.status_var.set("本地数据库为空, 请先点击「下载行情」")
         else:
-            extra = " · 信号状态已跟进" if self._is_weekly() and track_signals else ""
+            extra = " · 信号状态已跟进" if (self._is_weekly() or self._is_monthly()) and track_signals else ""
             if isinstance(ret, dict) and "weekly_stats" in ret:
                 self.status_var.set(self._weekly_scan_summary(ret["weekly_stats"]) + extra)
+            elif isinstance(ret, dict) and "monthly_stats" in ret:
+                self.status_var.set(self._monthly_scan_summary(ret["monthly_stats"]) + extra)
             else:
                 self.status_var.set(f"策略扫描完成 · 清单已刷新{extra}")
 
@@ -1246,6 +1342,14 @@ class TradingDashboard:
             return "周线扫描完成 · 未识别到周线缺口策略"
         return (f"周线扫描完成 · 扫 {s.get('stocks', 0)} 只 · "
                 f"缺口家族 {s.get('gap', 0)} 条")
+
+    @staticmethod
+    def _monthly_scan_summary(s):
+        """把月线扫描回执翻译成一句人话 (与周线同款, 避免"完成"二字分不清扫没扫)。"""
+        if not s.get("ran_mrb"):
+            return "月线扫描完成 · 未识别到月线策略"
+        return (f"月线扫描完成 · 扫 {s.get('stocks', 0)} 只 · "
+                f"区间破位 {s.get('mrb', 0)} 条")
 
     def _run_thread(self, func, name, on_done=None, on_fail=None):
         def _wrap():

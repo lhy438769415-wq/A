@@ -958,3 +958,332 @@ def run_weekly_scan(active_strategies, weeks=4, limit=0, all_codes=None,
     # 🟢 [GUI] 收尾报满进度 (中途终止时进度条不会卡在半半截)
     _safe_progress(total_all, total_all, 0)
     return stats
+
+
+# =====================================================
+# 月线区间破位 Pinbar (Spring) 扫描 —— 镜像周线 gap 家族范式
+# 数据源: dp.get_monthly_bars (本地 daily_bars qfq 内存聚合为月线, 完全离线/不改 schema)
+# 策略: STRATEGY_MONTHLY_RANGE_BREAK (纯 PA 5 条件, 无 pending 概念)
+# =====================================================
+def scan_single_code_monthly(code: str, strategies: list = None, recent_months: int = 6) -> list:
+    """扫描单只股票的月线区间破位 Pinbar 信号 (STRATEGY_MONTHLY_RANGE_BREAK).
+
+    复用 dp.get_monthly_bars + MonthlyRangeBreakStrategy。返回命中 dict 列表,
+    结构与周线 gap 扫描一致 (供 format_push_monthly_range_break 直接消费)。
+    """
+    if strategies is None:
+        strategies = ['STRATEGY_MONTHLY_RANGE_BREAK']
+    results = []
+    try:
+        df = dp.get_monthly_bars(code, limit=300)
+        if df is None or len(df) < 40:   # 需足够月线供 LLV(20) 滚动
+            return results
+
+        # 保持整数索引 + trade_date 列 (与 K 线图 df_override 约定一致: 横轴 0..N-1, 禁传 Timestamp)
+        strat = StrategyRegistry.get_strategy('STRATEGY_MONTHLY_RANGE_BREAK')
+        df = strat.calculate_signals(df)
+
+        sig_col = 'signal_mrb'
+        recent = df.tail(recent_months)
+        sig_mask = recent.get(sig_col, pd.Series(dtype=bool)) == True
+
+        for idx in recent.index[sig_mask]:
+            row = df.loc[idx]
+            entry = row.get('entry_mrb', np.nan)
+            sl = row.get('sl_mrb', np.nan)
+            tp = row.get('tp_mrb', np.nan)
+            if np.isnan(entry) or np.isnan(sl) or np.isnan(tp):
+                continue
+
+            # 【生命周期过滤】信号之后月线是否击穿 SL 或触及 TP (月线级, 避免日线噪声)
+            if idx < len(df) - 1:
+                post = df.iloc[idx + 1:]
+                if post['low'].min() <= sl:
+                    continue  # 弹簧最低点被跌破, 形态失败
+                if post['high'].max() >= tp:
+                    continue  # 目标已达成, 无需再扫
+
+            risk = entry - sl
+            reward = tp - entry
+            rr = round(reward / risk, 1) if risk > 0 else 0
+
+            # 🟢 纯 PA 四因子评级
+            try:
+                _rating = strat.compute_rating(df, timeframe='monthly')
+            except Exception as _e:
+                logging.warning(f"compute_rating failed for MRB {code}: {_e}")
+                _rating = None
+            if _rating is not None:
+                ev_score = _rating.raw_score
+                rating_dict = _rating.to_dict()
+            else:
+                ev_score = 0
+                rating_dict = None
+
+            name = dp.get_stock_name(code)
+            results.append({
+                'code': code,
+                'name': name,
+                'strategy_name': 'STRATEGY_MONTHLY_RANGE_BREAK',
+                'date': row['trade_date'],
+                'entry': entry,
+                'sl': sl,
+                'tp': tp,
+                'rr': rr,
+                'ev_score': ev_score,
+                'ev_rating': '',
+                'rating': rating_dict,
+                'is_pending': False,
+                'signal_bar_idx': int(idx),
+            })
+    except Exception as e:
+        logger.debug(f"扫描 {code} 失败: {e}")
+    return results
+
+
+def scan_monthly_range_break_signals(all_codes: list, recent_months: int = 6,
+                                     progress_callback=None, cancel_event=None) -> dict:
+    """并行扫描全市场月线区间破位 Pinbar 信号 (ThreadPool, 镜像 scan_weekly_gap_signals).
+
+    Args:
+        progress_callback: [GUI] 可选, 形如 f(done, total, info) 的进度回报函数
+        cancel_event: [GUI] 可选, threading.Event; 置位后停止收集剩余结果, 已扫部分保留
+
+    Returns:
+        {'signals_mrb': [...]}  — 与周线 gap 返回结构对齐
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _safe_progress(done, total, info=None):
+        """[GUI] 进度回报: 界面异常绝不能拖垮扫描。"""
+        if not progress_callback:
+            return
+        try:
+            progress_callback(done, total, info)
+        except Exception:  # noqa: BLE001 - 进度回调绝不能拖垮扫描
+            pass
+
+    results_mrb = []
+    total = len(all_codes)
+    completed = 0
+    MAX_WORKERS = 4  # 线程数, 与周线一致
+
+    print(f"  🚀 启动 {MAX_WORKERS} 线程并行扫描 {total} 只股票 (月线区间破位)...")
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {executor.submit(scan_single_code_monthly, code, recent_months=recent_months): code for code in all_codes}
+
+        for future in as_completed(futures):
+            if cancel_event is not None and cancel_event.is_set():
+                logger.info("🛑 用户手动终止月线扫描, 已扫部分保留")
+                for f in futures:
+                    f.cancel()
+                break
+
+            completed += 1
+            if completed % 50 == 0:
+                sys.stdout.write(f"\r  ⏳ 扫描进度: {completed}/{total}... 累计命中: {len(results_mrb)}")
+                sys.stdout.flush()
+
+            _safe_progress(completed, total, len(results_mrb))
+
+            code = futures[future]
+            try:
+                hits = future.result()
+                for hit in hits:
+                    results_mrb.append(hit)
+                    print(f"\n  ✨ 命中: {hit['code']} {hit['name']}")
+            except Exception as e:
+                logger.debug(f"获取 {code} 结果失败: {e}")
+
+    print(f"\n  ✅ 月线扫描完成! 共命中 {len(results_mrb)} 只")
+    return {'signals_mrb': results_mrb}
+
+
+def format_push_monthly_range_break(results, total_stocks=0):
+    """控制台输出 + JSON/MD 导出 + Discord 推送 + Signal Tracker 归档 (月线区间破位 Pinbar)."""
+    sig = results['signals_mrb']
+    strat_display = '月线区间破位Pinbar'
+
+    print(f"📊 月线 {strat_display} 信号汇总")
+
+    # 📥 Signal Tracker: 归档月线信号 (仅确认信号, 无 pending)
+    try:
+        from core.signal_tracker import archive_signal, init_signal_archive
+        init_signal_archive()
+        for s in sig:
+            sig_date = s['date'].strftime('%Y-%m-%d') if hasattr(s['date'], 'strftime') else str(s['date'])
+            archive_signal(
+                code=s['code'], strategy='STRATEGY_MONTHLY_RANGE_BREAK', timeframe='monthly',
+                entry=s['entry'], sl=s['sl'], tp=s['tp'] if not np.isnan(s['tp']) else 0,
+                ev_rating='',  # [P0-5] 不再写经回测证明为噪声的假字母
+                evidence=factor_evidence_text(s.get('rating'), 'STRATEGY_MONTHLY_RANGE_BREAK'),
+                signal_date=sig_date,
+                signal_bar_idx=s.get('signal_bar_idx', -1),
+                ev_score=s.get('ev_score', 0), rr=s.get('rr', 0), name=s.get('name', '')
+            )
+        if sig:
+            logger.info(f"📥 {len(sig)} 个月线信号已归档到 Signal Tracker")
+    except Exception as e:
+        logger.warning(f"月线信号归档失败: {e}")
+
+    print(f"\n📌 月线区间破位弹簧线 (共 {len(sig)} 个):")
+    print("-" * 60)
+    for s in sig:
+        print(f"  {format_signal_one_line(s['code'], s['name'], s.get('strategy_name', ''), s, timeframe='monthly')}")
+
+    # === 导出报告与数据 ===
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # 1. 导出 JSON 数据
+    data_dir = os.path.join(project_root, 'data')
+    os.makedirs(data_dir, exist_ok=True)
+    json_path = os.path.join(data_dir, 'monthly_range_break_watchlist.json')
+
+    def default_serializer(obj):
+        if hasattr(obj, 'isoformat'):
+            return obj.isoformat()
+        return str(obj)
+
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(results, f, indent=4, ensure_ascii=False, default=default_serializer)
+    print(f"✅ 生成监控名单: {json_path}")
+
+    # 2. 导出 Markdown 报告
+    lab_dir = os.path.join(project_root, 'strategy_lab')
+    os.makedirs(lab_dir, exist_ok=True)
+    md_path = os.path.join(lab_dir, 'monthly_range_break_plan.md')
+
+    report_md = f"# 月线区间底部破位埋伏计划 (基于月线 {strat_display})\n\n"
+    report_md += f"**生成时间**: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+    if total_stocks > 0:
+        report_md += f"**扫描范围**: 全市场 {total_stocks} 只个股\n\n"
+
+    report_md += f"## 🎯 月线区间底部弹簧线 (待挂单)\n\n"
+    if not sig:
+        report_md += "本月无符合条件的区间破位标的。\n\n"
+    else:
+        report_md += "| 代码 | 名称 | 信号月 | 买点 (Buy Stop) | 止损 (SL) | 目标价 (TP) | 盈亏比 |\n"
+        report_md += "|:---:|:---|:---|:---|:---|:---|:---|\n"
+        for s in sig:
+            tp_str = f"{s['tp']:.2f}" if not np.isnan(s['tp']) else "N/A"
+            rr_str = f"1:{s['rr']:.1f}" if s['rr'] > 0 else "N/A"
+            date_str = s['date'].strftime('%Y-%m-%d') if hasattr(s['date'], 'strftime') else str(s['date'])
+            report_md += f"| `{s['code']}` | **{s['name']}** | {date_str} | **>={s['entry']:.2f}** | *{s['sl']:.2f}* | {tp_str} | {rr_str} |\n"
+
+    with open(md_path, 'w', encoding='utf-8') as f:
+        f.write(report_md)
+    print(f"✅ 生成月线复盘报告: {md_path}")
+
+    # === Discord 图文推送 ===
+    print("\n📊 准备推送 Discord 信号图文...")
+
+    _mdate = pd.Timestamp.now().strftime('%Y-%m-%d')
+    _mpool = f"全市场 {total_stocks} 只" if total_stocks > 0 else ""
+    msg = "🔔 月线 " + strat_display + f" · {_mdate}" + (f" · {_mpool}" if _mpool else "") + "\n"
+    msg += f"----------------------\n"
+    msg += f"🎯 命中 {len(sig)} 只\n"
+
+    if not sig:
+        msg += f"\n💤 【月线/{strat_display}】，本次未发现信号"
+    else:
+        for s in sig:
+            msg += format_signal_one_line(s['code'], s['name'], s.get('strategy_name', ''), s, timeframe='monthly') + "\n"
+
+    send_discord_message(msg)
+
+    if not sig:
+        print("✅ Discord 空结果推送成功！")
+    else:
+        from config import settings
+        max_charts = settings.MAX_CHARTS_PER_STRATEGY
+        ranked = sorted(sig, key=lambda x: signal_chart_key(x, 'monthly'), reverse=True)
+        top_sigs, _ = _top_per_strategy_charts(ranked, max_charts)
+        chart_label = "📊 **信号 K线图 (月线 TOP-N)**"
+
+        if top_sigs:
+            print(f"\n📊 为 {len(top_sigs)} 只标的生成 K线图...")
+            chart_bufs = []
+            chart_names = []
+
+            for s in top_sigs:
+                try:
+                    mdf = dp.get_monthly_bars(s['code'], limit=300)
+                    if mdf is not None:
+                        mdf = add_indicators(mdf)
+                        mstrat = StrategyRegistry.get_strategy('STRATEGY_MONTHLY_RANGE_BREAK')
+                        mdf = mstrat.calculate_signals(mdf)
+                        buf = generate_chart_bytes(
+                            code=s['code'], stock_name=s['name'],
+                            strategy_type='STRATEGY_MONTHLY_RANGE_BREAK',
+                            sl_price=s['sl'], tp1=s['tp'] if not np.isnan(s['tp']) else 0,
+                            reason="月线区间底部破位弹簧线", df_override=mdf,
+                            ev_rating=None,
+                            entry=s.get('entry', 0), rating=s.get('rating'), timeframe='月K'
+                        )
+                        if buf:
+                            chart_bufs.append(buf)
+                            chart_names.append(f"{s['code']}.png")
+                            print(f"  ✅ {s['code']} {s['name']}")
+                except Exception as e:
+                    logger.warning(f"绘图失败 {s['code']}: {e}")
+
+            if chart_bufs:
+                BATCH_SIZE = 5
+                for batch_start in range(0, len(chart_bufs), BATCH_SIZE):
+                    batch_bufs = chart_bufs[batch_start:batch_start + BATCH_SIZE]
+                    batch_names = chart_names[batch_start:batch_start + BATCH_SIZE]
+                    batch_msg = f"📊 信号K线图 ({batch_start+1}-{batch_start+len(batch_bufs)}/{len(chart_bufs)})"
+                    send_discord_images(batch_bufs, batch_names, content=batch_msg)
+                send_discord_message(f"📊 信号K线图({len(chart_bufs)}张)已推送")
+                print(f"✅ {len(chart_bufs)} 张图表分 {(len(chart_bufs)-1)//BATCH_SIZE+1} 批推送完成！")
+
+
+def run_monthly_scan(active_strategies, months=6, limit=0, all_codes=None,
+                     progress_callback=None, cancel_event=None):
+    """月线统一编排入口 (镜像 run_weekly_scan): 取列表 -> 路由月线策略 -> 扫描 + 格式化/推送/归档。
+
+    返回: dict 扫描回执 (与周线一致, 让 GUI 能如实报数):
+       {'ran_mrb': True, 'mrb': N, 'stocks': M}
+    """
+    def _safe_progress(done, total, info=None):
+        if not progress_callback:
+            return
+        try:
+            progress_callback(done, total, info)
+        except Exception:  # noqa: BLE001
+            pass
+
+    if all_codes is None:
+        all_codes = dp.get_stock_list()
+    if not all_codes:
+        print("❌ 获取股票列表失败")
+        return
+    if limit > 0:
+        all_codes = all_codes[:limit]
+
+    MONTHLY_STRATS = {'STRATEGY_MONTHLY_RANGE_BREAK'}
+    do_mrb = any(s.upper() in MONTHLY_STRATS for s in (active_strategies or []))
+
+    stats = {'ran_mrb': do_mrb, 'mrb': 0, 'stocks': len(all_codes)}
+
+    if not do_mrb:
+        print(f"\n⚠️ 月线扫描: 未识别到月线策略 ({', '.join([s.upper() for s in (active_strategies or [])]) or '空'})。"
+              f"支持: STRATEGY_MONTHLY_RANGE_BREAK")
+        _safe_progress(1, 1, 0)
+        return stats
+
+    total_all = len(all_codes)
+
+    def _mrb_cb(done, _total, info=None):
+        _safe_progress(done, total_all, info)
+
+    print(f"\n🌕 月线区间破位扫描: {len(all_codes)} 只股票, 检查最近 {months} 个月, "
+          f"策略: STRATEGY_MONTHLY_RANGE_BREAK")
+    mrb_results = scan_monthly_range_break_signals(all_codes, recent_months=months,
+                                                  progress_callback=_mrb_cb, cancel_event=cancel_event)
+    stats['mrb'] = len(mrb_results.get('signals_mrb') or [])
+    format_push_monthly_range_break(mrb_results, total_stocks=len(all_codes))
+
+    _safe_progress(total_all, total_all, 0)
+    return stats

@@ -6,6 +6,7 @@ from .strategies.structural_gap_strategy import StructuralGapStrategy
 from .strategies.gap_pinbar_strategy import GapPinbarStrategy
 from .strategies.gap_h2_strategy import GapH2Strategy
 from .strategies.awil_strategy import AWILStrategy
+from .strategies.monthly_range_break_strategy import MonthlyRangeBreakStrategy
 
 class StrategyRegistry:
     """
@@ -44,10 +45,14 @@ class StrategyRegistry:
             'class': AWILStrategy,
             'metadata': AWILStrategy.get_metadata(),
         },
+        "STRATEGY_MONTHLY_RANGE_BREAK": {
+            'class': MonthlyRangeBreakStrategy,
+            'metadata': MonthlyRangeBreakStrategy.get_metadata(),
+        },
     }
     
     # 官方对外展示列表
-    _OFFICIAL_LIST = ["MTR_MASTER", "STRATEGY_3K", "STRATEGY_STRUCTURAL_GAP", "STRATEGY_GAP_PINBAR", "STRATEGY_GAP_H2", "STRATEGY_AWIL"]
+    _OFFICIAL_LIST = ["MTR_MASTER", "STRATEGY_3K", "STRATEGY_STRUCTURAL_GAP", "STRATEGY_GAP_PINBAR", "STRATEGY_GAP_H2", "STRATEGY_AWIL", "STRATEGY_MONTHLY_RANGE_BREAK"]
     
     # =====================================================================
     # P1: Internal class resolution

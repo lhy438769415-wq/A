@@ -16,6 +16,6 @@ logger = logging.getLogger('core.signal_tracker')
 
 # 信号生命周期参数
 # 有效期: 超过此根数未触发入场, 标记 EXPIRED
-PENDING_EXPIRY = {'daily': 20, 'weekly': 8}
+PENDING_EXPIRY = {'daily': 20, 'weekly': 8, 'monthly': 6}
 # 持仓期限: 入场后超过此根数仍未触达 TP/SL, 标记 EXPIRED
-ACTIVE_EXPIRY = {'daily': 60, 'weekly': 20}
+ACTIVE_EXPIRY = {'daily': 60, 'weekly': 20, 'monthly': 12}
