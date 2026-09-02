@@ -1064,9 +1064,8 @@ def main():
     parser = argparse.ArgumentParser(description="Brooks-AI Hunter (V9.1 - Daily & Weekly)")
     parser.add_argument('--strategy', type=str, default=None, help='Select Trading Strategy')
     parser.add_argument('--limit', type=int, default=0, help='Limit number of stocks for testing')
-    parser.add_argument('--timeframe', type=str, default=None, choices=['daily', 'weekly', 'monthly'], help='时间周期: daily / weekly / monthly')
+    parser.add_argument('--timeframe', type=str, default=None, choices=['daily', 'weekly'], help='时间周期: daily / weekly')
     parser.add_argument('--weeks', type=int, default=4, help='(周线模式) 检查最近N周的信号')
-    parser.add_argument('--months', type=int, default=6, help='(月线模式) 检查最近N个月的信号')
     parser.add_argument('--track', action='store_true', help='追踪已归档信号的最新状态')
     parser.add_argument('--report', action='store_true', help='输出信号追踪统计报表')
     parser.add_argument('--no-ai', action='store_true', help='旁路(Bypass) DeepSeek AI 审计，全量技术面直通')
@@ -1155,26 +1154,6 @@ def main():
             run_weekly_scan(active_strategies, weeks=args.weeks, limit=args.limit, all_codes=all_codes)
             RUN_SUMMARY['mode'] = 'weekly'; RUN_SUMMARY['job_ran'] = True
             return
-        elif args.timeframe == 'monthly':
-            print(f"\n🌕 月线模式启动 (检查最近 {args.months} 个月)")
-            from core.strategy_registry import StrategyRegistry
-            from core.scan_engine import run_monthly_scan
-            all_codes = data_provider.get_stock_list()
-            if not all_codes: print("❌ 获取股票列表失败"); return
-            if args.limit > 0: all_codes = all_codes[:args.limit]
-
-            monthly_supported = StrategyRegistry.get_strategies_by_timeframe('monthly')
-            if args.strategy:
-                if args.strategy.upper() == 'ALL':
-                    active_strategies = monthly_supported
-                else:
-                    active_strategies = [s.strip().upper() for s in args.strategy.split(',')]
-            else:
-                active_strategies = [monthly_supported[0]] if monthly_supported else []
-
-            run_monthly_scan(active_strategies, months=args.months, limit=args.limit, all_codes=all_codes)
-            RUN_SUMMARY['mode'] = 'monthly'; RUN_SUMMARY['job_ran'] = True
-            return
         # daily: 继续往下进入策略选择
     else:
         # 交互式主菜单
@@ -1232,7 +1211,6 @@ def main():
         print("\n  选择扫描周期:")
         print("  1. 日线 (Daily)")
         print("  2. 周线 (Weekly)")
-        print("  3. 月线 (Monthly)")
         try:
             tf_choice = input("  请选择 (默认 1): ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -1288,53 +1266,9 @@ def main():
             RUN_SUMMARY['mode'] = 'weekly'; RUN_SUMMARY['job_ran'] = True
             return
 
-        if tf_choice == '3':
-            print(f"\n🌕 月线模式启动 (扫描区间底部破位弹簧线)")
-            from core.strategy_registry import StrategyRegistry
-            from core.scan_engine import run_monthly_scan
-            all_codes = data_provider.get_stock_list()
-            if not all_codes: print("❌ 获取股票列表失败"); return
-            if args.limit > 0: all_codes = all_codes[:args.limit]
-
-            monthly_supported = StrategyRegistry.get_strategies_by_timeframe('monthly')
-            menu_options = list(monthly_supported)
-            print("\n" + "="*40)
-            print("🔍 月线扫描策略选择")
-            print("="*40)
-            for i, s in enumerate(menu_options):
-                print(f"  {i+1}. {s}")
-            print(f"  {len(menu_options)+1}. ALL (全量扫描: 月线区间破位)")
-            print("="*40)
-
-            try:
-                choice = input(f"请输入选择序号 (默认 1 - {monthly_supported[0]}): ").strip()
-                if not choice:
-                    active_strategies = [monthly_supported[0]]
-                elif choice.isdigit():
-                    idx = int(choice)
-                    if idx == len(menu_options) + 1:
-                        active_strategies = monthly_supported
-                    elif 1 <= idx <= len(menu_options):
-                        active_strategies = [menu_options[idx-1]]
-                    else:
-                        active_strategies = [monthly_supported[0]]
-                else:
-                    _up = choice.upper()
-                    if _up in menu_options:
-                        active_strategies = [_up]
-                    elif _up in monthly_supported:
-                        active_strategies = [_up]
-                    else:
-                        active_strategies = [monthly_supported[0]]
-            except (EOFError, KeyboardInterrupt):
-                active_strategies = [monthly_supported[0]]
-
-            print(f"\n🚀 已激活月线策略: {', '.join(active_strategies)}")
-
-            run_monthly_scan(active_strategies, months=args.months, limit=args.limit, all_codes=all_codes)
-            RUN_SUMMARY['mode'] = 'monthly'; RUN_SUMMARY['job_ran'] = True
-            return
-
+    # ============================================================
+    # 日线路径: 原有流程 (策略选择 → run_pipeline_once)
+    # ============================================================
     # ============================================================
     # 日线路径: 原有流程 (策略选择 → run_pipeline_once)
     # ============================================================
