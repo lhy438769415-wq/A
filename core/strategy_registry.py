@@ -51,8 +51,10 @@ class StrategyRegistry:
         },
     }
     
-    # 官方对外展示列表
-    _OFFICIAL_LIST = ["MTR_MASTER", "STRATEGY_3K", "STRATEGY_STRUCTURAL_GAP", "STRATEGY_GAP_PINBAR", "STRATEGY_GAP_H2", "STRATEGY_AWIL", "STRATEGY_MONTHLY_RANGE_BREAK"]
+    # 官方对外展示列表（日线/周线扫描自动遍历的策略池）
+    # 注意：STRATEGY_MONTHLY_RANGE_BREAK 不在此列——它是独立只读快照工具（tools/monthly_pinbar_snapshot.py）专用，
+    # 不参与日线/周线扫描流水线。2026-09-03 证实：若列入会导致日线扫描结果混入"月线区间破位Pinbar"信号。
+    _OFFICIAL_LIST = ["MTR_MASTER", "STRATEGY_3K", "STRATEGY_STRUCTURAL_GAP", "STRATEGY_GAP_PINBAR", "STRATEGY_GAP_H2", "STRATEGY_AWIL"]
     
     # =====================================================================
     # P1: Internal class resolution
