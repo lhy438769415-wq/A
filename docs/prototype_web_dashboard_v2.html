@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Brooks-AI 操盘台 v2 · 视觉原型</title>
+<style>
+  /* ===== 设计语言（直接套用 TSP index.css 的 HSL 变量，A股 红涨绿跌） ===== */
+  :root {
+    --base: 240 5% 5%;        /* #0A0A0B */
+    --surface: 240 7% 10%;    /* #18181B */
+    --elevated: 240 9% 14%;   /* #212126 */
+    --border: 240 5% 22%;     /* #353539 */
+    --fg-primary: 0 0% 98%;   /* #FAFAFA */
+    --fg-secondary: 240 5% 78%;/* #C4C4CB */
+    --fg-muted: 240 5% 58%;   /* #8E8E96 */
+    --accent: 217 91% 60%;    /* #3B82F6 电光蓝 */
+    --bull: 4 87% 60%;        /* #F04438 涨=红 */
+    --bear: 152 67% 45%;      /* #12B76A 跌=绿 */
+    --warning: 32 95% 50%;    /* #F79009 */
+    --danger: 4 87% 60%;      /* #F04438 */
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; border-color: hsl(var(--border)); }
+  body {
+    background: hsl(var(--base));
+    color: hsl(var(--fg-primary));
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    font-size: 13px;
+    -webkit-font-smoothing: subpixel-antialiased;
+    line-height: 1.5;
+  }
+  .num, .tabular { font-variant-numeric: tabular-nums; font-family: "SF Mono", "JetBrains Mono", Consolas, monospace; }
+  .bull { color: hsl(var(--bull)); }
+  .bear { color: hsl(var(--bear)); }
+  .muted { color: hsl(var(--fg-muted)); }
+  .sec { color: hsl(var(--fg-secondary)); }
+
+  /* ===== 布局：左栏 + 主区 ===== */
+  .app { display: grid; grid-template-columns: 210px 1fr; min-height: 100vh; }
+  .sidebar {
+    background: hsl(var(--surface));
+    border-right: 1px solid hsl(var(--border));
+    padding: 16px 12px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .brand { display: flex; align-items: center; gap: 8px; padding: 4px 8px 16px; }
+  .brand-logo { width: 26px; height: 26px; border-radius: 7px;
+    background: linear-gradient(135deg, hsl(var(--accent)), hsl(var(--bull)));
+    display: grid; place-items: center; font-weight: 800; color: #fff; font-size: 13px; }
+  .brand-name { font-weight: 700; font-size: 14px; }
+  .brand-sub { font-size: 10px; color: hsl(var(--fg-muted)); margin-top: -2px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px;
+    color: hsl(var(--fg-secondary)); cursor: pointer; font-size: 13px; user-select: none;
+  }
+  .nav-item:hover { background: hsl(var(--elevated)); color: hsl(var(--fg-primary)); }
+  .nav-item.active { background: hsl(var(--accent) / 0.14); color: hsl(var(--fg-primary)); }
+  .nav-item .ic { width: 16px; text-align: center; }
+  .nav-item .tag { margin-left: auto; font-size: 9px; padding: 1px 5px; border-radius: 4px;
+    background: hsl(var(--border)); color: hsl(var(--fg-muted)); }
+  .nav-sep { height: 1px; background: hsl(var(--border)); margin: 8px 4px; }
+  .nav-foot { margin-top: auto; font-size: 10px; color: hsl(var(--fg-muted)); padding: 8px; line-height: 1.6; }
+
+  .main { display: flex; flex-direction: column; min-width: 0; }
+  .topbar {
+    display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+    border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--surface));
+  }
+  .crumb { font-size: 12px; color: hsl(var(--fg-muted)); }
+  .crumb b { color: hsl(var(--fg-primary)); }
+  .topbar .spacer { flex: 1; }
+  .pill { font-size: 11px; padding: 4px 10px; border-radius: 999px; background: hsl(var(--elevated));
+    color: hsl(var(--fg-secondary)); display: inline-flex; gap: 6px; align-items: center; }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: hsl(var(--bull)); }
+  .seg { display: inline-flex; border: 1px solid hsl(var(--border)); border-radius: 8px; overflow: hidden; }
+  .seg button { background: transparent; border: 0; color: hsl(var(--fg-secondary)); padding: 5px 14px;
+    cursor: pointer; font-size: 12px; }
+  .seg button.active { background: hsl(var(--accent) / 0.2); color: hsl(var(--fg-primary)); }
+
+  .content { padding: 20px; overflow-y: auto; flex: 1; }
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* ===== 卡片 / KPI ===== */
+  .kpi-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 16px; }
+  .kpi { background: hsl(var(--surface)); border: 1px solid hsl(var(--border)); border-radius: 10px; padding: 14px 16px; }
+  .kpi .label { font-size: 11px; color: hsl(var(--fg-muted)); }
+  .kpi .value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+  .kpi .sub { font-size: 10px; color: hsl(var(--fg-muted)); margin-top: 2px; }
+
+  .grid-2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .card { background: hsl(var(--surface)); border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 16px; }
+  .card h3 { font-size: 13px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .card h3 .hint { font-size: 10px; color: hsl(var(--fg-muted)); font-weight: 400; margin-left: auto; }
+
+  /* 数据画像条 */
+  .stat-line { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid hsl(var(--border)); font-size: 12px; }
+  .stat-line:last-child { border-bottom: 0; }
+
+  /* 策略命中分布 */
+  .bar-row { display: grid; grid-template-columns: 70px 1fr 54px; align-items: center; gap: 10px; padding: 6px 0; }
+  .bar-track { height: 8px; background: hsl(var(--elevated)); border-radius: 999px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 999px; background: hsl(var(--accent)); }
+  .bar-fill.ev-pos { background: hsl(var(--bull)); }
+  .bar-fill.ev-neg { background: hsl(var(--bear)); }
+  .bar-row .nm { font-size: 12px; }
+  .bar-row .ct { font-size: 12px; text-align: right; }
+  .ev-chip { font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-left: 6px; }
+  .ev-chip.pos { background: hsl(var(--bull) / 0.16); color: hsl(var(--bull)); }
+  .ev-chip.neg { background: hsl(var(--bear) / 0.16); color: hsl(var(--bear)); }
+
+  /* 事件流 */
+  .feed { display: flex; flex-direction: column; }
+  .feed-item { display: grid; grid-template-columns: 64px 92px 80px 56px 1fr; gap: 10px; align-items: center;
+    padding: 9px 4px; border-bottom: 1px solid hsl(var(--border)); font-size: 12px; }
+  .feed-item:last-child { border-bottom: 0; }
+  .feed-item .t { color: hsl(var(--fg-muted)); font-size: 11px; }
+  .feed-item .code { font-family: monospace; color: hsl(var(--fg-secondary)); }
+  .feed-item .name { color: hsl(var(--fg-primary)); }
+  .dir { font-size: 11px; padding: 1px 7px; border-radius: 4px; width: fit-content; }
+  .dir.long { background: hsl(var(--bull) / 0.16); color: hsl(var(--bull)); }
+  .dir.short { background: hsl(var(--bear) / 0.16); color: hsl(var(--bear)); }
+  .badge { font-size: 10px; padding: 1px 7px; border-radius: 999px; }
+  .badge.active { background: hsl(var(--accent) / 0.18); color: hsl(var(--accent)); }
+  .badge.filled { background: hsl(var(--bull) / 0.14); color: hsl(var(--bull)); }
+  .badge.invalid { background: hsl(var(--border)); color: hsl(var(--fg-muted)); }
+
+  /* ===== 表格 ===== */
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; color: hsl(var(--fg-muted)); font-weight: 500; font-size: 11px;
+    padding: 9px 10px; border-bottom: 1px solid hsl(var(--border)); position: sticky; top: 0; background: hsl(var(--surface)); }
+  td { padding: 9px 10px; border-bottom: 1px solid hsl(var(--border)); }
+  tr:hover td { background: hsl(var(--elevated)); }
+  .chip { font-size: 10px; padding: 1px 7px; border-radius: 4px; background: hsl(var(--elevated)); color: hsl(var(--fg-secondary)); margin-right: 4px; }
+
+  /* 分组横条 */
+  .grp { display: grid; grid-template-columns: 90px 40px 1fr 60px; gap: 10px; align-items: center; padding: 7px 0; }
+  .grp .dot { width: 9px; height: 9px; border-radius: 50%; }
+  .grp .track { height: 7px; background: hsl(var(--elevated)); border-radius: 999px; overflow: hidden; }
+  .grp .fill { height: 100%; }
+
+  /* 策略卡 */
+  .strat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .strat { background: hsl(var(--surface)); border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 16px; cursor: pointer; transition: border-color .15s; }
+  .strat:hover { border-color: hsl(var(--accent)); }
+  .strat .nm { font-size: 15px; font-weight: 700; }
+  .strat .tf { font-size: 10px; color: hsl(var(--fg-muted)); margin-top: 2px; }
+  .strat .ev { font-size: 26px; font-weight: 800; margin: 12px 0 4px; }
+  .strat .meta { display: flex; justify-content: space-between; font-size: 11px; color: hsl(var(--fg-muted)); }
+  .strat .more { margin-top: 12px; font-size: 11px; color: hsl(var(--accent)); }
+
+  /* SVG K线缩略 */
+  .candle-svg { display: block; }
+
+  /* 底部状态栏 */
+  .statusbar { display: flex; gap: 20px; align-items: center; padding: 8px 20px; font-size: 11px;
+    color: hsl(var(--fg-muted)); border-top: 1px solid hsl(var(--border)); background: hsl(var(--surface)); }
+  .statusbar .spacer { flex: 1; }
+
+  .note { font-size: 11px; color: hsl(var(--fg-muted)); margin-top: 10px; line-height: 1.7; }
+  .prototype-tag { position: fixed; bottom: 14px; right: 16px; font-size: 10px; color: hsl(var(--fg-muted));
+    background: hsl(var(--elevated)); border: 1px solid hsl(var(--border)); padding: 4px 10px; border-radius: 999px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ===== 左侧导航 ===== -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-logo">B</div>
+      <div>
+        <div class="brand-name">Brooks-AI</div>
+        <div class="brand-sub">操盘台 v2 · 原型</div>
+      </div>
+    </div>
+    <div class="nav-item active" data-page="dashboard"><span class="ic">▦</span> 看板</div>
+    <div class="nav-item" data-page="signals"><span class="ic">◎</span> 信号中心</div>
+    <div class="nav-item" data-page="watchlist"><span class="ic">★</span> 自选</div>
+    <div class="nav-item" data-page="strategy"><span class="ic">🎯</span> 策略</div>
+    <div class="nav-sep"></div>
+    <div class="nav-item" style="opacity:.45;cursor:not-allowed"><span class="ic">📈</span> 回测 <span class="tag">二期</span></div>
+    <div class="nav-item" style="opacity:.45;cursor:not-allowed"><span class="ic">💾</span> 数据画像 <span class="tag">二期</span></div>
+    <div class="nav-item" style="opacity:.45;cursor:not-allowed"><span class="ic">⚙</span> 设置</div>
+    <div class="nav-foot">
+      只读视图 · 不碰库<br/>数据：Baostock 离线 T+1<br/>风格参考 tick-stock-panel
+    </div>
+  </aside>
+
+  <!-- ===== 主区 ===== -->
+  <div class="main">
+    <div class="topbar">
+      <div class="crumb">操盘台 / <b id="crumb-page">看板</b></div>
+      <div class="spacer"></div>
+      <div class="pill"><span class="dot"></span> 数据覆盖至 2026-09-04 · T+1</div>
+      <div class="pill">上次扫描 09-05 19:30</div>
+    </div>
+
+    <div class="content">
+      <!-- ========== 看板 ========== -->
+      <section class="page active" id="page-dashboard">
+        <div class="kpi-row">
+          <div class="kpi"><div class="label">今日命中信号</div><div class="value num">23</div><div class="sub">日线 17 · 周线 6</div></div>
+          <div class="kpi"><div class="label">活跃信号</div><div class="value num">58</div><div class="sub">未到失效价</div></div>
+          <div class="kpi"><div class="label">周线存活</div><div class="value num">19</div><div class="sub">缺口未补</div></div>
+          <div class="kpi"><div class="label">在线策略</div><div class="value num">6</div><div class="sub">MTR/3K/GAP×3/AIL</div></div>
+          <div class="kpi"><div class="label">数据覆盖</div><div class="value num">3312</div><div class="sub">/ 3312 全市场</div></div>
+          <div class="kpi"><div class="label">距上次扫描</div><div class="value num">14<span style="font-size:13px">h</span></div><div class="sub">状态正常</div></div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>数据画像 <span class="hint">覆盖到哪天 · 缺哪些票</span></h3>
+            <div class="stat-line"><span class="sec">日线覆盖</span><span class="num">3312 / 3312</span></div>
+            <div class="stat-line"><span class="sec">周线覆盖</span><span class="num">3312 / 3312</span></div>
+            <div class="stat-line"><span class="sec">上次日线扫描</span><span class="num">2026-09-05 19:30</span></div>
+            <div class="stat-line"><span class="sec">上次周线扫描</span><span class="num">2026-09-04 19:30</span></div>
+            <div class="stat-line"><span class="sec">数据延迟</span><span class="bull">0 天 (T+1 当日)</span></div>
+            <div class="stat-line"><span class="sec">缺失/异常</span><span class="bear">0 只</span></div>
+          </div>
+          <div class="card">
+            <h3>策略命中分布 <span class="hint">条长=近30天命中 · 色=EV方向</span></h3>
+            <div class="bar-row"><span class="nm">GAP H1</span>
+              <div class="bar-track"><div class="bar-fill ev-pos" style="width:92%"></div></div>
+              <span class="ct"><span class="num">42</span><span class="ev-chip pos">EV+0.61R</span></span></div>
+            <div class="bar-row"><span class="nm">GAP H2</span>
+              <div class="bar-track"><div class="bar-fill ev-pos" style="width:78%"></div></div>
+              <span class="ct"><span class="num">35</span><span class="ev-chip pos">EV+0.55R</span></span></div>
+            <div class="bar-row"><span class="nm">GAP PIN</span>
+              <div class="bar-track"><div class="bar-fill ev-pos" style="width:64%"></div></div>
+              <span class="ct"><span class="num">29</span><span class="ev-chip pos">EV+0.33R</span></span></div>
+            <div class="bar-row"><span class="nm">MTR</span>
+              <div class="bar-track"><div class="bar-fill ev-pos" style="width:40%"></div></div>
+              <span class="ct"><span class="num">18</span><span class="ev-chip pos">EV+0.42R</span></span></div>
+            <div class="bar-row"><span class="nm">AIL</span>
+              <div class="bar-track"><div class="bar-fill ev-pos" style="width:30%"></div></div>
+              <span class="ct"><span class="num">14</span><span class="ev-chip pos">EV+0.21R</span></span></div>
+            <div class="bar-row"><span class="nm">3K</span>
+              <div class="bar-track"><div class="bar-fill ev-neg" style="width:31%"></div></div>
+              <span class="ct"><span class="num">14</span><span class="ev-chip neg">EV−0.18R</span></span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>信号事件流 <span class="hint">最近 8 条 · 倒序 · 点击进入信号中心</span></h3>
+          <div class="feed">
+            <div class="feed-item">
+              <span class="t">09-05 09:25</span><span class="code">600519</span><span class="name">贵州茅台</span>
+              <span class="dir long">多</span>
+              <span><span class="chip">MTR</span> 触发 1820.5 · 失效价 1790.0 · <span class="badge active">活跃</span></span>
+            </div>
+            <div class="feed-item">
+              <span class="t">09-04 19:30</span><span class="code">000001</span><span class="name">平安银行</span>
+              <span class="dir long">多</span>
+              <span><span class="chip">GAP H2</span> 缺口回补确认 · <span class="badge filled">已建仓</span></span>
+            </div>
+            <div class="feed-item">
+              <span class="t">09-04 19:30</span><span class="code">300750</span><span class="name">宁德时代</span>
+              <span class="dir long">多</span>
+              <span><span class="chip">GAP H1</span> 向上跳空未补 · 失效价 218.0 · <span class="badge active">活跃</span></span>
+            </div>
+            <div class="feed-item">
+              <span class="t">09-04 15:00</span><span class="code">002594</span><span class="name">比亚迪</span>
+              <span class="dir short">空</span>
+              <span><span class="chip">3K</span> 三推失败 · 失效价 312.5 · <span class="badge active">活跃</span></span>
+            </div>
+            <div class="feed-item">
+              <span class="t">09-03 19:30</span><span class="code">601318</span><span class="name">中国平安</span>
+              <span class="dir long">多</span>
+              <span><span class="chip">AIL</span> 失效价被跌破 · <span class="badge invalid">前提不存在</span></span>
+            </div>
+            <div class="feed-item">
+              <span class="t">09-03 19:30</span><span class="code">600036</span><span class="name">招商银行</span>
+              <span class="dir long">多</span>
+              <span><span class="chip">GAP PIN</span> _pinbar 成立 · 失效价 38.2 · <span class="badge active">活跃</span></span>
+            </div>
+          </div>
+        </div>
+        <div class="note">
+          原型说明：看板是"一日全貌"，不含大盘指数 / 涨跌家数 / 连板梯队（本项目无实时数据、非打板定位）。
+          策略命中分布以 <b>EV（期望值）</b> 而非命中数排序，避免诱导追数量——这是 PA 质量优先的原则。
+        </div>
+      </section>
+
+      <!-- ========== 信号中心 ========== -->
+      <section class="page" id="page-signals">
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+          <div class="seg">
+            <button class="active">日线</button><button>周线</button>
+          </div>
+          <div class="pill">下拉：选某周看「截至该周仍存活」全部信号</div>
+          <div class="pill">状态 ▾</div>
+          <div class="pill">策略 ▾</div>
+          <input placeholder="搜索代码 / 名称" style="background:hsl(var(--elevated));border:1px solid hsl(var(--border));color:hsl(var(--fg-primary));border-radius:8px;padding:6px 10px;font-size:12px;width:160px" />
+        </div>
+
+        <div class="card" style="padding:0">
+          <table>
+            <thead><tr>
+              <th>代码</th><th>名称</th><th>策略</th><th>方向</th>
+              <th>触发价</th><th>失效价</th><th>现价</th>
+              <th>PA 证据</th><th>状态</th><th>K线</th>
+            </tr></thead>
+            <tbody>
+              <tr>
+                <td class="code">600519</td><td>贵州茅台</td><td><span class="chip">MTR</span></td>
+                <td><span class="dir long">多</span></td>
+                <td class="num">1820.5</td><td class="num">1790.0</td><td class="num bull">1825.0</td>
+                <td class="sec" style="font-size:11px">收盘站上前高 · 三次测试支撑不破</td>
+                <td><span class="badge active">活跃</span></td>
+                <td><svg class="candle-svg" data-candles="up" width="76" height="26"></svg></td>
+              </tr>
+              <tr>
+                <td class="code">300750</td><td>宁德时代</td><td><span class="chip">GAP H1</span></td>
+                <td><span class="dir long">多</span></td>
+                <td class="num">224.0</td><td class="num">218.0</td><td class="num bull">226.3</td>
+                <td class="sec" style="font-size:11px">向上跳空 · low 未破 gap_floor</td>
+                <td><span class="badge active">活跃</span></td>
+                <td><svg class="candle-svg" data-candles="up" width="76" height="26"></svg></td>
+              </tr>
+              <tr>
+                <td class="code">002594</td><td>比亚迪</td><td><span class="chip">3K</span></td>
+                <td><span class="dir short">空</span></td>
+                <td class="num">305.0</td><td class="num">312.5</td><td class="num bear">302.1</td>
+                <td class="sec" style="font-size:11px">三推动能衰竭 · 末根上影线长</td>
+                <td><span class="badge active">活跃</span></td>
+                <td><svg class="candle-svg" data-candles="down" width="76" height="26"></svg></td>
+              </tr>
+              <tr>
+                <td class="code">601318</td><td>中国平安</td><td><span class="chip">AIL</span></td>
+                <td><span class="dir long">多</span></td>
+                <td class="num">48.0</td><td class="num">46.5</td><td class="num bear">45.9</td>
+                <td class="sec" style="font-size:11px">跌破失效价 · 前提不存在</td>
+                <td><span class="badge invalid">前提不存在</span></td>
+                <td><svg class="candle-svg" data-candles="down" width="76" height="26"></svg></td>
+              </tr>
+              <tr>
+                <td class="code">600036</td><td>招商银行</td><td><span class="chip">GAP PIN</span></td>
+                <td><span class="dir long">多</span></td>
+                <td class="num">39.5</td><td class="num">38.2</td><td class="num bull">40.1</td>
+                <td class="sec" style="font-size:11px">_pinbar 反转形态 · 尾盘收回</td>
+                <td><span class="badge active">活跃</span></td>
+                <td><svg class="candle-svg" data-candles="up" width="76" height="26"></svg></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note">
+          原型说明：① 列名用 <b>失效价</b>（不是"止损"）——价格跌破它 = 你的判断前提不存在、信号作废，这正是 Al Brooks 的 invalidation 概念。
+          ② <b>PA 证据列</b>是每个信号必须能回溯到的具体形态（如"向上跳空、low 未破缺口下沿"），不显示任何字母评级（A+/A 已证伪为噪声）。
+          ③ <b>K线缩略图</b>：正式版用 lightweight-charts 画可缩放/十字光标的真实 K 线；原型用 SVG 示意。
+        </div>
+      </section>
+
+      <!-- ========== 自选 ========== -->
+      <section class="page" id="page-watchlist">
+        <div style="margin-bottom:14px">
+          <div class="grp"><span class="dot" style="background:hsl(var(--accent))"></span><span class="sec">半导体</span>
+            <div class="track"><div class="fill" style="width:55%;background:hsl(var(--bull))"></div></div><span class="bull num">+1.2%</span></div>
+          <div class="grp"><span class="dot" style="background:hsl(var(--bear))"></span><span class="sec">医药</span>
+            <div class="track"><div class="fill" style="width:32%;background:hsl(var(--bear))"></div></div><span class="bear num">-0.8%</span></div>
+          <div class="grp"><span class="dot" style="background:hsl(var(--warning))"></span><span class="sec">GAP H2</span>
+            <div class="track"><div class="fill" style="width:88%;background:hsl(var(--bull))"></div></div><span class="bull num">+3.5%</span></div>
+          <div class="grp"><span class="dot" style="background:hsl(var(--fg-muted))"></span><span class="sec">未分组</span>
+            <div class="track"><div class="fill" style="width:14%;background:hsl(var(--bull))"></div></div><span class="bull num">+0.14%</span></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <span class="pill">全部 56</span><span class="pill">半导体 5</span><span class="pill">医药 8</span>
+          <span class="pill">GAP H2 3</span><span class="pill">未分组 35</span>
+          <span class="pill" style="margin-left:auto">⊞ 表格 · ▦ 卡片</span>
+        </div>
+        <div class="card" style="padding:0">
+          <table>
+            <thead><tr><th>代码</th><th>名称</th><th>现价</th><th>涨幅</th><th>策略标签</th><th>日K</th><th>周K</th></tr></thead>
+            <tbody>
+              <tr><td class="code">600519</td><td>贵州茅台</td><td class="num">1825.0</td><td class="bull num">+0.25%</td>
+                <td><span class="chip">MTR</span><span class="chip">GAP H1</span></td>
+                <td><svg class="candle-svg" data-candles="up" width="70" height="24"></svg></td>
+                <td><svg class="candle-svg" data-candles="up" width="70" height="24"></svg></td></tr>
+              <tr><td class="code">300750</td><td>宁德时代</td><td class="num">226.3</td><td class="bull num">+1.03%</td>
+                <td><span class="chip">GAP H1</span></td>
+                <td><svg class="candle-svg" data-candles="up" width="70" height="24"></svg></td>
+                <td><svg class="candle-svg" data-candles="up" width="70" height="24"></svg></td></tr>
+              <tr><td class="code">002594</td><td>比亚迪</td><td class="num">302.1</td><td class="bear num">-0.92%</td>
+                <td><span class="chip">3K</span></td>
+                <td><svg class="candle-svg" data-candles="down" width="70" height="24"></svg></td>
+                <td><svg class="candle-svg" data-candles="down" width="70" height="24"></svg></td></tr>
+              <tr><td class="code">600036</td><td>招商银行</td><td class="num">40.1</td><td class="bull num">+0.50%</td>
+                <td><span class="chip">GAP PIN</span></td>
+                <td><svg class="candle-svg" data-candles="up" width="70" height="24"></svg></td>
+                <td><svg class="candle-svg" data-candles="up" width="70" height="24"></svg></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note">
+          原型说明：自选沿用 TSP 的多分组 + 表格/卡片双视图，但把"所属概念"列换成<b>策略标签 chip</b>（MTR/GAP H1 等），
+          并把"分时折线"换成<b>日K + 周K 双缩略图</b>（本项目数据周期）。多周期并呈是 PA 工作流的核心。
+        </div>
+      </section>
+
+      <!-- ========== 策略 ========== -->
+      <section class="page" id="page-strategy">
+        <div class="strat-grid">
+          <div class="strat"><div class="nm">GAP H1</div><div class="tf">日线 + 周线</div>
+            <div class="ev bull num">+0.61R</div><div class="meta"><span>近30天命中 42</span><span class="bull">↑ 强</span></div>
+            <div class="more">详情 → 信号列表</div></div>
+          <div class="strat"><div class="nm">GAP H2</div><div class="tf">日线 + 周线</div>
+            <div class="ev bull num">+0.55R</div><div class="meta"><span>近30天命中 35</span><span class="bull">↑ 强</span></div>
+            <div class="more">详情 → 信号列表</div></div>
+          <div class="strat"><div class="nm">GAP PINBAR</div><div class="tf">日线 + 周线</div>
+            <div class="ev bull num">+0.33R</div><div class="meta"><span>近30天命中 29</span><span class="bull">↑ 中</span></div>
+            <div class="more">详情 → 信号列表</div></div>
+          <div class="strat"><div class="nm">MTR</div><div class="tf">日线</div>
+            <div class="ev bull num">+0.42R</div><div class="meta"><span>近30天命中 18</span><span class="bull">↑ 中</span></div>
+            <div class="more">详情 → 信号列表</div></div>
+          <div class="strat"><div class="nm">AIL</div><div class="tf">日线</div>
+            <div class="ev bull num">+0.21R</div><div class="meta"><span>近30天命中 14</span><span class="sec">— 弱</span></div>
+            <div class="more">详情 → 信号列表</div></div>
+          <div class="strat"><div class="nm">3K</div><div class="tf">日线</div>
+            <div class="ev bear num">−0.18R</div><div class="meta"><span>近30天命中 14</span><span class="bear">↓ 弱</span></div>
+            <div class="more">详情 → 信号列表</div></div>
+        </div>
+        <div class="note">
+          原型说明：策略信息 100% 来自 <code>core/strategy_registry.get_metadata()</code>，不硬编码（严守红线 D6）。
+          展示名 = display_name（如 GAP H1）。<b>累计 EV</b> 从 signal_archive 计算，是 PA 质量优先的体现。3K 为负 EV，明牌标注不掩饰。
+        </div>
+      </section>
+    </div>
+
+    <div class="statusbar">
+      <span>Brooks-AI Quant v10.0</span>
+      <span>只读视图 · 未连接写库</span>
+      <span class="spacer"></span>
+      <span>当前周期：<b id="sb-tf">日线</b></span>
+      <span>信号库 11,163 条</span>
+      <span>原型 · 数据均为示意</span>
+    </div>
+  </div>
+</div>
+<div class="prototype-tag">HTML 原型 · 版式确认稿 · 非功能实现</div>
+
+<script>
+  // 导航切换
+  document.querySelectorAll('.nav-item[data-page]').forEach(el => {
+    el.addEventListener('click', () => {
+      const p = el.dataset.page;
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+      el.classList.add('active');
+      document.querySelectorAll('.page').forEach(s => s.classList.remove('active'));
+      document.getElementById('page-' + p).classList.add('active');
+      const names = { dashboard:'看板', signals:'信号中心', watchlist:'自选', strategy:'策略' };
+      document.getElementById('crumb-page').textContent = names[p];
+    });
+  });
+  // 周期切换（仅视觉）
+  document.querySelectorAll('.seg button').forEach(b => {
+    b.addEventListener('click', () => {
+      b.parentElement.querySelectorAll('button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      document.getElementById('sb-tf').textContent = b.textContent;
+    });
+  });
+
+  // 生成 SVG 示意 K 线（涨=红 跌=绿，A股 惯例）
+  const C = { up:'#F04438', down:'#12B76A' };
+  function drawCandles(svg, dir) {
+    const W = svg.width.baseVal.value, H = svg.height.baseVal.value;
+    const n = 10, bw = W / n;
+    let seed = dir === 'up' ? 7 : 3;
+    const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+    let y = H * 0.6; const pts = [];
+    for (let i = 0; i < n; i++) {
+      const move = (rnd() - 0.5) * H * 0.35;
+      y = Math.max(H*0.15, Math.min(H*0.85, y + move * (dir==='up'?0.6:0.6)));
+      const o = y, c = y + (rnd()-0.5)*H*0.3;
+      const hi = Math.min(o,c) - rnd()*H*0.12, lo = Math.max(o,c) + rnd()*H*0.12;
+      pts.push({o,c,hi,lo});
+    }
+    const ns = 'http://www.w3.org/2000/svg';
+    const sx = i => i*bw + bw/2;
+    pts.forEach((p,i) => {
+      const col = p.c >= p.o ? C.up : C.down;
+      const wick = document.createElementNS(ns,'line');
+      wick.setAttribute('x1',sx(i)); wick.setAttribute('x2',sx(i));
+      wick.setAttribute('y1',p.hi); wick.setAttribute('y2',p.lo);
+      wick.setAttribute('stroke',col); wick.setAttribute('stroke-width','1');
+      svg.appendChild(wick);
+      const body = document.createElementNS(ns,'rect');
+      const top = Math.min(p.o,p.c), hgt = Math.max(1.5, Math.abs(p.c-p.o));
+      body.setAttribute('x',sx(i)-bw*0.3); body.setAttribute('y',top);
+      body.setAttribute('width',bw*0.6); body.setAttribute('height',hgt);
+      body.setAttribute('fill',col);
+      svg.appendChild(body);
+    });
+  }
+  document.querySelectorAll('.candle-svg').forEach(s => drawCandles(s, s.dataset.candles));
+</script>
+</body>
+</html>
