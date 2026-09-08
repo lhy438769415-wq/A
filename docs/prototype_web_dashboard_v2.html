@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="zh-CN" class="dark">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Brooks-AI 操盘台 v2 · 视觉原型</title>
+<html lang="zh-CN" class="dark" data-page-node-id="5znFArGinQykiY5onieyV6">
+<head data-page-node-id="NFUF42g2tIUEKrwGFq9nCp">
+<meta charset="UTF-8" data-page-node-id="DwurAwIeVdbDEgs6xNUBJk" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="kEtnNwjqBApGs21axA2xt5" />
+<title>Brooks-AI 操盘台 v2 · 交互式原型</title>
 <style>
   /* ===== 设计语言（直接套用 TSP index.css 的 HSL 变量，A股 红涨绿跌） ===== */
-  :root {
+  :root, [data-theme="dark"] {
     --base: 240 5% 5%;        /* #0A0A0B */
     --surface: 240 7% 10%;    /* #18181B */
     --elevated: 240 9% 14%;   /* #212126 */
@@ -20,70 +20,57 @@
     --warning: 32 95% 50%;    /* #F79009 */
     --danger: 4 87% 60%;      /* #F04438 */
   }
+  /* 浅色主题（设置页可切换，用于演示；默认深色） */
+  [data-theme="light"] {
+    --base: 240 20% 99%; --surface: 240 20% 97%; --elevated: 240 18% 93%;
+    --border: 240 12% 86%; --fg-primary: 240 12% 12%; --fg-secondary: 240 8% 34%;
+    --fg-muted: 240 6% 50%; --accent: 217 91% 55%;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; border-color: hsl(var(--border)); }
   body {
-    background: hsl(var(--base));
-    color: hsl(var(--fg-primary));
+    background: hsl(var(--base)); color: hsl(var(--fg-primary));
     font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-    font-size: 13px;
-    -webkit-font-smoothing: subpixel-antialiased;
-    line-height: 1.5;
+    font-size: 13px; -webkit-font-smoothing: subpixel-antialiased; line-height: 1.5;
   }
-  .num, .tabular { font-variant-numeric: tabular-nums; font-family: "SF Mono", "JetBrains Mono", Consolas, monospace; }
-  .bull { color: hsl(var(--bull)); }
-  .bear { color: hsl(var(--bear)); }
-  .muted { color: hsl(var(--fg-muted)); }
-  .sec { color: hsl(var(--fg-secondary)); }
+  .num { font-variant-numeric: tabular-nums; font-family: "SF Mono", "JetBrains Mono", Consolas, monospace; }
+  .bull { color: hsl(var(--bull)); } .bear { color: hsl(var(--bear)); }
+  .muted { color: hsl(var(--fg-muted)); } .sec { color: hsl(var(--fg-secondary)); }
 
-  /* ===== 布局：左栏 + 主区 ===== */
-  .app { display: grid; grid-template-columns: 210px 1fr; min-height: 100vh; }
-  .sidebar {
-    background: hsl(var(--surface));
-    border-right: 1px solid hsl(var(--border));
-    padding: 16px 12px;
-    display: flex; flex-direction: column; gap: 4px;
-  }
+  /* ===== 布局 ===== */
+  .app { display: grid; grid-template-columns: 214px 1fr; min-height: 100vh; }
+  .sidebar { background: hsl(var(--surface)); border-right: 1px solid hsl(var(--border)); padding: 16px 12px; display: flex; flex-direction: column; gap: 4px; }
   .brand { display: flex; align-items: center; gap: 8px; padding: 4px 8px 16px; }
-  .brand-logo { width: 26px; height: 26px; border-radius: 7px;
-    background: linear-gradient(135deg, hsl(var(--accent)), hsl(var(--bull)));
-    display: grid; place-items: center; font-weight: 800; color: #fff; font-size: 13px; }
+  .brand-logo { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, hsl(var(--accent)), hsl(var(--bull))); display: grid; place-items: center; font-weight: 800; color: #fff; font-size: 13px; }
   .brand-name { font-weight: 700; font-size: 14px; }
   .brand-sub { font-size: 10px; color: hsl(var(--fg-muted)); margin-top: -2px; }
-  .nav-item {
-    display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px;
-    color: hsl(var(--fg-secondary)); cursor: pointer; font-size: 13px; user-select: none;
-  }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; color: hsl(var(--fg-secondary)); cursor: pointer; font-size: 13px; user-select: none; }
   .nav-item:hover { background: hsl(var(--elevated)); color: hsl(var(--fg-primary)); }
   .nav-item.active { background: hsl(var(--accent) / 0.14); color: hsl(var(--fg-primary)); }
   .nav-item .ic { width: 16px; text-align: center; }
-  .nav-item .tag { margin-left: auto; font-size: 9px; padding: 1px 5px; border-radius: 4px;
-    background: hsl(var(--border)); color: hsl(var(--fg-muted)); }
+  .nav-item .tag { margin-left: auto; font-size: 9px; padding: 1px 5px; border-radius: 4px; background: hsl(var(--border)); color: hsl(var(--fg-muted)); }
   .nav-sep { height: 1px; background: hsl(var(--border)); margin: 8px 4px; }
   .nav-foot { margin-top: auto; font-size: 10px; color: hsl(var(--fg-muted)); padding: 8px; line-height: 1.6; }
 
   .main { display: flex; flex-direction: column; min-width: 0; }
-  .topbar {
-    display: flex; align-items: center; gap: 12px; padding: 12px 20px;
-    border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--surface));
-  }
+  .topbar { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--surface)); }
   .crumb { font-size: 12px; color: hsl(var(--fg-muted)); }
   .crumb b { color: hsl(var(--fg-primary)); }
   .topbar .spacer { flex: 1; }
-  .pill { font-size: 11px; padding: 4px 10px; border-radius: 999px; background: hsl(var(--elevated));
-    color: hsl(var(--fg-secondary)); display: inline-flex; gap: 6px; align-items: center; }
+  .pill { font-size: 11px; padding: 4px 10px; border-radius: 999px; background: hsl(var(--elevated)); color: hsl(var(--fg-secondary)); display: inline-flex; gap: 6px; align-items: center; cursor: default; }
   .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: hsl(var(--bull)); }
   .seg { display: inline-flex; border: 1px solid hsl(var(--border)); border-radius: 8px; overflow: hidden; }
-  .seg button { background: transparent; border: 0; color: hsl(var(--fg-secondary)); padding: 5px 14px;
-    cursor: pointer; font-size: 12px; }
+  .seg button { background: transparent; border: 0; color: hsl(var(--fg-secondary)); padding: 5px 14px; cursor: pointer; font-size: 12px; }
   .seg button.active { background: hsl(var(--accent) / 0.2); color: hsl(var(--fg-primary)); }
 
   .content { padding: 20px; overflow-y: auto; flex: 1; }
-  .page { display: none; }
-  .page.active { display: block; }
+  .page { display: none; } .page.active { display: block; }
+  h2.pg-title { font-size: 16px; font-weight: 700; margin-bottom: 2px; }
+  .pg-desc { font-size: 12px; color: hsl(var(--fg-muted)); margin-bottom: 16px; }
 
-  /* ===== 卡片 / KPI ===== */
+  /* 卡片 / KPI */
   .kpi-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 16px; }
-  .kpi { background: hsl(var(--surface)); border: 1px solid hsl(var(--border)); border-radius: 10px; padding: 14px 16px; }
+  .kpi { background: hsl(var(--surface)); border: 1px solid hsl(var(--border)); border-radius: 10px; padding: 14px 16px; cursor: pointer; }
+  .kpi:hover { border-color: hsl(var(--accent)); }
   .kpi .label { font-size: 11px; color: hsl(var(--fg-muted)); }
   .kpi .value { font-size: 22px; font-weight: 700; margin-top: 4px; }
   .kpi .sub { font-size: 10px; color: hsl(var(--fg-muted)); margin-top: 2px; }
@@ -93,26 +80,23 @@
   .card h3 { font-size: 13px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
   .card h3 .hint { font-size: 10px; color: hsl(var(--fg-muted)); font-weight: 400; margin-left: auto; }
 
-  /* 数据画像条 */
   .stat-line { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid hsl(var(--border)); font-size: 12px; }
   .stat-line:last-child { border-bottom: 0; }
 
-  /* 策略命中分布 */
-  .bar-row { display: grid; grid-template-columns: 70px 1fr 54px; align-items: center; gap: 10px; padding: 6px 0; }
+  .bar-row { display: grid; grid-template-columns: 92px 1fr 96px; align-items: center; gap: 10px; padding: 6px 0; cursor: pointer; }
+  .bar-row:hover .nm { color: hsl(var(--accent)); }
   .bar-track { height: 8px; background: hsl(var(--elevated)); border-radius: 999px; overflow: hidden; }
   .bar-fill { height: 100%; border-radius: 999px; background: hsl(var(--accent)); }
-  .bar-fill.ev-pos { background: hsl(var(--bull)); }
-  .bar-fill.ev-neg { background: hsl(var(--bear)); }
-  .bar-row .nm { font-size: 12px; }
-  .bar-row .ct { font-size: 12px; text-align: right; }
+  .bar-fill.ev-pos { background: hsl(var(--bull)); } .bar-fill.ev-neg { background: hsl(var(--bear)); }
+  .bar-row .nm { font-size: 12px; } .bar-row .ct { font-size: 12px; text-align: right; }
   .ev-chip { font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-left: 6px; }
   .ev-chip.pos { background: hsl(var(--bull) / 0.16); color: hsl(var(--bull)); }
   .ev-chip.neg { background: hsl(var(--bear) / 0.16); color: hsl(var(--bear)); }
 
   /* 事件流 */
   .feed { display: flex; flex-direction: column; }
-  .feed-item { display: grid; grid-template-columns: 64px 92px 80px 56px 1fr; gap: 10px; align-items: center;
-    padding: 9px 4px; border-bottom: 1px solid hsl(var(--border)); font-size: 12px; }
+  .feed-item { display: grid; grid-template-columns: 64px 78px 84px 40px 1fr; gap: 10px; align-items: center; padding: 9px 4px; border-bottom: 1px solid hsl(var(--border)); font-size: 12px; cursor: pointer; }
+  .feed-item:hover { background: hsl(var(--elevated)); }
   .feed-item:last-child { border-bottom: 0; }
   .feed-item .t { color: hsl(var(--fg-muted)); font-size: 11px; }
   .feed-item .code { font-family: monospace; color: hsl(var(--fg-secondary)); }
@@ -125,16 +109,26 @@
   .badge.filled { background: hsl(var(--bull) / 0.14); color: hsl(var(--bull)); }
   .badge.invalid { background: hsl(var(--border)); color: hsl(var(--fg-muted)); }
 
-  /* ===== 表格 ===== */
+  /* 表格 / 控件 */
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  th { text-align: left; color: hsl(var(--fg-muted)); font-weight: 500; font-size: 11px;
-    padding: 9px 10px; border-bottom: 1px solid hsl(var(--border)); position: sticky; top: 0; background: hsl(var(--surface)); }
+  th { text-align: left; color: hsl(var(--fg-muted)); font-weight: 500; font-size: 11px; padding: 9px 10px; border-bottom: 1px solid hsl(var(--border)); position: sticky; top: 0; background: hsl(var(--surface)); }
   td { padding: 9px 10px; border-bottom: 1px solid hsl(var(--border)); }
   tr:hover td { background: hsl(var(--elevated)); }
+  tr.row-click { cursor: pointer; }
   .chip { font-size: 10px; padding: 1px 7px; border-radius: 4px; background: hsl(var(--elevated)); color: hsl(var(--fg-secondary)); margin-right: 4px; }
+  .chip.tag { background: hsl(var(--accent) / 0.14); color: hsl(var(--accent)); }
+
+  select, input[type=text] { background: hsl(var(--elevated)); border: 1px solid hsl(var(--border)); color: hsl(var(--fg-primary)); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
+  input[type=text] { width: 170px; }
+  button.btn { background: hsl(var(--elevated)); border: 1px solid hsl(var(--border)); color: hsl(var(--fg-primary)); border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 12px; }
+  button.btn:hover { border-color: hsl(var(--accent)); }
+  button.btn.primary { background: hsl(var(--accent) / 0.2); border-color: hsl(var(--accent)); color: hsl(var(--fg-primary)); }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .stat-pill { font-size: 11px; padding: 4px 10px; border-radius: 999px; background: hsl(var(--surface)); border: 1px solid hsl(var(--border)); color: hsl(var(--fg-secondary)); cursor: pointer; }
+  .stat-pill.active { background: hsl(var(--accent) / 0.16); border-color: hsl(var(--accent)); color: hsl(var(--fg-primary)); }
 
   /* 分组横条 */
-  .grp { display: grid; grid-template-columns: 90px 40px 1fr 60px; gap: 10px; align-items: center; padding: 7px 0; }
+  .grp { display: grid; grid-template-columns: 84px 40px 1fr 64px; gap: 10px; align-items: center; padding: 7px 0; }
   .grp .dot { width: 9px; height: 9px; border-radius: 50%; }
   .grp .track { height: 7px; background: hsl(var(--elevated)); border-radius: 999px; overflow: hidden; }
   .grp .fill { height: 100%; }
@@ -149,350 +143,589 @@
   .strat .meta { display: flex; justify-content: space-between; font-size: 11px; color: hsl(var(--fg-muted)); }
   .strat .more { margin-top: 12px; font-size: 11px; color: hsl(var(--accent)); }
 
-  /* SVG K线缩略 */
   .candle-svg { display: block; }
 
+  /* 抽屉 */
+  .drawer-mask { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; z-index: 40; }
+  .drawer-mask.open { display: block; }
+  .drawer { position: fixed; top: 0; right: 0; height: 100vh; width: 440px; max-width: 92vw; background: hsl(var(--surface)); border-left: 1px solid hsl(var(--border)); transform: translateX(100%); transition: transform .2s; z-index: 41; padding: 18px; overflow-y: auto; }
+  .drawer.open { transform: translateX(0); }
+  .drawer .d-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .drawer .d-title { font-size: 16px; font-weight: 700; }
+  .drawer .x { cursor: pointer; color: hsl(var(--fg-muted)); font-size: 18px; }
+  .kv { display: grid; grid-template-columns: 92px 1fr; gap: 8px; padding: 7px 0; border-bottom: 1px solid hsl(var(--border)); font-size: 12px; }
+  .kv .k { color: hsl(var(--fg-muted)); }
+
   /* 底部状态栏 */
-  .statusbar { display: flex; gap: 20px; align-items: center; padding: 8px 20px; font-size: 11px;
-    color: hsl(var(--fg-muted)); border-top: 1px solid hsl(var(--border)); background: hsl(var(--surface)); }
+  .statusbar { display: flex; gap: 20px; align-items: center; padding: 8px 20px; font-size: 11px; color: hsl(var(--fg-muted)); border-top: 1px solid hsl(var(--border)); background: hsl(var(--surface)); flex-wrap: wrap; }
   .statusbar .spacer { flex: 1; }
 
-  .note { font-size: 11px; color: hsl(var(--fg-muted)); margin-top: 10px; line-height: 1.7; }
-  .prototype-tag { position: fixed; bottom: 14px; right: 16px; font-size: 10px; color: hsl(var(--fg-muted));
-    background: hsl(var(--elevated)); border: 1px solid hsl(var(--border)); padding: 4px 10px; border-radius: 999px; }
+  .note { font-size: 11px; color: hsl(var(--fg-muted)); margin-top: 12px; line-height: 1.7; }
+  details.src { margin-top: 14px; border: 1px solid hsl(var(--border)); border-radius: 8px; padding: 8px 12px; background: hsl(var(--surface)); }
+  details.src summary { cursor: pointer; font-size: 11px; color: hsl(var(--accent)); }
+  details.src table { margin-top: 8px; font-size: 11px; }
+  details.src td { border-bottom: 1px solid hsl(var(--border)); }
+  .prototype-tag { position: fixed; bottom: 14px; right: 16px; font-size: 10px; color: hsl(var(--fg-muted)); background: hsl(var(--elevated)); border: 1px solid hsl(var(--border)); padding: 4px 10px; border-radius: 999px; z-index: 50; }
+  .empty { padding: 18px; text-align: center; color: hsl(var(--fg-muted)); font-size: 12px; border: 1px dashed hsl(var(--border)); border-radius: 8px; }
 </style>
 </head>
-<body>
-<div class="app">
+<body data-page-node-id="5LH78wqf5B2lZdfF1O5M4q">
+<div class="app" data-page-node-id="AEzobmCE3SmspDzwzd6JpV">
   <!-- ===== 左侧导航 ===== -->
-  <aside class="sidebar">
-    <div class="brand">
-      <div class="brand-logo">B</div>
-      <div>
-        <div class="brand-name">Brooks-AI</div>
-        <div class="brand-sub">操盘台 v2 · 原型</div>
-      </div>
+  <aside class="sidebar" data-page-node-id="kYHzL2k1vN1HdbwMAGNMqJ">
+    <div class="brand" data-page-node-id="2MGMC8KnRSetYrVtforULG">
+      <div class="brand-logo" data-page-node-id="FoVYQ6ipVITmTI4y4z0YVz">B</div>
+      <div data-page-node-id="LVsZGQxmvNJBu9l7sZ8z09"><div class="brand-name" data-page-node-id="yHtdtPKg0wkcrC0J1qQeik">Brooks-AI</div><div class="brand-sub" data-page-node-id="TDq9isbPyLFBxDtb9SGDo2">操盘台 v2 · 原型</div></div>
     </div>
-    <div class="nav-item active" data-page="dashboard"><span class="ic">▦</span> 看板</div>
-    <div class="nav-item" data-page="signals"><span class="ic">◎</span> 信号中心</div>
-    <div class="nav-item" data-page="watchlist"><span class="ic">★</span> 自选</div>
-    <div class="nav-item" data-page="strategy"><span class="ic">🎯</span> 策略</div>
-    <div class="nav-sep"></div>
-    <div class="nav-item" style="opacity:.45;cursor:not-allowed"><span class="ic">📈</span> 回测 <span class="tag">二期</span></div>
-    <div class="nav-item" style="opacity:.45;cursor:not-allowed"><span class="ic">💾</span> 数据画像 <span class="tag">二期</span></div>
-    <div class="nav-item" style="opacity:.45;cursor:not-allowed"><span class="ic">⚙</span> 设置</div>
-    <div class="nav-foot">
-      只读视图 · 不碰库<br/>数据：Baostock 离线 T+1<br/>风格参考 tick-stock-panel
+    <div class="nav-item active" data-page="dashboard" data-page-node-id="dGjCpkNusxUlpFsbvP2VIL"><span class="ic" data-page-node-id="N6KgcOyeRjlAiWnENEBfB3">▦</span> 看板</div>
+    <div class="nav-item" data-page="signals" data-page-node-id="rkJoUg3rDvJ1duPLmwwC1W"><span class="ic" data-page-node-id="aqYbUqDaFODtE3fxo0QXgE">◎</span> 信号中心</div>
+    <div class="nav-item" data-page="watchlist" data-page-node-id="vX4yCtOUJVM4TFkhmQ7HBH"><span class="ic" data-page-node-id="eNUTVTlSrHqSYZYPtZ6KcO">★</span> 自选</div>
+    <div class="nav-item" data-page="strategy" data-page-node-id="rma8e3rhrgAkEK7NjCDlRC"><span class="ic" data-page-node-id="0AcCyiNBAQOP8NkFAZIXg7">🎯</span> 策略</div>
+    <div class="nav-sep" data-page-node-id="9Wai6y1b1HipqfEBNQAbha"></div>
+    <div class="nav-item" data-page="backtest" data-page-node-id="2pHNa3gOk3Pn2YRoxjcIce"><span class="ic" data-page-node-id="o5kbOj3chzajj9qHXTrBNY">📈</span> 回测 <span class="tag" data-page-node-id="wCIunVM6itX5EKjrhWO9PX">二期</span></div>
+    <div class="nav-item" data-page="data" data-page-node-id="ulwcTzBQv15ZzBtwWr99Zw"><span class="ic" data-page-node-id="NjIETUrqOURzjPEBwCXOF4">💾</span> 数据画像 <span class="tag" data-page-node-id="2B5Er4zShik7XpIiTpllK8">二期</span></div>
+    <div class="nav-item" data-page="settings" data-page-node-id="il2zHMVoAD97pAtbR7GbSi"><span class="ic" data-page-node-id="bCDwTJLM3Fi2cpa0iBQ8CG">⚙</span> 设置</div>
+    <div class="nav-foot" data-page-node-id="wH7VViRkA0OxCJ2hHKHGPA">
+      只读视图 · 不碰库<br data-page-node-id="54XErVa9Ke3dMPB7DcNUgy"/>数据：Baostock 离线 T+1<br data-page-node-id="4NNAebv0feJz0Nhrp3YMar"/>风格参考 tick-stock-panel
     </div>
   </aside>
 
   <!-- ===== 主区 ===== -->
-  <div class="main">
-    <div class="topbar">
-      <div class="crumb">操盘台 / <b id="crumb-page">看板</b></div>
-      <div class="spacer"></div>
-      <div class="pill"><span class="dot"></span> 数据覆盖至 2026-09-04 · T+1</div>
-      <div class="pill">上次扫描 09-05 19:30</div>
+  <div class="main" data-page-node-id="JMz3kArNqqPleEdsjn7OJ3">
+    <div class="topbar" data-page-node-id="ZoMKe5sBFG8Kj8eGFwLVwb">
+      <div class="crumb" data-page-node-id="32kdTl3VUCshIpWI1Zbq97">操盘台 / <b id="crumb-page" data-page-node-id="Qbq0EmJPBgpE7iDSLXOYgD">看板</b></div>
+      <div class="spacer" data-page-node-id="TCLAIzbgg114SQHxOG1q5C"></div>
+      <div class="pill" data-page-node-id="ixE0dpM3JVKtFeZJN38zG7"><span class="dot" data-page-node-id="xyWBCL3Sb5d7HbDorsFvGN"></span> 数据覆盖至 2026-09-04 · T+1</div>
+      <div class="pill" data-page-node-id="872nLValw5NJ2B8P5S2UBd">上次扫描 09-05 19:30</div>
     </div>
 
-    <div class="content">
+    <div class="content" data-page-node-id="5RJyTDjXXLTbeCcbVpEAnB">
       <!-- ========== 看板 ========== -->
-      <section class="page active" id="page-dashboard">
-        <div class="kpi-row">
-          <div class="kpi"><div class="label">今日命中信号</div><div class="value num">23</div><div class="sub">日线 17 · 周线 6</div></div>
-          <div class="kpi"><div class="label">活跃信号</div><div class="value num">58</div><div class="sub">未到失效价</div></div>
-          <div class="kpi"><div class="label">周线存活</div><div class="value num">19</div><div class="sub">缺口未补</div></div>
-          <div class="kpi"><div class="label">在线策略</div><div class="value num">6</div><div class="sub">MTR/3K/GAP×3/AIL</div></div>
-          <div class="kpi"><div class="label">数据覆盖</div><div class="value num">3312</div><div class="sub">/ 3312 全市场</div></div>
-          <div class="kpi"><div class="label">距上次扫描</div><div class="value num">14<span style="font-size:13px">h</span></div><div class="sub">状态正常</div></div>
+      <section class="page active" id="page-dashboard" data-page-node-id="UlwfHYSEiXiIDxs1VxBDDX">
+        <h2 class="pg-title" data-page-node-id="Pp6OzEPKNNXjrQEESu7ZBN">看板</h2>
+        <div class="pg-desc" data-page-node-id="3p1aolmpoIoF8gJyFzv3ic">一日全貌（只读、不操作）。不含大盘指数 / 涨跌家数 / 连板梯队（本项目无实时数据、非打板定位）。</div>
+
+        <div class="kpi-row" data-page-node-id="iImjsYhzYAeu3giKerhMB8">
+          <div class="kpi" data-goto="signals" data-page-node-id="aJdg6O9AWcMAwjVbI14x9J"><div class="label" data-page-node-id="hFSlDW37HcHAbOk4Nn2pwA">今日命中信号</div><div class="value num" data-page-node-id="mKbvxzqwcipGF0NYOQLc13">23</div><div class="sub" data-page-node-id="Q1aPrPAaSUEUKN2yhEYveE">日线 17 · 周线 6</div></div>
+          <div class="kpi" data-goto="signals" data-page-node-id="EKXAs6hcCNGumlL1oZSCmI"><div class="label" data-page-node-id="dWFNRWtMzYBVp9RvHgpx90">活跃信号</div><div class="value num" data-page-node-id="DH8MLaERyepfZzG2afG5Kb">58</div><div class="sub" data-page-node-id="XPMJvSXsCPjuZhuvubnjvt">未到失效价</div></div>
+          <div class="kpi" data-goto="signals" data-page-node-id="tcafiFpxLTzMi6BNz5BG8X"><div class="label" data-page-node-id="oTeF8sLqlH7mVoz55f6m3o">周线存活</div><div class="value num" data-page-node-id="BeCJjao1z7wwkrhCVYVfo4">19</div><div class="sub" data-page-node-id="TeFtKmzRrXhFsUy3JcdapI">缺口未补</div></div>
+          <div class="kpi" data-goto="strategy" data-page-node-id="Ibg22EAk3beTae9FIzPrUX"><div class="label" data-page-node-id="FZ0tB3IwkLzElU4GEgh8vV">在册策略</div><div class="value num" data-page-node-id="7FC0K6Jhj395xNi2hjputJ">6</div><div class="sub" data-page-node-id="2ZnysAVFwkMLeL17pqImrb">MTR/3K/GAP×3/AIL</div></div>
+          <div class="kpi" data-page-node-id="YQAL1CeFlPBPm3tqCwfkty"><div class="label" data-page-node-id="qSLpqgOwzJIYhntC1FFtqs">全市场覆盖</div><div class="value num" data-page-node-id="5LISnWFDlihQpwrwhP75QZ">3312</div><div class="sub" data-page-node-id="hb1MT25Yf0C6mBOSLaJbJA">/ 3312 已下载</div></div>
+          <div class="kpi" data-page-node-id="WmjxulAIXFGkq7ca2qEkFx"><div class="label" data-page-node-id="99gIFyNPgD3iRxArOEmxbA">距上次扫描</div><div class="value num" data-page-node-id="t098UO9pJXyhELb0i0gimJ">14<span style="font-size:13px" data-page-node-id="5PdkSkWveC0JMjlLI9Un9V">h</span></div><div class="sub" data-page-node-id="jDMXyER3bREFtQt9hEw42q">状态正常</div></div>
         </div>
 
-        <div class="grid-2">
-          <div class="card">
-            <h3>数据画像 <span class="hint">覆盖到哪天 · 缺哪些票</span></h3>
-            <div class="stat-line"><span class="sec">日线覆盖</span><span class="num">3312 / 3312</span></div>
-            <div class="stat-line"><span class="sec">周线覆盖</span><span class="num">3312 / 3312</span></div>
-            <div class="stat-line"><span class="sec">上次日线扫描</span><span class="num">2026-09-05 19:30</span></div>
-            <div class="stat-line"><span class="sec">上次周线扫描</span><span class="num">2026-09-04 19:30</span></div>
-            <div class="stat-line"><span class="sec">数据延迟</span><span class="bull">0 天 (T+1 当日)</span></div>
-            <div class="stat-line"><span class="sec">缺失/异常</span><span class="bear">0 只</span></div>
+        <div class="grid-2" data-page-node-id="IxpwsDMSkAV8t3xYYHvpZf">
+          <div class="card" data-page-node-id="poGmE8lLHtpcnu7L144WDf">
+            <h3 data-page-node-id="seL7hwE3wTIqBIovqzunTu">数据画像 <span class="hint" data-page-node-id="mMsdxxUazi5F3OhJCcxugg">覆盖到哪天 · 缺哪些票</span></h3>
+            <div class="stat-line" data-page-node-id="f88zk7DwzXCrFLlUEJisQb"><span class="sec" data-page-node-id="oa0iLfEfHCXHQIQ62xUKOe">日线覆盖</span><span class="num" data-page-node-id="KXM72k7IT8wHv7Ff51q2Sf">3312 / 3312</span></div>
+            <div class="stat-line" data-page-node-id="rvh3EdNySYZIUnTNrXoRRe"><span class="sec" data-page-node-id="zPcFq5KnDFQJtOye93ya2e">周线覆盖</span><span class="num" data-page-node-id="PSv5FbkpTHC0DJ6JFWxEjX">3312 / 3312</span></div>
+            <div class="stat-line" data-page-node-id="s4ZNgBSUYtgB7OMgsSWbXv"><span class="sec" data-page-node-id="8Bai4vtsp4CgU4cfcTUMdd">上次日线扫描</span><span class="num" data-page-node-id="VXbYoRixVL9yyFDDuZpvtK">2026-09-05 19:30</span></div>
+            <div class="stat-line" data-page-node-id="sjhaWE4Ppy29iDJTnMeCDM"><span class="sec" data-page-node-id="1aJKiUgENmvyjunFCq2WQS">上次周线扫描</span><span class="num" data-page-node-id="sGKRk9DhG1HNN2G0BhcsAY">2026-09-04 19:30</span></div>
+            <div class="stat-line" data-page-node-id="LbA1MPGLv8q2iVWfL6BRJE"><span class="sec" data-page-node-id="aoIJJy5KWz3IwFGUO1EcbT">数据延迟</span><span class="bull" data-page-node-id="0srWxw6TpMn1jZ8gani0MD">T+1（当日）</span></div>
+            <div class="stat-line" data-page-node-id="X2SuTiL4wNxxnzy1aaafTy"><span class="sec" data-page-node-id="fkraqkwEPhS0XsGYTPTGk8">缺失 / 异常</span><span class="bear" data-page-node-id="Nf1leKvHDDHMcpHPtXlD64">0 只</span></div>
+            <div class="note" data-page-node-id="krEgZBxffvNrbpeYGU7KBz">数据画像页（导航"数据画像"）会展开为完整覆盖报告。来源：daily_bars / weekly_bars 最大交易日 + 下载日志。</div>
           </div>
-          <div class="card">
-            <h3>策略命中分布 <span class="hint">条长=近30天命中 · 色=EV方向</span></h3>
-            <div class="bar-row"><span class="nm">GAP H1</span>
-              <div class="bar-track"><div class="bar-fill ev-pos" style="width:92%"></div></div>
-              <span class="ct"><span class="num">42</span><span class="ev-chip pos">EV+0.61R</span></span></div>
-            <div class="bar-row"><span class="nm">GAP H2</span>
-              <div class="bar-track"><div class="bar-fill ev-pos" style="width:78%"></div></div>
-              <span class="ct"><span class="num">35</span><span class="ev-chip pos">EV+0.55R</span></span></div>
-            <div class="bar-row"><span class="nm">GAP PIN</span>
-              <div class="bar-track"><div class="bar-fill ev-pos" style="width:64%"></div></div>
-              <span class="ct"><span class="num">29</span><span class="ev-chip pos">EV+0.33R</span></span></div>
-            <div class="bar-row"><span class="nm">MTR</span>
-              <div class="bar-track"><div class="bar-fill ev-pos" style="width:40%"></div></div>
-              <span class="ct"><span class="num">18</span><span class="ev-chip pos">EV+0.42R</span></span></div>
-            <div class="bar-row"><span class="nm">AIL</span>
-              <div class="bar-track"><div class="bar-fill ev-pos" style="width:30%"></div></div>
-              <span class="ct"><span class="num">14</span><span class="ev-chip pos">EV+0.21R</span></span></div>
-            <div class="bar-row"><span class="nm">3K</span>
-              <div class="bar-track"><div class="bar-fill ev-neg" style="width:31%"></div></div>
-              <span class="ct"><span class="num">14</span><span class="ev-chip neg">EV−0.18R</span></span></div>
+          <div class="card" data-page-node-id="QuPz08gCCZDC2iKS3MbFtn">
+            <h3 data-page-node-id="O3C7P31Pzd0qoys3snkhHL">策略命中分布 <span class="hint" data-page-node-id="XKLQhjAjmIhPvJwnwIRzDC">条长=近30天命中 · 色=EV方向 · 点击下钻</span></h3>
+            <div id="dash-bars" data-page-node-id="EgMyRRa7qtBIlBctV8u0e3"></div>
           </div>
         </div>
 
-        <div class="card">
-          <h3>信号事件流 <span class="hint">最近 8 条 · 倒序 · 点击进入信号中心</span></h3>
-          <div class="feed">
-            <div class="feed-item">
-              <span class="t">09-05 09:25</span><span class="code">600519</span><span class="name">贵州茅台</span>
-              <span class="dir long">多</span>
-              <span><span class="chip">MTR</span> 触发 1820.5 · 失效价 1790.0 · <span class="badge active">活跃</span></span>
-            </div>
-            <div class="feed-item">
-              <span class="t">09-04 19:30</span><span class="code">000001</span><span class="name">平安银行</span>
-              <span class="dir long">多</span>
-              <span><span class="chip">GAP H2</span> 缺口回补确认 · <span class="badge filled">已建仓</span></span>
-            </div>
-            <div class="feed-item">
-              <span class="t">09-04 19:30</span><span class="code">300750</span><span class="name">宁德时代</span>
-              <span class="dir long">多</span>
-              <span><span class="chip">GAP H1</span> 向上跳空未补 · 失效价 218.0 · <span class="badge active">活跃</span></span>
-            </div>
-            <div class="feed-item">
-              <span class="t">09-04 15:00</span><span class="code">002594</span><span class="name">比亚迪</span>
-              <span class="dir short">空</span>
-              <span><span class="chip">3K</span> 三推失败 · 失效价 312.5 · <span class="badge active">活跃</span></span>
-            </div>
-            <div class="feed-item">
-              <span class="t">09-03 19:30</span><span class="code">601318</span><span class="name">中国平安</span>
-              <span class="dir long">多</span>
-              <span><span class="chip">AIL</span> 失效价被跌破 · <span class="badge invalid">前提不存在</span></span>
-            </div>
-            <div class="feed-item">
-              <span class="t">09-03 19:30</span><span class="code">600036</span><span class="name">招商银行</span>
-              <span class="dir long">多</span>
-              <span><span class="chip">GAP PIN</span> _pinbar 成立 · 失效价 38.2 · <span class="badge active">活跃</span></span>
-            </div>
-          </div>
+        <div class="card" data-page-node-id="yFXYPcrQx5ofJgFjKynz2E">
+          <h3 data-page-node-id="H4hjGf6TuWfCrZiBK4EUCu">信号事件流 <span class="hint" data-page-node-id="GZfiYH1YxLmVIyY7OCBbUu">最近 8 条 · 倒序 · 点击进入信号中心</span></h3>
+          <div class="feed" id="dash-feed" data-page-node-id="GncbMf8IjULGIDCxRhuBSh"></div>
         </div>
-        <div class="note">
-          原型说明：看板是"一日全貌"，不含大盘指数 / 涨跌家数 / 连板梯队（本项目无实时数据、非打板定位）。
-          策略命中分布以 <b>EV（期望值）</b> 而非命中数排序，避免诱导追数量——这是 PA 质量优先的原则。
-        </div>
+
+        <details class="src" data-page-node-id="fuRxCZ3f8jpyCuvNqTAclA">
+          <summary data-page-node-id="alMgNNwFUP1083A9bezeCl">字段来源 / 数据溯源（点开）</summary>
+          <table data-page-node-id="mOWIzRsypumg6fxmJBZQi0">
+            <tr data-page-node-id="L2bQo53W4n2fguExq9o08H"><td data-page-node-id="bbvg6IHD4UXxxYx684Hrzs">今日命中 / 活跃 / 周线存活</td><td data-page-node-id="lVzb9RjtojrDnKAUgSJdSs">signal_archive：按 signal_date / status / timeframe 聚合</td></tr>
+            <tr data-page-node-id="boSAKB2fiGRDn0XpkjKULE"><td data-page-node-id="2ITxJ7XrvDwvD0EHR0JRJX">在册策略 6</td><td data-page-node-id="zWAHIWUwTspWRTDcEYYnGk">core/strategy_registry._OFFICIAL_LIST（硬编码于注册表，非本页写死）</td></tr>
+            <tr data-page-node-id="3ameYfAJMQu3eDeUIKXmgp"><td data-page-node-id="zvQezJuOG1XDJFneq8U887">全市场覆盖 3312</td><td data-page-node-id="poXrc9wPyBZGWpyKSgKNmm">universe_mainboard.txt / 下载批次记录</td></tr>
+            <tr data-page-node-id="bS2I6DkDeH2qDnxaYFP0Mo"><td data-page-node-id="oVseuAG3p4S9Bnypy2NBnb">策略命中分布 EV</td><td data-page-node-id="BYFheWgKFFsRepKvSUShl6">由 signal_archive 计算（真实值二期重算；原型为示意比例）</td></tr>
+          </table>
+        </details>
       </section>
 
       <!-- ========== 信号中心 ========== -->
-      <section class="page" id="page-signals">
-        <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
-          <div class="seg">
-            <button class="active">日线</button><button>周线</button>
+      <section class="page" id="page-signals" data-page-node-id="oxfuFNa5yRUcvKxuzPK7z2">
+        <h2 class="pg-title" data-page-node-id="brFzzoZet9d0OfpxX5K0W6">信号中心</h2>
+        <div class="pg-desc" data-page-node-id="E1skb0j5tSVdGAWVsxyjrd">浏览全部信号，按周期（日/周）筛选，支持"待建仓"栏。点击任意行看完整 K 线 + PA 证据。</div>
+
+        <div class="toolbar" data-page-node-id="GvIpqyIoUsojG3fWFGjSSx">
+          <div class="seg" id="sig-tf" data-page-node-id="Y61Y277GFjhaSKOalJREPO">
+            <button class="active" data-tf="daily" data-page-node-id="fE46t56kEM8nfyhPwWrk6C">日线</button><button data-tf="weekly" data-page-node-id="NUbIbqhQkZxuHpKDHI73Om">周线</button>
           </div>
-          <div class="pill">下拉：选某周看「截至该周仍存活」全部信号</div>
-          <div class="pill">状态 ▾</div>
-          <div class="pill">策略 ▾</div>
-          <input placeholder="搜索代码 / 名称" style="background:hsl(var(--elevated));border:1px solid hsl(var(--border));color:hsl(var(--fg-primary));border-radius:8px;padding:6px 10px;font-size:12px;width:160px" />
+          <select id="sig-week" data-page-node-id="tBWSBlyVeh7s6QERJR2hLI"><option data-page-node-id="Ek8az3JuCBjRxstpHojVIc">选某周看「截至该周仍存活」</option><option data-page-node-id="C0B8oOOGO61zE2T25a12kA">2026-09 第一周</option><option data-page-node-id="xpFqcIlLbLKoonAvZOiTrQ">2026-08 第四周</option></select>
+          <select id="sig-status" data-page-node-id="ovtJETYuzGspsUObgIGuEa"><option value="" data-page-node-id="70uw3MIhz0Xxw76zKgLFPh">状态：全部</option><option value="活跃" data-page-node-id="ZeNHuUrI8g4Er5CM9w0vtv">活跃</option><option value="已建仓" data-page-node-id="53BU6DbOPKdO7xX2SpCz0v">已建仓</option><option value="前提不存在" data-page-node-id="Bd884LB6M3BRz9vh786R64">前提不存在</option></select>
+          <select id="sig-strat" data-page-node-id="DQRe5HNBlMJzeB0kW3y2XM"><option value="" data-page-node-id="8qblrFYUKO108cOoMRigEE">策略：全部</option><option data-page-node-id="OfsREWQeg1em0tiDsLFqyY">GAP H1</option><option data-page-node-id="USwDL1L9TyO64oPKG92z9i">GAP H2</option><option data-page-node-id="NnywB6IwGN24Zhgr1XfyiK">GAP PINBAR</option><option data-page-node-id="B3CQSDRfXUpO81SOmuRyO9">MTR</option><option data-page-node-id="y04OBhOdENALTyd3xYgIyy">3K</option><option data-page-node-id="eotFfS744aAPbcC3j7giG7">AIL</option></select>
+          <input type="text" id="sig-search" placeholder="搜索代码 / 名称" data-page-node-id="AWdiVXMTi1nEpJiLG8SmqL" />
+          <span class="pill" id="sig-count" style="cursor:default" data-page-node-id="tSUGUiAt9QvCMohyQ1jajT"></span>
         </div>
 
-        <div class="card" style="padding:0">
-          <table>
-            <thead><tr>
-              <th>代码</th><th>名称</th><th>策略</th><th>方向</th>
-              <th>触发价</th><th>失效价</th><th>现价</th>
-              <th>PA 证据</th><th>状态</th><th>K线</th>
+        <div class="card" style="padding:0;margin-bottom:16px" data-page-node-id="nHUFRi5nw41qteWLiCDRhS">
+          <div style="padding:12px 16px;border-bottom:1px solid hsl(var(--border))" data-page-node-id="uAVZrytWaDT84nW4jtXH5h">
+            <span class="chip tag" data-page-node-id="xBj9cE3olXV9C7trWDoln8">待建仓</span> 形态已成立、价格未到位（来源：扫描产物 weekly_watchlist.json，只读，不动库）
+          </div>
+          <div id="pending-zone" data-page-node-id="LDMxVf2BJl4Rj3BzOg79jW"></div>
+        </div>
+
+        <div class="card" style="padding:0" data-page-node-id="etXHbC4SsiUzijSYSN7cl8">
+          <table data-page-node-id="LFCFtGICC0ojhYDh6b71MS">
+            <thead data-page-node-id="VpYFGtA8pYLix7eoYk9zFt"><tr data-page-node-id="QMOShbUEh655uBd6ceb2jP">
+              <th data-page-node-id="rEtYbw2POlt2AFOLaPDIse">代码</th><th data-page-node-id="mShBfd1BzGi3dhf5zsFEFB">名称</th><th data-page-node-id="PUwlqlsJfos15Lu3o0RF7r">策略</th><th data-page-node-id="lqL7XLJKe26qG4vfLI8G6R">方向</th>
+              <th data-page-node-id="TAaq6JIFylzwYdEjpYnaGV">入场价</th><th data-page-node-id="nESW4xHhJkoqjvrAEwyre6">失效价</th><th data-page-node-id="4QyZU8ErqtEUH9CGE7ybH1">现价</th><th data-page-node-id="nHx7y2toSrkcmcXfaAEg3y">PA 证据</th><th data-page-node-id="T8fBRI9AlXZZeDfuY47prS">状态</th><th data-page-node-id="EZdZOpa8gjizkbMZmrhPy1">K线</th>
             </tr></thead>
-            <tbody>
-              <tr>
-                <td class="code">600519</td><td>贵州茅台</td><td><span class="chip">MTR</span></td>
-                <td><span class="dir long">多</span></td>
-                <td class="num">1820.5</td><td class="num">1790.0</td><td class="num bull">1825.0</td>
-                <td class="sec" style="font-size:11px">收盘站上前高 · 三次测试支撑不破</td>
-                <td><span class="badge active">活跃</span></td>
-                <td><svg class="candle-svg" data-candles="up" width="76" height="26"></svg></td>
-              </tr>
-              <tr>
-                <td class="code">300750</td><td>宁德时代</td><td><span class="chip">GAP H1</span></td>
-                <td><span class="dir long">多</span></td>
-                <td class="num">224.0</td><td class="num">218.0</td><td class="num bull">226.3</td>
-                <td class="sec" style="font-size:11px">向上跳空 · low 未破 gap_floor</td>
-                <td><span class="badge active">活跃</span></td>
-                <td><svg class="candle-svg" data-candles="up" width="76" height="26"></svg></td>
-              </tr>
-              <tr>
-                <td class="code">002594</td><td>比亚迪</td><td><span class="chip">3K</span></td>
-                <td><span class="dir short">空</span></td>
-                <td class="num">305.0</td><td class="num">312.5</td><td class="num bear">302.1</td>
-                <td class="sec" style="font-size:11px">三推动能衰竭 · 末根上影线长</td>
-                <td><span class="badge active">活跃</span></td>
-                <td><svg class="candle-svg" data-candles="down" width="76" height="26"></svg></td>
-              </tr>
-              <tr>
-                <td class="code">601318</td><td>中国平安</td><td><span class="chip">AIL</span></td>
-                <td><span class="dir long">多</span></td>
-                <td class="num">48.0</td><td class="num">46.5</td><td class="num bear">45.9</td>
-                <td class="sec" style="font-size:11px">跌破失效价 · 前提不存在</td>
-                <td><span class="badge invalid">前提不存在</span></td>
-                <td><svg class="candle-svg" data-candles="down" width="76" height="26"></svg></td>
-              </tr>
-              <tr>
-                <td class="code">600036</td><td>招商银行</td><td><span class="chip">GAP PIN</span></td>
-                <td><span class="dir long">多</span></td>
-                <td class="num">39.5</td><td class="num">38.2</td><td class="num bull">40.1</td>
-                <td class="sec" style="font-size:11px">_pinbar 反转形态 · 尾盘收回</td>
-                <td><span class="badge active">活跃</span></td>
-                <td><svg class="candle-svg" data-candles="up" width="76" height="26"></svg></td>
-              </tr>
-            </tbody>
+            <tbody id="sig-body" data-page-node-id="tTUjbFZ5SkUYYb0Dl0T12z"></tbody>
           </table>
         </div>
-        <div class="note">
-          原型说明：① 列名用 <b>失效价</b>（不是"止损"）——价格跌破它 = 你的判断前提不存在、信号作废，这正是 Al Brooks 的 invalidation 概念。
-          ② <b>PA 证据列</b>是每个信号必须能回溯到的具体形态（如"向上跳空、low 未破缺口下沿"），不显示任何字母评级（A+/A 已证伪为噪声）。
-          ③ <b>K线缩略图</b>：正式版用 lightweight-charts 画可缩放/十字光标的真实 K 线；原型用 SVG 示意。
-        </div>
+
+        <details class="src" data-page-node-id="7ONgwJgtyouHSM5Gbs3aGQ">
+          <summary data-page-node-id="yBb1OOxqT4WRo8OB1m5Q0E">字段来源 / 数据溯源（点开）</summary>
+          <table data-page-node-id="y2Frc5IwTfMJ59M7Cdbjxh">
+            <tr data-page-node-id="cAshAOT7PwcmAzOI8ryLdS"><td data-page-node-id="xqhw7NPmJC7aSzCNPvqfdT">代码 / 名称 / 策略 / 信号日期</td><td data-page-node-id="CYJsCE0oPKEYC7UebUwMUS">signal_archive.code / name / strategy / signal_date</td></tr>
+            <tr data-page-node-id="ymC8tc8nWUD8QuweZhyACl"><td data-page-node-id="bNsY1uJdsDUppxoxwUwmdi">入场价</td><td data-page-node-id="XJUGHcfiBgAMvTJgamFXEa">signal_archive.entry_price</td></tr>
+            <tr data-page-node-id="M4zAcwwtEFoVDPoZVlPDM8"><td data-page-node-id="BtDPYuBvDjhwN183WGm2sY">失效价</td><td data-page-node-id="EDRUA4vLJrLxcwda1kItph">signal_archive.sl_price（你已确认"止损=失效价"同义，命名统一为失效价）</td></tr>
+            <tr data-page-node-id="rN3UGm9pll9q4aZyD6cTKP"><td data-page-node-id="8265zkyuOekGV8CIDrJyoy">现价</td><td data-page-node-id="VffUASS42Xv0iNUgezut3x">由 daily_bars / weekly_bars 最新 close 联表取得（非归档字段，实时算）</td></tr>
+            <tr data-page-node-id="pIW29ErQgKfZ6u32vfavAH"><td data-page-node-id="z1VxDkIw45Dn42txPBBwTi">方向</td><td data-page-node-id="mDge3f1T3XxFCvHo1H4Wvg">信号结构自带（signal_archive.extra_json 内方向），非独立列</td></tr>
+            <tr data-page-node-id="POAPlz2Qv3M4rk9AQ3c7AX"><td data-page-node-id="zUNBelultuSxDDFBGrZAjX">PA 证据</td><td data-page-node-id="WH0G4IhCzhC3gL4frAHxl2">signal_archive.extra_json（命中因子证据）；不显示任何字母评级（A+/A 已证伪为噪声）</td></tr>
+            <tr data-page-node-id="zH4daECNxhFwSb5Rc7Y3qh"><td data-page-node-id="WdNebsS6StD0GNJzZSkkiX">状态</td><td data-page-node-id="oaFK5c3F2GK4lNDzhcLWyQ">signal_archive.status（注：发现6 已知该列不可全信，正式版以"存活"口径重算）</td></tr>
+            <tr data-page-node-id="TfEejJszuTZw8z05zrJAqB"><td data-page-node-id="8je89tJBzAaPSxtl4cdL05">待建仓</td><td data-page-node-id="h0ef7zUWYBYiwgBlhP76Qd">data/weekly_watchlist.json（发现8选丁：界面只读该 JSON 加栏，不动库）</td></tr>
+          </table>
+        </details>
       </section>
 
       <!-- ========== 自选 ========== -->
-      <section class="page" id="page-watchlist">
-        <div style="margin-bottom:14px">
-          <div class="grp"><span class="dot" style="background:hsl(var(--accent))"></span><span class="sec">半导体</span>
-            <div class="track"><div class="fill" style="width:55%;background:hsl(var(--bull))"></div></div><span class="bull num">+1.2%</span></div>
-          <div class="grp"><span class="dot" style="background:hsl(var(--bear))"></span><span class="sec">医药</span>
-            <div class="track"><div class="fill" style="width:32%;background:hsl(var(--bear))"></div></div><span class="bear num">-0.8%</span></div>
-          <div class="grp"><span class="dot" style="background:hsl(var(--warning))"></span><span class="sec">GAP H2</span>
-            <div class="track"><div class="fill" style="width:88%;background:hsl(var(--bull))"></div></div><span class="bull num">+3.5%</span></div>
-          <div class="grp"><span class="dot" style="background:hsl(var(--fg-muted))"></span><span class="sec">未分组</span>
-            <div class="track"><div class="fill" style="width:14%;background:hsl(var(--bull))"></div></div><span class="bull num">+0.14%</span></div>
+      <section class="page" id="page-watchlist" data-page-node-id="rJAPeYgj57nyxpfsFGeEMn">
+        <h2 class="pg-title" data-page-node-id="aK0BKBGT97C899Clfj0IAA">自选</h2>
+        <div class="pg-desc" data-page-node-id="2Cy7eJibHVa2Va0hiEZMkY">盯盘池，按策略标签多分组。把 TSP 的"所属概念"列换成"策略标签"，分时折线换成"日K + 周K"双缩略图（本项目数据周期）。</div>
+
+        <div id="wl-groups" style="margin-bottom:14px" data-page-node-id="pXXpigo5iuIqFCInmt2A7w"></div>
+
+        <div class="toolbar" data-page-node-id="zBqabAIuQAHdoTtANl2C3B">
+          <span class="stat-pill active" data-wltag="全部" data-page-node-id="XF5TkfSR7o7BboH0jY4t2n">全部</span>
+          <span id="wl-filter-pills" data-page-node-id="Z1vhJA5vCinV97Vt30cTkt"></span>
+          <span class="spacer" style="flex:1" data-page-node-id="Q9jRwXv5J3x1OfApL6fAur"></span>
+          <div class="seg" id="wl-view" data-page-node-id="IIqeBAVtGDazKdoAwjV4gT"><button class="active" data-view="table" data-page-node-id="YnB2ykKQNwYZEgACFwhWZU">⊞ 表格</button><button data-view="card" data-page-node-id="SnsiySjJhPdVaD0CsMLp52">▦ 卡片</button></div>
+          <button class="btn" id="wl-add" data-page-node-id="uGYOIutcRdwekv8kwOTXrc">⊕ 添加分组</button>
+          <button class="btn" id="wl-remove" data-page-node-id="yAyxs6wriYYAftsVzBEizj">⊖ 移除</button>
         </div>
-        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-          <span class="pill">全部 56</span><span class="pill">半导体 5</span><span class="pill">医药 8</span>
-          <span class="pill">GAP H2 3</span><span class="pill">未分组 35</span>
-          <span class="pill" style="margin-left:auto">⊞ 表格 · ▦ 卡片</span>
-        </div>
-        <div class="card" style="padding:0">
-          <table>
-            <thead><tr><th>代码</th><th>名称</th><th>现价</th><th>涨幅</th><th>策略标签</th><th>日K</th><th>周K</th></tr></thead>
-            <tbody>
-              <tr><td class="code">600519</td><td>贵州茅台</td><td class="num">1825.0</td><td class="bull num">+0.25%</td>
-                <td><span class="chip">MTR</span><span class="chip">GAP H1</span></td>
-                <td><svg class="candle-svg" data-candles="up" width="70" height="24"></svg></td>
-                <td><svg class="candle-svg" data-candles="up" width="70" height="24"></svg></td></tr>
-              <tr><td class="code">300750</td><td>宁德时代</td><td class="num">226.3</td><td class="bull num">+1.03%</td>
-                <td><span class="chip">GAP H1</span></td>
-                <td><svg class="candle-svg" data-candles="up" width="70" height="24"></svg></td>
-                <td><svg class="candle-svg" data-candles="up" width="70" height="24"></svg></td></tr>
-              <tr><td class="code">002594</td><td>比亚迪</td><td class="num">302.1</td><td class="bear num">-0.92%</td>
-                <td><span class="chip">3K</span></td>
-                <td><svg class="candle-svg" data-candles="down" width="70" height="24"></svg></td>
-                <td><svg class="candle-svg" data-candles="down" width="70" height="24"></svg></td></tr>
-              <tr><td class="code">600036</td><td>招商银行</td><td class="num">40.1</td><td class="bull num">+0.50%</td>
-                <td><span class="chip">GAP PIN</span></td>
-                <td><svg class="candle-svg" data-candles="up" width="70" height="24"></svg></td>
-                <td><svg class="candle-svg" data-candles="up" width="70" height="24"></svg></td></tr>
-            </tbody>
+
+        <div class="card" style="padding:0" id="wl-table-wrap" data-page-node-id="1snwmhIxoWEDnRoyqh41Go">
+          <table data-page-node-id="HehJulheMxquUvsiEevEOU">
+            <thead data-page-node-id="rXPNtOO0gHKlxx5BdBrLJ1"><tr data-page-node-id="m1EUfQeZw2zkEsZ15834a2"><th data-page-node-id="7QWQ6JBFHg8yif9AqAIK27">代码</th><th data-page-node-id="HAOs4Tz6sePn6PwGLDq8IT">名称</th><th data-page-node-id="T3ettRmaNHhMtxIfck9xyg">现价</th><th data-page-node-id="1ACcUETeONDSmkiq2gKtK1">涨幅</th><th data-page-node-id="PnGfUQfbI0IRQoA6HDAsjs">策略标签</th><th data-page-node-id="R68OCKqWFqbG2HPm3FVVPI">日K</th><th data-page-node-id="RmwECFREfaN13PlnjddEM8">周K</th></tr></thead>
+            <tbody id="wl-body" data-page-node-id="JgfUi93itGgR9LI7QDTRBS"></tbody>
           </table>
         </div>
-        <div class="note">
-          原型说明：自选沿用 TSP 的多分组 + 表格/卡片双视图，但把"所属概念"列换成<b>策略标签 chip</b>（MTR/GAP H1 等），
-          并把"分时折线"换成<b>日K + 周K 双缩略图</b>（本项目数据周期）。多周期并呈是 PA 工作流的核心。
-        </div>
+        <div id="wl-card-wrap" style="display:none" data-page-node-id="kvtsPvB8DFBNjrlZm5I8zL"></div>
+
+        <details class="src" data-page-node-id="t64yEJ8LjBoddrx4swhyCX">
+          <summary data-page-node-id="t5z2kBZLODvMuSWTfYUK8n">字段来源 / 数据溯源（点开）</summary>
+          <table data-page-node-id="1r7ORCy8NNMKDfz3EwETOC">
+            <tr data-page-node-id="fGssFWpjGzlEduw7l53lRn"><td data-page-node-id="M2HmcClM4cjYnhxv3kKD7Y">自选列表</td><td data-page-node-id="P1xJXJJsgeOmCFQbotLlLZ">hold_list.txt（代码池）+ 信号归档反查策略标签</td></tr>
+            <tr data-page-node-id="rXKCrDqdlTEEXDG5QVbzXL"><td data-page-node-id="iaiLnZSiZ435tPgxgHk73z">分组</td><td data-page-node-id="6UJz9lhwUDypD1pXTegNFh">按信号策略标签聚合（GAP H2 / MTR 等）+ 未分组；非行业概念（半导体/医药等不在本项目范围）</td></tr>
+            <tr data-page-node-id="fFFi5PaCwg1IwaHpYe1bJm"><td data-page-node-id="aWUFmVCSu5tw7xBoKxlDsf">现价 / 涨幅</td><td data-page-node-id="06NH3BBHsKJ2qaGBVdcALD">daily_bars 最新 close 及环比（原型为示意）</td></tr>
+            <tr data-page-node-id="qCLDCQE2pDJnP4d7bLR5Kr"><td data-page-node-id="DkrOQvyhbIxXV4qZ9qOYX2">日K / 周K 缩略</td><td data-page-node-id="TlUEA4t4F6j1UVHrRpLQzt">daily_bars / weekly_bars（30 根）；正式版用 lightweight-charts</td></tr>
+          </table>
+        </details>
       </section>
 
       <!-- ========== 策略 ========== -->
-      <section class="page" id="page-strategy">
-        <div class="strat-grid">
-          <div class="strat"><div class="nm">GAP H1</div><div class="tf">日线 + 周线</div>
-            <div class="ev bull num">+0.61R</div><div class="meta"><span>近30天命中 42</span><span class="bull">↑ 强</span></div>
-            <div class="more">详情 → 信号列表</div></div>
-          <div class="strat"><div class="nm">GAP H2</div><div class="tf">日线 + 周线</div>
-            <div class="ev bull num">+0.55R</div><div class="meta"><span>近30天命中 35</span><span class="bull">↑ 强</span></div>
-            <div class="more">详情 → 信号列表</div></div>
-          <div class="strat"><div class="nm">GAP PINBAR</div><div class="tf">日线 + 周线</div>
-            <div class="ev bull num">+0.33R</div><div class="meta"><span>近30天命中 29</span><span class="bull">↑ 中</span></div>
-            <div class="more">详情 → 信号列表</div></div>
-          <div class="strat"><div class="nm">MTR</div><div class="tf">日线</div>
-            <div class="ev bull num">+0.42R</div><div class="meta"><span>近30天命中 18</span><span class="bull">↑ 中</span></div>
-            <div class="more">详情 → 信号列表</div></div>
-          <div class="strat"><div class="nm">AIL</div><div class="tf">日线</div>
-            <div class="ev bull num">+0.21R</div><div class="meta"><span>近30天命中 14</span><span class="sec">— 弱</span></div>
-            <div class="more">详情 → 信号列表</div></div>
-          <div class="strat"><div class="nm">3K</div><div class="tf">日线</div>
-            <div class="ev bear num">−0.18R</div><div class="meta"><span>近30天命中 14</span><span class="bear">↓ 弱</span></div>
-            <div class="more">详情 → 信号列表</div></div>
+      <section class="page" id="page-strategy" data-page-node-id="7qvPPu3zv8vOOM7eaS3AZC">
+        <h2 class="pg-title" data-page-node-id="EiigPvUForFqz0vVcCbOki">策略</h2>
+        <div class="pg-desc" data-page-node-id="6JeekxqOkCeFoy76Wdifu4">6 个策略各一张卡（EV 排序）。点击卡片下钻到信号中心并预筛选该策略。</div>
+        <div class="strat-grid" id="strat-grid" data-page-node-id="jXkPqQ7PvNGV7XjthhsDE4"></div>
+
+        <details class="src" data-page-node-id="A8ktYHliIOZBMRs8YVN9o7">
+          <summary data-page-node-id="vxo3Kc0gFvIy7PV0eSkCjR">字段来源 / 数据溯源（点开）</summary>
+          <table data-page-node-id="fKnMfBtXqfpVrKGAcSNSK4">
+            <tr data-page-node-id="pyrWb42g8HLABZc8ZMoGXd"><td data-page-node-id="lffLw92brGRccu7E5jazyw">显示名 / 周期</td><td data-page-node-id="mzyEGrFKlFWMZeXQLNMY76">core/strategy_registry.get_metadata()['display_name']['supported_timeframes']（不硬编码，严守红线 D6）</td></tr>
+            <tr data-page-node-id="0AhoPUQBhvcNuL1B0kKGLt"><td data-page-node-id="RXQMDq0AAIKQvOwC7fDheg">累计 EV</td><td data-page-node-id="uMQAAFWctIcErpKGpT9jjk">由 signal_archive 计算（原型为示意；真实值二期重算）</td></tr>
+            <tr data-page-node-id="0cw7CLEXk9kitXYJO8Kmft"><td data-page-node-id="nGsBn3NeysTU2wHdn8oC8c">近30天命中</td><td data-page-node-id="i8oMlU9WDn29jNnVia6tpq">signal_archive WHERE signal_date ≥ 近30天</td></tr>
+          </table>
+        </details>
+      </section>
+
+      <!-- ========== 回测（二期） ========== -->
+      <section class="page" id="page-backtest" data-page-node-id="Ye7KO7Ep6sIaN5VRNaSlfV">
+        <h2 class="pg-title" data-page-node-id="7t95VDWFwG1BFx113UBeri">回测 <span class="tag" style="font-size:10px;padding:1px 6px;border-radius:4px;background:hsl(var(--border));color:hsl(var(--fg-muted))" data-page-node-id="DtoezI5vfDCgolBqd4XyjX">二期</span></h2>
+        <div class="pg-desc" data-page-node-id="UYWI3NwrA7HuZIPY7gEMxu">净值曲线 / 回撤 / 胜率可视化。数据来源：二期回测管道（当前原型为示意曲线，控件可交互）。</div>
+
+        <div class="toolbar" data-page-node-id="3yxNzO7KRPrOsyJqJO3k1q">
+          <select id="bt-strat" data-page-node-id="UaPZjaA7Jx5vfEKqg4fEfa"><option data-page-node-id="SOqkDZD42xN7cZk2NYVTOW">GAP H1</option><option data-page-node-id="nGK7yDaGUHhAU3RkjSqrrj">GAP H2</option><option data-page-node-id="ZfpT79rXPDJYFv2lQNgcOa">GAP PINBAR</option><option data-page-node-id="xILP839vdCVgG6TdEawjMH">MTR</option><option data-page-node-id="7ZDu5zOpsY4WIoLn7N42I2">3K</option><option data-page-node-id="BGU5EWvp6CqzssdVzc79CT">AIL</option></select>
+          <div class="seg" id="bt-metric" data-page-node-id="FBCE2P534PsWjbobUa7cr1"><button class="active" data-m="equity" data-page-node-id="cXUvLODRJaEPwFsC7f8v4j">净值曲线</button><button data-m="drawdown" data-page-node-id="tZxftg9wNMhue7ODJaNxV7">回撤</button><button data-m="winrate" data-page-node-id="bf9U65k4il0d8I4v326IKV">胜率分布</button></div>
         </div>
-        <div class="note">
-          原型说明：策略信息 100% 来自 <code>core/strategy_registry.get_metadata()</code>，不硬编码（严守红线 D6）。
-          展示名 = display_name（如 GAP H1）。<b>累计 EV</b> 从 signal_archive 计算，是 PA 质量优先的体现。3K 为负 EV，明牌标注不掩饰。
+
+        <div class="card" style="margin-bottom:16px" data-page-node-id="WsHPSd6SaiZmJJgC2XZB7R">
+          <h3 id="bt-title" data-page-node-id="Wckk0OWzVQgY8TkNJFcS1b">净值曲线</h3>
+          <div id="bt-chart" data-page-node-id="m8x0EezHlo8DxangKjdtV5"></div>
+        </div>
+        <div class="kpi-row" style="grid-template-columns:repeat(4,1fr)" data-page-node-id="bLnYwe1Ce5QX333BUNlQpE">
+          <div class="kpi" data-page-node-id="zWvE445zzpJfE9Vu1ybFHR"><div class="label" data-page-node-id="gGZ2HgM7h65MACsuLg3wQ4">总收益率</div><div class="value num bull" data-page-node-id="5F7NT5eW9l7hVQg0vO5ACL">+38.6%</div></div>
+          <div class="kpi" data-page-node-id="Zr4oMxhWAsZufFVze3wqss"><div class="label" data-page-node-id="ug0gwIppp5iev8Z8KL1KgF">最大回撤</div><div class="value num bear" data-page-node-id="Wc9P1P8JoxilM3hVFSN1NL">-12.4%</div></div>
+          <div class="kpi" data-page-node-id="srK4YfDpr1652bVf2U2jLa"><div class="label" data-page-node-id="ScWV8r3QRLshFPoljJZEs1">胜率</div><div class="value num" data-page-node-id="P2dbStePVYEBO2nVo1gEGR">57%</div></div>
+          <div class="kpi" data-page-node-id="gU6WNfzp3r6G0LRFtrsMj4"><div class="label" data-page-node-id="jakUi3luxErh2BENX9O4tW">样本数</div><div class="value num" data-page-node-id="Re8x8fSeRktebN6oePCS5x">214</div></div>
+        </div>
+
+        <details class="src" data-page-node-id="yAn5DvGWIvyKgSBGtuKV21">
+          <summary data-page-node-id="0NNs4sXR8Skg9CDTmKEj4Z">字段来源 / 数据溯源（点开）</summary>
+          <table data-page-node-id="lkTTsX3XcSNrikE9eHbb91">
+            <tr data-page-node-id="rcYkoRglaKMxCmqCMCtWZm"><td data-page-node-id="FZYYSYwykQ0RtFRk98BGT0">全部指标</td><td data-page-node-id="n5zcqndCYACxREi9uZjUhB">二期回测管道（复用 signal_archive + daily_bars 计算；当前为示意）</td></tr>
+          </table>
+        </details>
+      </section>
+
+      <!-- ========== 数据画像（二期） ========== -->
+      <section class="page" id="page-data" data-page-node-id="gcEtyGBcOEoNImCu4PPOR3">
+        <h2 class="pg-title" data-page-node-id="yiNy3yrGOxjPJ1axxJVg3K">数据画像 <span class="tag" style="font-size:10px;padding:1px 6px;border-radius:4px;background:hsl(var(--border));color:hsl(var(--fg-muted))" data-page-node-id="y2PyXyR9bZsTpKNID6yIrO">二期</span></h2>
+        <div class="pg-desc" data-page-node-id="HFxXUCfD5jaeu6QMSI6W43">覆盖到哪天、缺哪些票、同步历史。来源：daily_bars / weekly_bars 最大交易日 + 下载日志（真实可算）。</div>
+
+        <div class="toolbar" data-page-node-id="aquJqCBeloq730vSVa3Nt1">
+          <div class="seg" id="dt-tab" data-page-node-id="DsMoWu0aYSKHVdBupyGa4C"><button class="active" data-t="daily" data-page-node-id="BvEOZ56KmSeYbJLJMfAcBB">日线</button><button data-t="weekly" data-page-node-id="kGolDujfANHxNnbh60rA9V">周线</button></div>
+          <button class="btn" id="dt-refresh" data-page-node-id="sLj1KTueFZ0IVT51LBQ7iT">↻ 刷新（示意）</button>
+        </div>
+
+        <div class="grid-2" data-page-node-id="8SOM0HGka4GD4trSSXOcNk">
+          <div class="card" data-page-node-id="jS87Aj9rc8IvP9P78YDmo6">
+            <h3 id="dt-cov-title" data-page-node-id="CpSln6M0ox6wRqLIPRElQs">日线覆盖</h3>
+            <div class="stat-line" data-page-node-id="J03UMDbfw1kk8k1Vixi7DB"><span class="sec" data-page-node-id="vJNyWHFYj0g70iNVooqb5u">已覆盖</span><span class="num" id="dt-covered" data-page-node-id="l3koKzjtKZUkpfjB7zHDZl">3312 / 3312</span></div>
+            <div class="stat-line" data-page-node-id="nZNVyqnT2YqRdaYFNJRe7J"><span class="sec" data-page-node-id="pt7rwzAgwf49K1fl9iwjid">最新交易日</span><span class="num" id="dt-latest" data-page-node-id="5dJEFvyFmLG4ztkNhoBUNW">2026-09-04</span></div>
+            <div class="stat-line" data-page-node-id="grNVYou3AZBxVbAil8zG9s"><span class="sec" data-page-node-id="rpVWiRqvK5UdWLv67Qgod1">缺失 / 异常</span><span class="bear" id="dt-missing" data-page-node-id="U8LR0aAsU0lYHHP1hMIbwt">0 只</span></div>
+            <div class="stat-line" data-page-node-id="HFshTSYHV8s8Tm1abN7blr"><span class="sec" data-page-node-id="1EMBW7DKFJFyuo7hOnhNIu">数据延迟</span><span class="bull" id="dt-lag" data-page-node-id="3DEcebHMzQ8LskkJcFzTja">T+1（当日）</span></div>
+          </div>
+          <div class="card" data-page-node-id="Js6HInHpLjC8GtcXwVT8YQ">
+            <h3 data-page-node-id="tAExZxyGblA5n0rYrzfw2l">同步历史</h3>
+            <div class="stat-line" data-page-node-id="eKnSfcjI1kUdrgx9mPgLky"><span class="sec" data-page-node-id="rCxzFIGBgsXBwKvHMv19At">2026-09-05 19:30</span><span class="num bull" data-page-node-id="sxplQohSqCtZPQkACAsUSp">日线 ✓</span></div>
+            <div class="stat-line" data-page-node-id="T7GGgbGqUqi136qoovlWQI"><span class="sec" data-page-node-id="uXu0ZMHEqdSgAobxHf9ynW">2026-09-04 19:30</span><span class="num bull" data-page-node-id="vXEK55TvkbnWJ6YRUfF8TM">周线 ✓</span></div>
+            <div class="stat-line" data-page-node-id="vIwHB7AOnmut1ZGoH3DnfU"><span class="sec" data-page-node-id="m1AX99vOIMMPp2vGE382sv">2026-09-04 19:30</span><span class="num bull" data-page-node-id="c9GFDLC7BMswERs5WHDyMh">日线 ✓</span></div>
+            <div class="stat-line" data-page-node-id="BCSrdYMOITdgCjjJOMxpaK"><span class="sec" data-page-node-id="TJKuybjW06DvFjDruxs78g">2026-09-03 19:30</span><span class="num bull" data-page-node-id="THHHLivQ4je1Kn344LArzp">日线 ✓</span></div>
+          </div>
+        </div>
+        <div class="card" data-page-node-id="Tfys4kAfnlshDJd8AHLwhc">
+          <h3 data-page-node-id="ZVv4H4dXP5Y8lJxLvJoJjL">缺失标的（样例）</h3>
+          <div class="empty" data-page-node-id="eyVm6r1h5zC0BxdKf0HXSr">当前无缺失（3312/3312 全覆盖）。若有缺口会在此列出代码与缺失区间。</div>
+        </div>
+      </section>
+
+      <!-- ========== 设置 ========== -->
+      <section class="page" id="page-settings" data-page-node-id="bU2Wryi9OGEkf6YqfMIAOd">
+        <h2 class="pg-title" data-page-node-id="wzSBNXRqGZbpbbNPE5Gt9a">设置</h2>
+        <div class="pg-desc" data-page-node-id="ZjgExlB51PX8CoACogcVQf">偏好与系统信息。主题切换可实时预览（其余为展示项，正式版接后端配置）。</div>
+
+        <div class="card" style="margin-bottom:16px" data-page-node-id="AIRgJDt3UZkI8nTEgMCMZh">
+          <h3 data-page-node-id="X7EFtEpetg008MCBDVsSfJ">外观</h3>
+          <div class="kv" data-page-node-id="EzzE5zMsHeLmVkzpIFFoYK"><span class="k" data-page-node-id="Vqp6cI49jkS6EjoNnXiwQV">主题</span><span data-page-node-id="IOQs7RPKuxVY84kkAJPeiZ">
+            <div class="seg" id="set-theme" data-page-node-id="HmTSsRB2ZTuYfYnQApI6cv"><button class="active" data-th="dark" data-page-node-id="BBYnmyaTCaWlK8hX5CfIIo">深色</button><button data-th="light" data-page-node-id="y4E9NfzBEjrkDpsxwzrCSD">浅色</button></div>
+          </span></div>
+          <div class="kv" data-page-node-id="jNIt5eLVZP2S9ZNAJBOFzD"><span class="k" data-page-node-id="RSB9SJL83pzfo9CFiPHpwC">K线库</span><span data-page-node-id="eTiyBh99VfJuqRM8IyC5VG">lightweight-charts（Web 详情）· notifier（Discord 推送）— 红线 D5 v2</span></div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px" data-page-node-id="WfusP0nIBEh3wvaOzTfiLz">
+          <h3 data-page-node-id="QIrk6GxGpXlhp4zjfgdrS9">数据源</h3>
+          <div class="kv" data-page-node-id="uIBnj5bdTVVBmS4LR8aIgm"><span class="k" data-page-node-id="EMuhH85Zlx2Jkre9ZNDLho">行情</span><span data-page-node-id="lrKJxIC0cxSLFlBSeUd9CO">Baostock 离线 T+1（免费，非实时）</span></div>
+          <div class="kv" data-page-node-id="Ba5vwUckumHE5sIbZ6HSHl"><span class="k" data-page-node-id="WLE59CHDWnQqtOqOxLRKZQ">存储</span><span data-page-node-id="MkPFFCTsf0JQKEM3GzuCKb">SQLite 单文件（baostock.db，结构冻结，只读访问）</span></div>
+          <div class="kv" data-page-node-id="UEL4kLLho19B1rmOSGkPir"><span class="k" data-page-node-id="RK7jd1IxqpAkr9UDx7DEBl">全市场</span><span data-page-node-id="Q3rXxeZFvQ1m4FvSuDw7K1">3312 只（主板 + 创业板 + 科创板）</span></div>
+        </div>
+
+        <div class="card" data-page-node-id="LvxtKHr2ZFIYyX4zYP0RT7">
+          <h3 data-page-node-id="EuadsToof4jpQRtbwvpBe5">关于</h3>
+          <div class="kv" data-page-node-id="RctjB67JWPDfEKeDJEaJHl"><span class="k" data-page-node-id="GjvEPlJ38OTGx50CsZAQHC">版本</span><span data-page-node-id="O7fkpb81Dr40ItkYNwwFnk">Brooks-AI Quant v10.0</span></div>
+          <div class="kv" data-page-node-id="Xt5qYsC3Hi23BKBOgMf0GW"><span class="k" data-page-node-id="0cLqLNalXYBjACBOA4BZZn">定位</span><span data-page-node-id="naJAUYwMq85SLsqZ65in9O">Al Brooks 价格行为 · 人机协作 · 只推信号不下单</span></div>
+          <div class="kv" data-page-node-id="ay9xJxCejU6IFzBvUfsivM"><span class="k" data-page-node-id="zSRybh5bRlPz5yrPh4x2N1">红线</span><span data-page-node-id="Ai5TIO3GoCrX1wiCmzRcfF">因子仅限价格行为；不实现市场状态自动识别；不动库结构</span></div>
+          <div class="kv" data-page-node-id="0C1dxRoXBU9GhKTs9w6qq2"><span class="k" data-page-node-id="vgpFMJLakHtmoDQWpaEw0I">启动</span><span data-page-node-id="Hfo9uEcXxETpQY6G6l5uHG">双击桌面 .vbs → 自动起后端 + 弹浏览器（沿用习惯）</span></div>
         </div>
       </section>
     </div>
 
-    <div class="statusbar">
-      <span>Brooks-AI Quant v10.0</span>
-      <span>只读视图 · 未连接写库</span>
-      <span class="spacer"></span>
-      <span>当前周期：<b id="sb-tf">日线</b></span>
-      <span>信号库 11,163 条</span>
-      <span>原型 · 数据均为示意</span>
+    <div class="statusbar" data-page-node-id="BIsa7xFzwoTiHXENWeSeub">
+      <span data-page-node-id="pq21bytCBLiNmaaUSs0bfS">Brooks-AI Quant v10.0</span>
+      <span data-page-node-id="8rfQTz5ayd18ZXBs5icJwu">只读视图 · 未连接写库</span>
+      <span class="spacer" data-page-node-id="fIIiEwrKZk3pg4efr8Mqum"></span>
+      <span data-page-node-id="XYn4m9FjupSsTKvbmD0tUJ">当前周期：<b id="sb-tf" data-page-node-id="4KhkQtQBcdWC8OWry8IBCD">日线</b></span>
+      <span data-page-node-id="qOTq6hVeeTFKLhmO9Ein8S">信号库 11,163 条（真实归档量）</span>
+      <span data-page-node-id="bArapFE27cGfMnQ1FFD1QL">原型 · 部分数据为示意</span>
     </div>
   </div>
 </div>
-<div class="prototype-tag">HTML 原型 · 版式确认稿 · 非功能实现</div>
+
+<!-- 抽屉 -->
+<div class="drawer-mask" id="mask" data-page-node-id="O6eUx3BlBreNppr18lfHXu"></div>
+<div class="drawer" id="drawer" data-page-node-id="3Jrn9IXJGoUzmX2IdE5Ib4">
+  <div class="d-head" data-page-node-id="id5tZksvoGGe2HcPoaBEap"><div class="d-title" id="d-title" data-page-node-id="sV9VhXuxiLMAxceI1wPJ9H">信号详情</div><div class="x" id="d-x" data-page-node-id="JJ1GEJWEf1fIDYagCH1AHR">✕</div></div>
+  <div id="d-body" data-page-node-id="gvieGralGHgsxy8lh221fD"></div>
+  <div style="margin-top:14px" data-page-node-id="2K8ei8HBXYAqtrW3E00w1q"><div class="muted" style="font-size:11px;margin-bottom:6px" data-page-node-id="awIwGviNvgCcQ2OYYpd2yJ">K 线（示意；正式版 lightweight-charts 可缩放/十字光标）</div><div id="d-chart" data-page-node-id="TFw6W5SFHCGvn0PUxbEEuF"></div></div>
+  <div class="note" data-page-node-id="BKmreB1xi7ApzqsduE1ZGf">K 线通过专用接口 GET /api/v1/chart/{ts_code}?timeframe=… 取得 OHLC JSON，横轴用 ISO 日期（红线 D5 v2）。</div>
+</div>
+
+<div class="prototype-tag" data-page-node-id="8qwWtgxzWgHSYu2zcn4nsp">HTML 交互式原型 · 版式+控件确认稿</div>
 
 <script>
-  // 导航切换
-  document.querySelectorAll('.nav-item[data-page]').forEach(el => {
-    el.addEventListener('click', () => {
-      const p = el.dataset.page;
-      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-      el.classList.add('active');
-      document.querySelectorAll('.page').forEach(s => s.classList.remove('active'));
-      document.getElementById('page-' + p).classList.add('active');
-      const names = { dashboard:'看板', signals:'信号中心', watchlist:'自选', strategy:'策略' };
-      document.getElementById('crumb-page').textContent = names[p];
-    });
-  });
-  // 周期切换（仅视觉）
-  document.querySelectorAll('.seg button').forEach(b => {
-    b.addEventListener('click', () => {
-      b.parentElement.querySelectorAll('button').forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-      document.getElementById('sb-tf').textContent = b.textContent;
-    });
-  });
+/* ============ 数据（示意，字段均对真实 schema 命名） ============ */
+const STRATS = [
+  {key:'GAP H1', tf:'日线 + 周线', ev:0.61, evs:'+0.61R', hits:42},
+  {key:'GAP H2', tf:'日线 + 周线', ev:0.55, evs:'+0.55R', hits:35},
+  {key:'GAP PINBAR', tf:'日线 + 周线', ev:0.33, evs:'+0.33R', hits:29},
+  {key:'MTR', tf:'日线', ev:0.42, evs:'+0.42R', hits:18},
+  {key:'AIL', tf:'日线', ev:0.21, evs:'+0.21R', hits:14},
+  {key:'3K', tf:'日线', ev:-0.18, evs:'−0.18R', hits:14},
+];
 
-  // 生成 SVG 示意 K 线（涨=红 跌=绿，A股 惯例）
-  const C = { up:'#F04438', down:'#12B76A' };
-  function drawCandles(svg, dir) {
-    const W = svg.width.baseVal.value, H = svg.height.baseVal.value;
-    const n = 10, bw = W / n;
-    let seed = dir === 'up' ? 7 : 3;
-    const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
-    let y = H * 0.6; const pts = [];
-    for (let i = 0; i < n; i++) {
-      const move = (rnd() - 0.5) * H * 0.35;
-      y = Math.max(H*0.15, Math.min(H*0.85, y + move * (dir==='up'?0.6:0.6)));
-      const o = y, c = y + (rnd()-0.5)*H*0.3;
-      const hi = Math.min(o,c) - rnd()*H*0.12, lo = Math.max(o,c) + rnd()*H*0.12;
-      pts.push({o,c,hi,lo});
-    }
-    const ns = 'http://www.w3.org/2000/svg';
-    const sx = i => i*bw + bw/2;
-    pts.forEach((p,i) => {
-      const col = p.c >= p.o ? C.up : C.down;
-      const wick = document.createElementNS(ns,'line');
-      wick.setAttribute('x1',sx(i)); wick.setAttribute('x2',sx(i));
-      wick.setAttribute('y1',p.hi); wick.setAttribute('y2',p.lo);
-      wick.setAttribute('stroke',col); wick.setAttribute('stroke-width','1');
-      svg.appendChild(wick);
-      const body = document.createElementNS(ns,'rect');
-      const top = Math.min(p.o,p.c), hgt = Math.max(1.5, Math.abs(p.c-p.o));
-      body.setAttribute('x',sx(i)-bw*0.3); body.setAttribute('y',top);
-      body.setAttribute('width',bw*0.6); body.setAttribute('height',hgt);
-      body.setAttribute('fill',col);
-      svg.appendChild(body);
-    });
+const SIGNALS = [
+  {code:'600519',name:'贵州茅台',strat:'MTR',tf:'daily',date:'2026-09-05',entry:1820.5,invalid:1790.0,cur:1825.0,dir:'多',ev:'收盘站上前高 · 三次测试支撑不破',status:'活跃'},
+  {code:'300750',name:'宁德时代',strat:'GAP H1',tf:'daily',date:'2026-09-04',entry:224.0,invalid:218.0,cur:226.3,dir:'多',ev:'向上跳空 · low 未破 gap_floor',status:'活跃'},
+  {code:'002594',name:'比亚迪',strat:'3K',tf:'daily',date:'2026-09-04',entry:305.0,invalid:312.5,cur:302.1,dir:'空',ev:'三推动能衰竭 · 末根上影线长',status:'活跃'},
+  {code:'601318',name:'中国平安',strat:'AIL',tf:'daily',date:'2026-09-03',entry:48.0,invalid:46.5,cur:45.9,dir:'多',ev:'跌破失效价 · 前提不存在',status:'前提不存在'},
+  {code:'600036',name:'招商银行',strat:'GAP PINBAR',tf:'daily',date:'2026-09-03',entry:39.5,invalid:38.2,cur:40.1,dir:'多',ev:'pinbar 反转 · 尾盘收回',status:'活跃'},
+  {code:'000001',name:'平安银行',strat:'GAP H2',tf:'weekly',date:'2026-09-01',entry:12.8,invalid:12.2,cur:12.9,dir:'多',ev:'周线缺口成立 · 未补',status:'已建仓'},
+];
+
+// 待建仓：来源 weekly_watchlist.json（当前 JSON 为空，此处为结构示意）
+const PENDING = [
+  {code:'688981',name:'中芯国际',strat:'GAP H2',ev:'缺口已成立 · 现价距缺口上沿 -3.2%',status:'待建仓'},
+];
+
+const WATCH = [
+  {code:'600519',name:'贵州茅台',cur:1825.0,chg:0.25,tags:['MTR','GAP H1'],dk:'up',wk:'up'},
+  {code:'300750',name:'宁德时代',cur:226.3,chg:1.03,tags:['GAP H1'],dk:'up',wk:'up'},
+  {code:'002594',name:'比亚迪',cur:302.1,chg:-0.92,tags:['3K'],dk:'down',wk:'down'},
+  {code:'600036',name:'招商银行',cur:40.1,chg:0.50,tags:['GAP PINBAR'],dk:'up',wk:'up'},
+  {code:'601318',name:'中国平安',cur:45.9,chg:-0.40,tags:['AIL'],dk:'down',wk:'down'},
+  {code:'000001',name:'平安银行',cur:12.9,chg:0.31,tags:['GAP H2'],dk:'up',wk:'up'},
+];
+
+/* ============ 通用 ============ */
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const C = { up:'#F04438', down:'#12B76A' };
+
+function drawCandles(svg, dir, n=10, W, H){
+  W = W || svg.width.baseVal.value; H = H || svg.height.baseVal.value;
+  svg.innerHTML='';
+  const bw = W/n; let seed = dir==='up'?7:3;
+  const rnd = ()=>{ seed=(seed*9301+49297)%233280; return seed/233280; };
+  let y = H*0.6; const pts=[];
+  for(let i=0;i<n;i++){
+    y = Math.max(H*0.15, Math.min(H*0.85, y+(rnd()-0.5)*H*0.35*0.6));
+    const o=y, c=y+(rnd()-0.5)*H*0.3, hi=Math.min(o,c)-rnd()*H*0.12, lo=Math.max(o,c)+rnd()*H*0.12;
+    pts.push({o,c,hi,lo});
   }
-  document.querySelectorAll('.candle-svg').forEach(s => drawCandles(s, s.dataset.candles));
+  const ns='http://www.w3.org/2000/svg', sx=i=>i*bw+bw/2;
+  pts.forEach((p,i)=>{
+    const col=p.c>=p.o?C.up:C.down;
+    const w=new Drawing(ns,'line',{x1:sx(i),x2:sx(i),y1:p.hi,y2:p.lo,stroke:col,'stroke-width':1}); svg.appendChild(w);
+    const top=Math.min(p.o,p.c), hgt=Math.max(1.5,Math.abs(p.c-p.o));
+    svg.appendChild(new Drawing(ns,'rect',{x:sx(i)-bw*0.3,y:top,width:bw*0.6,height:hgt,fill:col}));
+  });
+}
+function Drawing(ns,tag,attrs){ const e=document.createElementNS(ns,tag); for(const k in attrs) e.setAttribute(k,attrs[k]); return e; }
+
+/* ============ 看板 ============ */
+function renderDashBars(){
+  const maxH = Math.max(...STRATS.map(s=>s.hits));
+  $('#dash-bars').innerHTML = STRATS.map(s=>{
+    const w = Math.round(s.hits/maxH*100);
+    const cls = s.ev>=0?'ev-pos':'ev-neg';
+    return `<div class="bar-row" data-strat="${s.key}"><span class="nm">${s.key}</span>
+      <div class="bar-track"><div class="bar-fill ${cls}" style="width:${w}%"></div></div>
+      <span class="ct"><span class="num">${s.hits}</span><span class="ev-chip ${s.ev>=0?'pos':'neg'}">${s.evs}</span></span></div>`;
+  }).join('');
+  $$('#dash-bars .bar-row').forEach(el=>el.onclick=()=>gotoSignals(el.dataset.strat));
+}
+function renderDashFeed(){
+  $('#dash-feed').innerHTML = SIGNALS.slice(0,8).map(s=>`
+    <div class="feed-item" data-code="${s.code}">
+      <span class="t">${s.date.slice(5)}</span><span class="code">${s.code}</span><span class="name">${s.name}</span>
+      <span class="dir ${s.dir==='多'?'long':'short'}">${s.dir}</span>
+      <span><span class="chip">${s.strat}</span> ${s.ev.slice(0,18)}… · <span class="badge ${s.status==='活跃'?'active':s.status==='已建仓'?'filled':'invalid'}">${s.status}</span></span>
+    </div>`).join('');
+  $$('#dash-feed .feed-item').forEach(el=>el.onclick=()=>gotoSignals(null, el.dataset.code));
+}
+
+/* ============ 信号中心 ============ */
+let sigFilter = { tf:'daily', status:'', strat:'', q:'' };
+function renderSignals(){
+  const rows = SIGNALS.filter(s=>
+    (sigFilter.tf==='all'||s.tf===sigFilter.tf) &&
+    (!sigFilter.status||s.status===sigFilter.status) &&
+    (!sigFilter.strat||s.strat===sigFilter.strat) &&
+    (!sigFilter.q||(s.code+s.name).includes(sigFilter.q))
+  );
+  $('#sig-count').textContent = `共 ${rows.length} 条`;
+  $('#sig-body').innerHTML = rows.length? rows.map(s=>`
+    <tr class="row-click" data-code="${s.code}">
+      <td class="code">${s.code}</td><td>${s.name}</td><td><span class="chip">${s.strat}</span></td>
+      <td><span class="dir ${s.dir==='多'?'long':'short'}">${s.dir}</span></td>
+      <td class="num">${s.entry}</td><td class="num">${s.invalid}</td><td class="num ${s.cur>=s.entry?'bull':'bear'}">${s.cur}</td>
+      <td class="sec" style="font-size:11px">${s.ev}</td>
+      <td><span class="badge ${s.status==='活跃'?'active':s.status==='已建仓'?'filled':'invalid'}">${s.status}</span></td>
+      <td><svg class="candle-svg" data-candles="${s.dir==='多'?'up':'down'}" width="76" height="26"></svg></td>
+    </tr>`).join('') : `<tr><td colspan="10"><div class="empty">无匹配信号</div></td></tr>`;
+  $$('#sig-body tr.row-click').forEach(tr=>tr.onclick=()=>openDrawer(tr.dataset.code));
+  $$('#sig-body .candle-svg').forEach(s=>drawCandles(s, s.dataset.candles));
+  // 待建仓
+  $('#pending-zone').innerHTML = PENDING.length? PENDING.map(p=>`
+    <div class="feed-item" data-code="${p.code}" style="padding-left:16px">
+      <span class="code">${p.code}</span><span class="name">${p.name}</span>
+      <span><span class="chip tag">${p.strat}</span></span>
+      <span class="dir long">待</span>
+      <span><span class="chip">待建仓</span> ${p.ev} · <span class="badge invalid">${p.status}</span></span>
+    </div>`).join('') : `<div class="empty" style="margin:12px 16px">weekly_watchlist.json 当前为空（发现8选丁：界面只读该 JSON 加此栏，不动库）</div>`;
+  $$('#pending-zone .feed-item').forEach(tr=>tr.onclick=()=>openDrawer(tr.dataset.code));
+}
+function gotoSignals(strat, code){
+  if(strat){ sigFilter.strat=strat; $('#sig-strat').value=strat; } else sigFilter.strat='';
+  if(code){ sigFilter.q=code; $('#sig-search').value=code; } else sigFilter.q='';
+  navTo('signals'); renderSignals();
+}
+
+/* ============ 自选 ============ */
+let wlView='table', wlTagFilter='全部', wlGroups=['GAP H2','MTR','GAP H1','AIL','3K','未分组'];
+function renderWatch(){
+  // 分组横条
+  const groups = wlGroups.map(g=>{
+    const members = g==='未分组'? WATCH.filter(w=>w.tags.length===0) : WATCH.filter(w=>w.tags.includes(g));
+    if(!members.length) return null;
+    const avg = members.reduce((a,m)=>a+m.chg,0)/members.length;
+    const col = avg>=0?C.up:C.down;
+    return {g, n:members.length, avg, col};
+  }).filter(Boolean);
+  $('#wl-groups').innerHTML = groups.map(x=>`
+    <div class="grp"><span class="dot" style="background:${x.col}"></span><span class="sec">${x.g}</span>
+      <div class="track"><div class="fill" style="width:${Math.min(100,Math.abs(x.avg)*30+10)}%;background:${x.col}"></div></div>
+      <span class="${x.avg>=0?'bull':'bear'} num">${x.avg>=0?'+':''}${x.avg.toFixed(2)}%</span></div>`).join('');
+
+  // 筛选 pills
+  $('#wl-filter-pills').innerHTML = wlGroups.map(g=>`<span class="stat-pill ${wlTagFilter===g?'active':''}" data-wltag="${g}">${g}</span>`).join(' ');
+  $$('#wl-filter-pills .stat-pill').forEach(p=>p.onclick=()=>{ wlTagFilter=p.dataset.wltag; renderWatch(); });
+
+  const rows = WATCH.filter(w=> wlTagFilter==='全部' || (wlTagFilter==='未分组'? w.tags.length===0 : w.tags.includes(wlTagFilter)));
+  // 表格
+  $('#wl-body').innerHTML = rows.map(w=>`
+    <tr class="row-click" data-code="${w.code}">
+      <td class="code">${w.code}</td><td>${w.name}</td><td class="num">${w.cur}</td><td class="${w.chg>=0?'bull':'bear'} num">${w.chg>=0?'+':''}${w.chg}%</td>
+      <td>${w.tags.map(t=>`<span class="chip tag">${t}</span>`).join('')||'<span class="muted">—</span>'}</td>
+      <td><svg class="candle-svg" data-candles="${w.dk}" width="70" height="24"></svg></td>
+      <td><svg class="candle-svg" data-candles="${w.wk}" width="70" height="24"></svg></td>
+    </tr>`).join('');
+  $$('#wl-body tr.row-click').forEach(tr=>tr.onclick=()=>openDrawer(tr.dataset.code));
+  $$('#wl-body .candle-svg').forEach(s=>drawCandles(s, s.dataset.candles));
+  // 卡片
+  $('#wl-card-wrap').innerHTML = rows.map(w=>`
+    <div class="strat" data-code="${w.code}" style="display:inline-block;width:calc(33% - 10px);margin:5px;vertical-align:top">
+      <div class="nm">${w.name} <span class="muted" style="font-size:11px">${w.code}</span></div>
+      <div class="ev num ${w.chg>=0?'bull':'bear'}" style="font-size:18px">${w.cur} · ${w.chg>=0?'+':''}${w.chg}%</div>
+      <div class="meta">${w.tags.map(t=>`<span class="chip tag">${t}</span>`).join('')||'<span class="muted">未分组</span>'}</div>
+    </div>`).join('');
+  $$('#wl-card-wrap .strat').forEach(c=>c.onclick=()=>openDrawer(c.dataset.code));
+  $('#wl-table-wrap').style.display = wlView==='table'?'block':'none';
+  $('#wl-card-wrap').style.display = wlView==='card'?'block':'none';
+}
+
+/* ============ 策略 ============ */
+function renderStrats(){
+  $('#strat-grid').innerHTML = STRATS.map(s=>`
+    <div class="strat" data-strat="${s.key}">
+      <div class="nm">${s.key}</div><div class="tf">${s.tf}</div>
+      <div class="ev ${s.ev>=0?'bull':'bear'} num">${s.evs}</div>
+      <div class="meta"><span>近30天命中 ${s.hits}</span><span class="${s.ev>=0?'bull':'bear'}">${s.ev>=0.4?'↑ 强':s.ev>=0?'↑ 中':'↓ 弱'}</span></div>
+      <div class="more">详情 → 信号列表</div>
+    </div>`).join('');
+  $$('#strat-grid .strat').forEach(c=>c.onclick=()=>gotoSignals(c.dataset.strat));
+}
+
+/* ============ 回测 ============ */
+let btStrat='GAP H1', btMetric='equity';
+function renderBacktest(){
+  $('#bt-title').textContent = ({equity:'净值曲线',drawdown:'回撤',winrate:'胜率分布'})[btMetric];
+  const W=560,H=220, svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('width','100%'); svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const ns='http://www.w3.org/2000/svg';
+  if(btMetric==='equity'){
+    let y=H*0.7, pts=[y]; const rnd=()=>{y=Math.max(H*0.15,Math.min(H*0.9,y+(Math.random()-0.45)*H*0.18));return y;};
+    for(let i=0;i<40;i++) pts.push(rnd());
+    const max=Math.max(...pts),min=Math.min(...pts), sx=i=>i/(pts.length-1)*W, sy=v=>H-(v-min)/(max-min)*H;
+    let d='M '+pts.map((v,i)=>`${sx(i).toFixed(1)} ${sy(v).toFixed(1)}`).join(' L ');
+    svg.appendChild(new Drawing(ns,'path',{d,fill:'none',stroke:C.up,'stroke-width':2}));
+  } else if(btMetric==='drawdown'){
+    const rnd=()=>Math.random(); let base=H*0.2, pts=[];
+    for(let i=0;i<40;i++){ base=Math.min(H*0.85, base+ (Math.random()-0.5)*H*0.12); pts.push(base);}
+    const sx=i=>i/(pts.length-1)*W;
+    let d='M 0 '+H+' '+pts.map((v,i)=>`L ${sx(i).toFixed(1)} ${v.toFixed(1)}`).join(' ')+` L ${W} ${H} Z`;
+    svg.appendChild(new Drawing(ns,'path',{d,fill:'hsl(var(--bear) / 0.25)',stroke:C.down,'stroke-width':1.5}));
+  } else {
+    const n=12, bw=W/n;
+    for(let i=0;i<n;i++){ const h=10+Math.random()*H*0.7, col=i<7?C.up:C.down;
+      svg.appendChild(new Drawing(ns,'rect',{x:i*bw+6,y:H-h,width:bw-12,height:h,fill:col})); }
+  }
+  $('#bt-chart').innerHTML=''; $('#bt-chart').appendChild(svg);
+}
+
+/* ============ 数据画像 ============ */
+let dtTab='daily';
+function renderData(){
+  const isD = dtTab==='daily';
+  $('#dt-cov-title').textContent = isD?'日线覆盖':'周线覆盖';
+  $('#dt-covered').textContent = isD?'3312 / 3312':'3312 / 3312';
+  $('#dt-latest').textContent = isD?'2026-09-04':'2026-09-04';
+}
+
+/* ============ 抽屉 ============ */
+function openDrawer(code){
+  const s = [...SIGNALS,...PENDING].find(x=>x.code===code);
+  if(!s) return;
+  $('#d-title').textContent = `${s.name} · ${s.code}`;
+  $('#d-body').innerHTML = `
+    <div class="kv"><span class="k">策略</span><span><span class="chip">${s.strat}</span></span></div>
+    <div class="kv"><span class="k">方向</span><span><span class="dir ${s.dir==='空'?'short':'long'}">${s.dir||'—'}</span></span></div>
+    <div class="kv"><span class="k">入场价</span><span class="num">${s.entry??'—'}</span></div>
+    <div class="kv"><span class="k">失效价</span><span class="num">${s.invalid??'—'}</span></div>
+    <div class="kv"><span class="k">现价</span><span class="num">${s.cur??'—'}</span></div>
+    <div class="kv"><span class="k">PA 证据</span><span>${s.ev}</span></div>
+    <div class="kv"><span class="k">状态</span><span><span class="badge ${s.status==='活跃'?'active':s.status==='已建仓'?'filled':'invalid'}">${s.status}</span></span></div>
+    <div class="kv"><span class="k">来源</span><span class="muted" style="font-size:11px">signal_archive / weekly_watchlist.json</span></div>`;
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('width','100%'); svg.setAttribute('viewBox','0 0 400 200'); svg.id='bigc';
+  $('#d-chart').innerHTML=''; $('#d-chart').appendChild(svg);
+  drawCandles(svg, s.dir==='空'?'down':'up', 30, 400, 200);
+  $('#mask').classList.add('open'); $('#drawer').classList.add('open');
+}
+function closeDrawer(){ $('#mask').classList.remove('open'); $('#drawer').classList.remove('open'); }
+$('#mask').onclick=closeDrawer; $('#d-x').onclick=closeDrawer;
+
+/* ============ 导航 ============ */
+const NAMES = {dashboard:'看板',signals:'信号中心',watchlist:'自选',strategy:'策略',backtest:'回测',data:'数据画像',settings:'设置'};
+function navTo(p){
+  $$('.nav-item').forEach(n=>n.classList.toggle('active', n.dataset.page===p));
+  $$('.page').forEach(s=>s.classList.remove('active'));
+  $('#page-'+p).classList.add('active');
+  $('#crumb-page').textContent = NAMES[p];
+}
+$$('.nav-item[data-page]').forEach(el=>el.onclick=()=>navTo(el.dataset.page));
+
+/* ============ 事件绑定 ============ */
+// 看板 KPI 跳转
+$$('.kpi[data-goto]').forEach(k=>k.onclick=()=>navTo(k.dataset.goto));
+// 信号周期
+$$('#sig-tf button').forEach(b=>b.onclick=()=>{ $$('#sig-tf button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); sigFilter.tf=b.dataset.tf; $('#sb-tf').textContent=b.dataset.tf==='daily'?'日线':'周线'; renderSignals(); });
+$('#sig-status').onchange=e=>{sigFilter.status=e.target.value; renderSignals();};
+$('#sig-strat').onchange=e=>{sigFilter.strat=e.target.value; renderSignals();};
+$('#sig-search').oninput=e=>{sigFilter.q=e.target.value; renderSignals();};
+$('#sig-week').onchange=()=>{ /* 示意：切换周但本原型不重算 */ };
+// 自选视图 / 分组
+$$('#wl-view button').forEach(b=>b.onclick=()=>{ $$('#wl-view button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); wlView=b.dataset.view; renderWatch(); });
+$('#wl-add').onclick=()=>{ const g=prompt('新分组名称（按策略标签）：','自定义'); if(g&&!wlGroups.includes(g)){ wlGroups.push(g); renderWatch(); } };
+$('#wl-remove').onclick=()=>{ if(wlGroups.length>1){ wlGroups.pop(); renderWatch(); } };
+// 回测
+$$('#bt-metric button').forEach(b=>b.onclick=()=>{ $$('#bt-metric button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); btMetric=b.dataset.m; renderBacktest(); });
+$('#bt-strat').onchange=e=>{btStrat=e.target.value; renderBacktest();};
+// 数据画像
+$$('#dt-tab button').forEach(b=>b.onclick=()=>{ $$('#dt-tab button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); dtTab=b.dataset.t; renderData(); });
+$('#dt-refresh').onclick=()=>renderData();
+// 设置主题
+$$('#set-theme button').forEach(b=>b.onclick=()=>{ $$('#set-theme button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); document.documentElement.setAttribute('data-theme', b.dataset.th); });
+
+/* ============ 初始渲染 ============ */
+renderDashBars(); renderDashFeed(); renderSignals(); renderWatch(); renderStrats(); renderBacktest(); renderData();
 </script>
 </body>
 </html>
