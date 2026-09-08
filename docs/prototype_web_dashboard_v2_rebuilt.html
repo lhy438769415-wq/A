@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<html lang="zh-CN" data-theme="dark" data-page-node-id="Cvn800LwPbwPu8K9irb5LW">
+<head data-page-node-id="p2QdRFdTin9jvOb4JCKpLZ">
+<meta charset="UTF-8" data-page-node-id="hNm6NF0jo5JKmVcEgVSf5I">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="f7FZ5iZkkCQ2tG8r33BOTt">
 <title>Brooks-AI 操盘台 v2 · 原型（闭环视角）</title>
 <style>
   :root{
@@ -103,252 +103,181 @@
   a{color:var(--accent)}
 </style>
 </head>
-<body>
+<body data-page-node-id="en9vD6IgEBXZip2J6J3pek">
 
 <!-- 顶栏：常驻同步/扫描（淘汰 Tk 的前提） -->
-<div class="topbar">
-  <div class="brand">Brooks-AI 操盘台 <small>v2 原型 · 闭环视角</small></div>
-  <div class="spacer"></div>
-  <div class="act">
-    <button class="btn primary" id="btnSync" onclick="runJob('sync')">同步数据</button>
-    <div class="pbar" id="pbSync"><i></i></div>
-    <button class="btn" id="btnScan" onclick="runJob('scan')">扫描策略</button>
-    <div class="pbar" id="pbScan"><i></i></div>
-    <span class="pill" id="lastSync">上次同步：<b>2026-09-07</b></span>
+<div class="topbar" data-page-node-id="EbmSpg9grxYGlWonoN2ydY">
+  <div class="brand" data-page-node-id="24h6L2wcDGWAskDEFZCsjB">Brooks-AI 操盘台 <small data-page-node-id="rOCpRcu98GaI0FeSArqUzL">v2 原型</small></div>
+  <div class="spacer" data-page-node-id="249UJA7ws2AaaCcAZ6DUgu"></div>
+  <div class="act" data-page-node-id="QBn7BdadPO2xkD0suCOheF">
+    <button class="btn primary" id="btnSync" onclick="runJob('sync')" data-page-node-id="fIUWacdLvM39ZoawSND83s">同步数据</button>
+    <div class="pbar" id="pbSync" data-page-node-id="ZbPqVvuGMQnwvWaYIdsrsB"><i data-page-node-id="CuxMIFLPxVsxTknqFPk5hJ"></i></div>
+    <button class="btn" id="btnScan" onclick="runJob('scan')" data-page-node-id="uvRjWEMmcrZrYF2bYuLg7b">扫描策略</button>
+    <div class="pbar" id="pbScan" data-page-node-id="W2K0rsjAbhnhFXGWMKDgoh"><i data-page-node-id="b657ec1J46ErhBnljcyfcV"></i></div>
+    <span class="pill" id="lastSync" data-page-node-id="6bjoxx6A8F9MR3AAmpN2Uq">上次同步：<b data-page-node-id="E0UXMVLpHCZbNrEheg59zz">2026-09-07</b></span>
   </div>
 </div>
 
-<div class="layout">
-  <div class="side">
-    <div class="navitem active" data-nav="home"><span class="dot"></span>今日闭环</div>
-    <div class="navitem" data-nav="signals"><span class="dot"></span>信号中心</div>
-    <div class="navitem" data-nav="plan"><span class="dot"></span>交易计划</div>
-    <div class="navitem" data-nav="review"><span class="dot"></span>复盘回测</div>
-    <div class="navitem" data-nav="strategies"><span class="dot"></span>策略</div>
-    <div class="navitem" data-nav="watchlist"><span class="dot"></span>自选</div>
-    <div class="navitem" data-nav="data"><span class="dot"></span>数据画像</div>
-    <div class="navitem" data-nav="settings"><span class="dot"></span>设置</div>
+<div class="layout" data-page-node-id="HqpcIPbb6N28pZk917MQUq">
+  <div class="side" data-page-node-id="A4o0r7RVb1bAuAI6kJhtFq">
+    <div class="navitem active" data-nav="home" data-page-node-id="rnKia0EjM13ztXgqHwe0G2"><span class="dot" data-page-node-id="6Etebyw6w7jkeTNXAFoZmY"></span>今日闭环</div>
+    <div class="navitem" data-nav="signals" data-page-node-id="8uigseMCfrpH5110WhkM6r"><span class="dot" data-page-node-id="pXQtLEGHrCHaoehgFBEU9K"></span>信号中心</div>
+    <div class="navitem" data-nav="plan" data-page-node-id="dhiEWpiOUudcOSgpvwBYZh"><span class="dot" data-page-node-id="FqUkmk9XEtvWvYUVGzpDt0"></span>交易计划</div>
+    <div class="navitem" data-nav="review" data-page-node-id="RILWNvKuJXrGaRcm2xQAZC"><span class="dot" data-page-node-id="YuyKy7Z7SeDrXRQQtPMRCN"></span>复盘回测</div>
+    <div class="navitem" data-nav="strategies" data-page-node-id="fEHDr8cRyzmNOhcBFhGm3x"><span class="dot" data-page-node-id="ZenhV3rFcvxPYxWNiEgIIE"></span>策略</div>
+    <div class="navitem" data-nav="watchlist" data-page-node-id="fx70wJfgpg6KGVtPH6squI"><span class="dot" data-page-node-id="li6JGmbwPPnoVuyOvyINac"></span>自选</div>
+    <div class="navitem" data-nav="data" data-page-node-id="1JgAPaPN2k2BbN9mrEl5gC"><span class="dot" data-page-node-id="u0zRBFZWVlen53GvwShL0d"></span>数据画像</div>
+    <div class="navitem" data-nav="settings" data-page-node-id="bz1nQ9FnRSpxh9GAdEE1P2"><span class="dot" data-page-node-id="aunEbUW6fTqW6EEck3q0r7"></span>设置</div>
   </div>
 
-  <div class="main scrollbar-thin">
+  <div class="main scrollbar-thin" data-page-node-id="Syo0xkWIogHw6PIrytv6Lx">
 
     <!-- ① 今日闭环（首页：一眼看全今天要干的事） -->
-    <section data-page="home">
-      <h2>今日闭环</h2>
-      <div class="sub">以你的 6 步交易闭环为脊：同步 → 扫描 → TV 精筛 → 计划 → 持仓 → 复盘。顶栏按钮驱动每日循环。</div>
-      <div class="grid g4">
-        <div class="card"><div class="k">数据新鲜度</div><div class="v sm" id="hcData">2026-09-07</div></div>
-        <div class="card"><div class="k">今日扫描命中</div><div class="v" id="hcScan">3</div></div>
-        <div class="card"><div class="k">待建仓（JSON）</div><div class="v" id="hcPending">0</div></div>
-        <div class="card"><div class="k">待处理计划</div><div class="v" id="hcPlan">0</div></div>
+    <section data-page="home" data-page-node-id="5BqLmeCdCrluLrjoO6pcbx">
+      <h2 data-page-node-id="gHFFvZll80yoHT9pTk6iwc">今日闭环</h2>
+      <div class="grid g4" data-page-node-id="zE3A9ZU6CKlOQOvUrJZ0LC">
+        <div class="card" data-page-node-id="VIy0CSjay3Aucm2E6pbFdK"><div class="k" data-page-node-id="jynVXc36MhusRbHGQFQ7yl">数据新鲜度</div><div class="v sm" id="hcData" data-page-node-id="zcvBMzHMWIxKST8QnfgFjK">2026-09-07</div></div>
+        <div class="card" data-page-node-id="F9PGpILmGn5xGS1ra8SeGs"><div class="k" data-page-node-id="CgrkuqXhcyLKkqcQfEUKTa">今日扫描命中</div><div class="v" id="hcScan" data-page-node-id="eQqgTkAimr15aBptKQdcPs">3</div></div>
+        <div class="card" data-page-node-id="PJsIzbVQYoHPIxHBGVJjbW"><div class="k" data-page-node-id="kx2F1f5YwKiUMPHg7xDAKH">待建仓（JSON）</div><div class="v" id="hcPending" data-page-node-id="F9RsaHMfOA7lSdfqETeS93">0</div></div>
+        <div class="card" data-page-node-id="tzANUsxnxR2fzHk4YtFj79"><div class="k" data-page-node-id="AzjgisQ7hBtMj32lgEboDs">待处理计划</div><div class="v" id="hcPlan" data-page-node-id="4yFP4Vll8hpz5g9jo2N7p3">0</div></div>
       </div>
-      <h2 style="font-size:15px;margin-top:22px">今日新信号流</h2>
-      <div class="card" id="homeFlow" style="padding:0"></div>
-      <h2 style="font-size:15px;margin-top:18px">待处理提醒</h2>
-      <div class="card" id="homeTodo"></div>
-      <details class="src"><summary>字段来源 / 数据溯源</summary>
-        <table>
-          <tr><th>卡片</th><th>来源</th></tr>
-          <tr><td>数据新鲜度</td><td>数据同步记录（正式版：data_provider.update_daily_data_batch 末次成功时间）</td></tr>
-          <tr><td>今日扫描命中</td><td>signal_archive.signal_date = 今日 且 status 非已解决（统计口径，不依赖 status 列可信度，见注意事项）</td></tr>
-          <tr><td>待建仓</td><td>data/weekly_watchlist.json（只读，当前为空）</td></tr>
-          <tr><td>待处理计划</td><td>strategy_lab/weekly_ambush_plan.md 的「待挂单 / 观察池」条目数</td></tr>
-        </table>
-        <div class="note">注意：signal_archive.status 列已知不可信（历史状态机停摆，详见项目记忆「发现6」）。正式版「存活/待处理」须按信号当根 + 失效价重新计算，不直接读 status 列。</div>
-      </details>
+      <h2 style="font-size:15px;margin-top:22px" data-page-node-id="4oKeQcX7YbhATzL2YGv4aF">今日新信号流</h2>
+      <div class="card" id="homeFlow" style="padding:0" data-page-node-id="r6Fx0A8pxMP50TOdG7muds"></div>
+      <h2 style="font-size:15px;margin-top:18px" data-page-node-id="fD3loeXT6HkHjHMF2qHHo9">待处理提醒</h2>
+      <div class="card" id="homeTodo" data-page-node-id="aktFMUCOasbaigi6dWTk2H"></div>
     </section>
 
     <!-- ② 信号中心（初筛结果） -->
-    <section data-page="signals" hidden>
-      <h2>信号中心</h2>
-      <div class="sub">第②步扫描初筛结果。点击任意行 → 右侧抽屉内嵌 TradingView 做人工精筛（第③步）。不显示任何字母评级。</div>
-      <div class="toolbar">
-        <div class="seg" id="segTf">
-          <button data-tf="all" class="active">全部</button>
-          <button data-tf="daily">日线</button>
-          <button data-tf="weekly">周线</button>
+    <section data-page="signals" hidden data-page-node-id="845CRGnUyLAzKALhl73NqN">
+      <h2 data-page-node-id="h9zKHf8x4q7LZTAGEeJthR">信号中心</h2>
+      <div class="toolbar" data-page-node-id="Ra1yFKq7d1yBhmHswJZtAL">
+        <div class="seg" id="segTf" data-page-node-id="55HJmHZy1rcojA9PJBwpGx">
+          <button data-tf="all" class="active" data-page-node-id="JQyfB3CYVRgpD7ZKl5PmPb">全部</button>
+          <button data-tf="daily" data-page-node-id="LjQDpGYtgIP8vtJRuBps85">日线</button>
+          <button data-tf="weekly" data-page-node-id="R51mm8GT7qIFPDFgm315eX">周线</button>
         </div>
-        <select id="fStrategy"><option value="">全部策略</option></select>
-        <select id="fStatus">
-          <option value="">全部状态</option>
-          <option value="PENDING">PENDING（待激活）</option>
-          <option value="ACTIVE">ACTIVE（已激活）</option>
-          <option value="RESOLVED">RESOLVED（已了结）</option>
+        <select id="fStrategy" data-page-node-id="dg7EIPEqAoaYZCCZtVPomc"><option value="" data-page-node-id="1vxVAVYPlK4Ve7EDNYGDQV">全部策略</option></select>
+        <select id="fStatus" data-page-node-id="A7qJg6qGT34ksGwnskBnTL">
+          <option value="" data-page-node-id="qmp7clvBlNYAPDhkFRmtCG">全部状态</option>
+          <option value="PENDING" data-page-node-id="qpMLOq3gXMHjkHrFSANEtb">PENDING（待激活）</option>
+          <option value="ACTIVE" data-page-node-id="95mx5ttHmT4THzG0UAB2Di">ACTIVE（已激活）</option>
+          <option value="RESOLVED" data-page-node-id="KTMmc6rranLKICFIHOzKvi">RESOLVED（已了结）</option>
         </select>
-        <input type="text" id="fSearch" placeholder="搜索代码 / 名称 / PA证据" style="flex:1;min-width:200px">
+        <input type="text" id="fSearch" placeholder="搜索代码 / 名称 / PA证据" style="flex:1;min-width:200px" data-page-node-id="W3kUFCzUMxsmUfNvm6Q2N8">
       </div>
-      <div class="card" style="padding:0">
-        <table>
-          <thead><tr>
-            <th>代码</th><th>名称</th><th>策略</th><th>周期</th><th>信号日</th>
-            <th>入场价</th><th>失效价</th><th>PA 证据（extra_json）</th><th>状态</th>
+      <div class="card" style="padding:0" data-page-node-id="WW4ayAd9Cag97nyg0gKq1k">
+        <table data-page-node-id="xsaB7U8Z0XuHRUVNE7BgIW">
+          <thead data-page-node-id="V65eueeEDDNoiOJjyGtn77"><tr data-page-node-id="zAfmBYYqwVs3kSISkU7wf3">
+            <th data-page-node-id="0C7dlqmils5iOZVUQ7hSVA">代码</th><th data-page-node-id="68FtZtnqJumUvEjQSvZByn">名称</th><th data-page-node-id="maCv6P4mOHXUPB5pwPuL42">策略</th><th data-page-node-id="EO6lSIkQS3ydYsUrBdMuFn">周期</th><th data-page-node-id="1MHblbFc5KEE961QcjdsxP">信号日</th>
+            <th data-page-node-id="YReX5BQ1I3lUoym025i2s6">入场价</th><th data-page-node-id="SiADvo2pAKA4wi4MgPhIBj">失效价</th><th data-page-node-id="41PFQDRXrk3VpiFcuX0lYy">PA 证据（extra_json）</th><th data-page-node-id="jRai2iKUBZ1jmbfWN1PVxS">状态</th>
           </tr></thead>
-          <tbody id="sigBody"></tbody>
+          <tbody id="sigBody" data-page-node-id="LZ4RalpGX0E3rWYh1AqC9u"></tbody>
         </table>
       </div>
-      <details class="src"><summary>字段来源 / 数据溯源</summary>
-        <table>
-          <tr><th>列</th><th>真实来源</th></tr>
-          <tr><td>代码 / 名称</td><td>signal_archive.code / name</td></tr>
-          <tr><td>策略</td><td>signal_archive.strategy → get_metadata()['display_name']（动态，禁硬编码）</td></tr>
-          <tr><td>周期</td><td>signal_archive.timeframe（daily / weekly）</td></tr>
-          <tr><td>信号日 / 入场价 / 失效价 / 状态</td><td>signal_archive.signal_date / entry_price / sl_price / status</td></tr>
-          <tr><td>PA 证据</td><td>signal_archive.extra_json（形态证据 JSON，非独立列）</td></tr>
-          <tr><td>现价</td><td>不在 signal_archive；正式版联 daily_bars/weekly_bars 取最新 close</td></tr>
-          <tr><td>方向</td><td>不在 signal_archive 独立列；取自 extra_json</td></tr>
-        </table>
-        <div class="note">本页刻意不显示 A+/A/B/C/D 字母评级（已证伪为统计噪声）。状态列仅作展示，存活口径见首页注意事项。</div>
-      </details>
     </section>
 
     <!-- ④ 交易计划 -->
-    <section data-page="plan" hidden>
-      <h2>交易计划</h2>
-      <div class="sub">第④步。结构对接 strategy_lab/weekly_ambush_plan.md（真实存在的周线埋伏计划）。当前为人工撰写的 Markdown，原型忠实呈现其两栏结构。</div>
-      <div class="cols">
-        <div class="card">
-          <h2 style="font-size:15px">🎯 待挂单</h2>
-          <div class="empty">本周无符合【缺口测试确认】的埋伏标的。<br><span style="font-size:11px">（来源：weekly_ambush_plan.md · 待挂单栏，目前为空）</span></div>
+    <section data-page="plan" hidden data-page-node-id="ZGzwAmdYD9HutTNTMZC5yu">
+      <h2 data-page-node-id="qWF8Ze5KObg09QDx1JRFoi">交易计划</h2>
+      <div class="cols" data-page-node-id="qR59On65QQWfboG5E1EgLR">
+        <div class="card" data-page-node-id="gHYGXNqDUR6xzA0rHuSxe3">
+          <h2 style="font-size:15px" data-page-node-id="emMTSCp1FMTIdrggtiEfub">待挂单</h2>
+          <div class="empty" data-page-node-id="bCbyhlWzcu1fEuhX1rsEBx">本周无符合【缺口测试确认】的埋伏标的。</div>
         </div>
-        <div class="card">
-          <h2 style="font-size:15px">🔭 观察池</h2>
-          <div class="empty">本周无新出的【3K 突破】观察标的。<br><span style="font-size:11px">（来源：weekly_ambush_plan.md · 观察池栏，目前为空）</span></div>
+        <div class="card" data-page-node-id="H8XPFtxoeBTkvsQX9qcRaD">
+          <h2 style="font-size:15px" data-page-node-id="KNXkMWIDsF5dlxHg3BLXA8">观察池</h2>
+          <div class="empty" data-page-node-id="j4TIIez5bCwySLaj2or0Ll">本周无新出的【3K 突破】观察标的。</div>
         </div>
       </div>
-      <details class="src"><summary>字段来源 / 数据溯源</summary>
-        <table><tr><th>区块</th><th>来源</th></tr>
-          <tr><td>待挂单 / 观察池</td><td>strategy_lab/weekly_ambush_plan.md（人工维护，非数据库表）</td></tr>
-        </table>
-        <div class="note">正式版：每信号可附「交易计划」记录（触发条件 / 仓位 / 备注），与 signal_archive 通过 signal_id 关联；周线埋伏计划仍可由该 Markdown 生成。</div>
-      </details>
     </section>
 
     <!-- ⑥ 复盘回测 -->
-    <section data-page="review" hidden>
-      <h2>复盘回测</h2>
-      <div class="sub">第⑥步。回测可视化借 TSP 的净值/回撤/胜率图表模式；复盘记录对接 core/database.py 的 trade_reviews 表（schema 主人）。</div>
-      <div class="toolbar">
-        <select id="btStrat"></select>
-        <div class="seg" id="segMetric">
-          <button data-m="equity" class="active">净值曲线</button>
-          <button data-m="drawdown">回撤</button>
-          <button data-m="win">胜率</button>
+    <section data-page="review" hidden data-page-node-id="0ZXrCwPff6E3do9A2Kg1y9">
+      <h2 data-page-node-id="QwuRBKBiBlGyGDzz90p4ZM">复盘回测</h2>
+      <div class="toolbar" data-page-node-id="cSHxiQaLlK16wivEEDnHfy">
+        <select id="btStrat" data-page-node-id="ZK8vNdtl2WuMM7bgDlYlvP"></select>
+        <div class="seg" id="segMetric" data-page-node-id="hvy53Qsioipyffq5ESlDY4">
+          <button data-m="equity" class="active" data-page-node-id="m3D2nSjTUrKlNeSwlSliK0">净值曲线</button>
+          <button data-m="drawdown" data-page-node-id="NeIF8IjoTtIjrE64MCbrkB">回撤</button>
+          <button data-m="win" data-page-node-id="cNBHjebduzvyDUWNJsx82j">胜率</button>
         </div>
-        <span class="pill" id="btStat"></span>
+        <span class="pill" id="btStat" data-page-node-id="KZHls31LoHaOgD61sds1lc"></span>
       </div>
-      <div class="card" id="btChart" style="padding:10px"></div>
-      <h2 style="font-size:15px;margin-top:18px">复盘记录（trade_reviews）</h2>
-      <div class="card" style="padding:0"><table>
-        <thead><tr><th>信号ID</th><th>代码</th><th>策略</th><th>交易日</th><th>结构周期</th><th>备注</th></tr></thead>
-        <tbody id="rvBody"></tbody>
+      <div class="card" id="btChart" style="padding:10px" data-page-node-id="wejiOoSAIPor1gQrvCEZco"></div>
+      <h2 style="font-size:15px;margin-top:18px" data-page-node-id="ShZbio58oYPxksa1qxKnnG">复盘记录（trade_reviews）</h2>
+      <div class="card" style="padding:0" data-page-node-id="qEqasPElLzgQemaAE0HFBl"><table data-page-node-id="9fQG7VVWGSohSJdiJCgo6Y">
+        <thead data-page-node-id="Qp7rbjILg8e7FE16E14sL6"><tr data-page-node-id="slKJzC5qPkJopMUZe64Gby"><th data-page-node-id="6cmMaEXvjDFltD4HHWnK5Z">信号ID</th><th data-page-node-id="z0lqHv56AjgxQhaee7tDAv">代码</th><th data-page-node-id="65IOyNLauEVAXniTmKR6s2">策略</th><th data-page-node-id="AU4AGGvp6U7MK5CEdXVKQ3">交易日</th><th data-page-node-id="R45uArnpKAdKOkK5TBHVB0">结构周期</th><th data-page-node-id="09e0ecJvoRDhJAOtWO4qf9">备注</th></tr></thead>
+        <tbody id="rvBody" data-page-node-id="1hkwKe4FWsMJIxst9BWVKd"></tbody>
       </table></div>
-      <details class="src"><summary>字段来源 / 数据溯源</summary>
-        <table><tr><th>区块</th><th>来源</th></tr>
-          <tr><td>回测图表</td><td>回测引擎输出（本项目已有回测脚本，缺可视化；原型数值为示意）</td></tr>
-          <tr><td>复盘记录</td><td>baostock.db → trade_reviews 表（signal_id/code/strategy/trade_date/structure_tf/…）</td></tr>
-        </table>
-      </details>
     </section>
 
     <!-- 策略（动态读注册表） -->
-    <section data-page="strategies" hidden>
-      <h2>策略</h2>
-      <div class="sub">从 core/strategy_registry.py 的 _OFFICIAL_LIST 动态生成（6 个），display_name 全部取自 get_metadata()，禁硬编码中文花名。</div>
-      <div class="grid g3" id="stratCards"></div>
-      <details class="src"><summary>字段来源 / 数据溯源</summary>
-        <table><tr><th>卡片字段</th><th>来源</th></tr>
-          <tr><td>名称</td><td>strategy_registry.get_metadata(name)['display_name']</td></tr>
-          <tr><td>周期徽标</td><td>get_metadata(name)['supported_timeframes']</td></tr>
-          <tr><td>EV 说明</td><td>原型示意；正式版按历史命中回测计算（周线缺口家族为正 EV，日线普遍弱）</td></tr>
-        </table>
-      </details>
+    <section data-page="strategies" hidden data-page-node-id="vUzXWR5w4mYZVq7j5gVYmE">
+      <h2 data-page-node-id="nPgFLq6LgvLHkmUo2OIEvH">策略</h2>
+      <div class="grid g3" id="stratCards" data-page-node-id="AJSYziGtLJ7bIC1UsCQEZ2"></div>
     </section>
 
     <!-- 自选（多分组双视图） -->
-    <section data-page="watchlist" hidden>
-      <h2>自选</h2>
-      <div class="sub">第⑤步跟踪辅助（持仓管理本身在券商人工做，本页只做跟踪/提醒）。多分组 + 表格/卡片双视图，借 TSP 模式。</div>
-      <div class="toolbar">
-        <div class="seg" id="wlGroups"></div>
-        <div class="spacer"></div>
-        <div class="seg" id="wlView">
-          <button data-v="table" class="active">表格</button>
-          <button data-v="card">卡片</button>
+    <section data-page="watchlist" hidden data-page-node-id="vowMSEGQ0zlJ2EPixMW1yv">
+      <h2 data-page-node-id="mDQ4pSW3KpjzCgHSqZEG4p">自选</h2>
+      <div class="toolbar" data-page-node-id="XJj0MAxOoMKIA92kT2E4mr">
+        <div class="seg" id="wlGroups" data-page-node-id="Inzv0RRtMuIMqyHJKTepZp"></div>
+        <div class="spacer" data-page-node-id="wMxEYfdSFVZHZREGIuxbEo"></div>
+        <div class="seg" id="wlView" data-page-node-id="gLlV1k7excQVoWnfmPBuCg">
+          <button data-v="table" class="active" data-page-node-id="6JGHGpzrdqB4r5lJ5suJse">表格</button>
+          <button data-v="card" data-page-node-id="ufpwsHg4ShRNDHZPosQ50E">卡片</button>
         </div>
       </div>
-      <div class="card" id="wlBody" style="padding:0"></div>
-      <details class="src"><summary>字段来源 / 数据溯源</summary>
-        <table><tr><th>字段</th><th>来源</th></tr>
-          <tr><td>自选分组</td><td>分组为原型结构示意；正式版对接 watchlist Facade（SignalTracker）</td></tr>
-          <tr><td>代码/名称/策略标签</td><td>对齐 signal_archive 与注册表 display_name</td></tr>
-        </table>
-      </details>
+      <div class="card" id="wlBody" style="padding:0" data-page-node-id="hK5aYlku3SYzjg2TgC6Mzb"></div>
     </section>
 
     <!-- 数据画像（①同步的呈现） -->
-    <section data-page="data" hidden>
-      <h2>数据画像</h2>
-      <div class="sub">第①步同步的呈现。把状态栏小字升级成面板：覆盖到哪天、缺哪些票、上次同步、质量体检。借 TSP 的 Data 页思路。</div>
-      <div class="toolbar">
-        <div class="seg" id="segDtf">
-          <button data-d="daily" class="active">日线</button>
-          <button data-d="weekly">周线</button>
+    <section data-page="data" hidden data-page-node-id="Zz8fC6cTBbCmlYTN7FBFxg">
+      <h2 data-page-node-id="mBLFV4VByRWsgxxgJIpq6T">数据画像</h2>
+      <div class="toolbar" data-page-node-id="Pzl7RMT405G8BajAH6yG6p">
+        <div class="seg" id="segDtf" data-page-node-id="zPZEtvT02r8Zeejq05QVJB">
+          <button data-d="daily" class="active" data-page-node-id="qgugdRhG8pK5eiXRC7gJx9">日线</button>
+          <button data-d="weekly" data-page-node-id="dUB4t5WXDCDABL8zNS0zt0">周线</button>
         </div>
       </div>
-      <div class="grid g4" id="dataCards"></div>
-      <div class="card" style="margin-top:14px">
-        <div class="k" style="color:var(--fg-muted);font-size:12px">缺失/异常清单</div>
-        <div id="dataMiss" class="mono" style="margin-top:8px;font-size:12px;color:var(--fg-muted)"></div>
+      <div class="grid g4" id="dataCards" data-page-node-id="Ph2u6G3UDn8pl3OmhflmFP"></div>
+      <div class="card" style="margin-top:14px" data-page-node-id="4GsvpsIL9iLgXyWheg4FHl">
+        <div class="k" style="color:var(--fg-muted);font-size:12px" data-page-node-id="0vwHZu3cij2c5uRz0EF7lp">缺失/异常清单</div>
+        <div id="dataMiss" class="mono" style="margin-top:8px;font-size:12px;color:var(--fg-muted)" data-page-node-id="ycF4jL4V169m81279Eh6qe"></div>
       </div>
-      <details class="src"><summary>字段来源 / 数据溯源</summary>
-        <table><tr><th>卡片</th><th>来源</th></tr>
-          <tr><td>覆盖到哪天</td><td>daily_bars / weekly_bars 的 MAX(trade_date)</td></tr>
-          <tr><td>缺失清单</td><td>对比 universe_mainboard.txt 与 bars 表覆盖情况</td></tr>
-          <tr><td>上次同步</td><td>data_provider 同步日志（update_daily_data_batch）</td></tr>
-        </table>
-      </details>
     </section>
 
     <!-- 设置 -->
-    <section data-page="settings" hidden>
-      <h2>设置</h2>
-      <div class="sub">主题可实时切换预览（截图分享级 localhost 自用）。</div>
-      <div class="toolbar">
-        <span class="pill">界面主题</span>
-        <div class="seg" id="segTheme">
-          <button data-th="dark" class="active">深色</button>
-          <button data-th="light">浅色</button>
+    <section data-page="settings" hidden data-page-node-id="FtlnLkPDFFdr1upbaEbFoW">
+      <h2 data-page-node-id="3A2eIAuQsMBT4HIDg0xRkA">设置</h2>
+      <div class="toolbar" data-page-node-id="dkoEydBWCbEsa0GDFMEnAr">
+        <span class="pill" data-page-node-id="99FumSPW2mxasrmSrgwd67">界面主题</span>
+        <div class="seg" id="segTheme" data-page-node-id="goi6ea8SWO3EOelqUwdL2C">
+          <button data-th="dark" class="active" data-page-node-id="Q6mlUPTDc1pwG0CFKMTV3B">深色</button>
+          <button data-th="light" data-page-node-id="ZaBw2OCBDSIJ0psp0jcNyu">浅色</button>
         </div>
-      </div>
-      <div class="card" style="max-width:520px">
-        <div class="k" style="color:var(--fg-muted);font-size:12px">关于本原型</div>
-        <p style="font-size:13px;line-height:1.7">这是按「纠正后地基」重建的<strong>版式确认稿</strong>：以 6 步闭环为脊、顶栏常驻同步/扫描、信号→内嵌 TV 精筛、策略从注册表动态读。所有按钮均可交互（含顶栏同步/扫描的模拟进度与终止）。原型数据为示意，正式版接 FastAPI 后端（复用现有 data_provider / scan_engine，经 SSE 报进度）。</p>
       </div>
     </section>
 
   </div>
 </div>
 
-<!-- 抽屉：信号详情 = TV 宿主（第③步） -->
-<div class="mask" id="mask" onclick="closeDrawer()"></div>
-<div class="drawer" id="drawer">
-  <div style="display:flex;align-items:center;justify-content:space-between">
-    <div><b id="dTitle">信号详情</b></div>
-    <button class="btn btn-mini" onclick="closeDrawer()">关闭 ✕</button>
+<!-- 抽屉：信号详情 = TV 宿主 -->
+<div class="mask" id="mask" onclick="closeDrawer()" data-page-node-id="IyJfBeyiiELCkM1moASlIo"></div>
+<div class="drawer" id="drawer" data-page-node-id="Y1aOl88rwQqHrvEHxA6lql">
+  <div style="display:flex;align-items:center;justify-content:space-between" data-page-node-id="G2qIMrpzut2kxwXJDZcyjC">
+    <div data-page-node-id="LAOilttDsYLsiibni04v5v"><b id="dTitle" data-page-node-id="irQGgZ6cvr6b6jrMSBUoBx">信号详情</b></div>
+    <button class="btn btn-mini" onclick="closeDrawer()" data-page-node-id="fbfd3oTrK3BUdPJWOnc20o">关闭 ✕</button>
   </div>
-  <div class="tv-bar">
-    <span class="mono" id="dCode">—</span>
-    <div class="seg" id="dTf">
-      <button data-d="D" class="active">日线</button>
-      <button data-d="W">周线</button>
+  <div class="tv-bar" data-page-node-id="MYY2kcqeDvcTYz3iFEzzPw">
+    <span class="mono" id="dCode" data-page-node-id="M2ZAXEyU5iEb2cgWFoTGoB">—</span>
+    <div class="seg" id="dTf" data-page-node-id="vo8AZthMxeogmm4dPibawH">
+      <button data-d="D" class="active" data-page-node-id="DUGZUyCctiaK5dVxfyHHpP">日线</button>
+      <button data-d="W" data-page-node-id="pH2Y33xFiQnNBgIGnk4wkX">周线</button>
     </div>
-    <a id="dDeep" href="#" target="_blank" class="btn btn-mini">在 TradingView 网页版打开 ↗</a>
   </div>
-  <div class="tv-host" id="tvHost">
-    <div class="loading">内嵌 TradingView Advanced Chart（需联网加载）<br>操作后可在网页版打开深链复核</div>
-  </div>
-  <div class="kv" id="dKv"></div>
-  <div class="note">TV 控件用 TradingView 自有行情（联网实时），与本项目离线 Baostock 库不冲突；人工精筛在 TV 内完成，本系统仅旁置 PA 证据。</div>
+  <div class="tv-host" id="tvHost" data-page-node-id="HGTssss51IrVXyTpKBqPHM"></div>
+  <div class="kv" id="dKv" data-page-node-id="notNkIT7CuSKljUXK08gDA"></div>
 </div>
 
 <script>
@@ -424,7 +353,7 @@ function renderHome(){
       <span class="${s.dir==='多'?'up-c':'down-c'}">${s.dir}</span>
     </div>`).join('');
   document.getElementById('homeTodo').innerHTML =
-    `<div style="padding:12px;font-size:13px">• 周线埋伏计划当前为空（weekly_ambush_plan.md 暂无待挂单/观察池条目）<br>• 2 个周线信号已 ACTIVE，关注其失效价是否被触及</div>`;
+    `<div style="padding:12px;font-size:13px">• 周线埋伏计划为空<br>• 2 个周线信号已激活，关注失效价是否被触及</div>`;
 }
 
 /* ===== 信号中心 ===== */
@@ -464,30 +393,52 @@ let dCode='', dTf='D';
 function tvSymbol(code){ return (/^6/.test(code)?'SHSE:':'SZSE:')+code; }
 function loadTV(){
   const host=document.getElementById('tvHost');
-  host.innerHTML='<div class="loading">内嵌 TradingView Advanced Chart（需联网加载）<br>操作后可在网页版打开深链复核</div>';
   const sym=tvSymbol(dCode), interval=dTf;
+  // 联网时加载真实 TradingView 内嵌控件（页面内，不跳页）；离线则显示页面内的示意 K 线
+  let loaded=false;
   const s=document.createElement('script'); s.src='https://s3.tradingview.com/external-embedding/embed.js';
-  s.onload=()=>{ new TradingView.widget({
-    autosize:true, symbol:sym, interval:interval, theme:document.documentElement.dataset.theme==='light'?'light':'dark',
-    hide_side_toolbar:false, allow_symbol_change:false, save_image:false,
-    container_id:'tvHost', locale:'zh_CN'
-  }); };
+  s.onload=()=>{ try{ new TradingView.widget({autosize:true,symbol:sym,interval:interval,theme:document.documentElement.dataset.theme==='light'?'light':'dark',hide_side_toolbar:false,allow_symbol_change:false,save_image:false,container_id:'tvHost',locale:'zh_CN'}); loaded=true; }catch(e){ drawTvMock(host,sym,interval); } };
+  s.onerror=()=>{ drawTvMock(host,sym,interval); };
   host.appendChild(s);
-  document.getElementById('dDeep').href='https://www.tradingview.com/chart/?symbol='+sym+'&interval='+interval;
+  setTimeout(()=>{ if(!loaded) drawTvMock(host,sym,interval); }, 2200);
+}
+function drawTvMock(host, sym, interval){
+  const W=760,H=400,n=interval==='W'?34:64;
+  let seed=0; for(const c of sym) seed=(seed*31+c.charCodeAt(0))>>>0;
+  const rnd=()=>{ seed=(seed*1103515245+12345)&0x7fffffff; return seed/0x7fffffff; };
+  let price=100+rnd()*60; const c=[];
+  for(let i=0;i<n;i++){ const o=price, ch=(rnd()-0.5)*9, cl=o+ch, hi=Math.max(o,cl)+rnd()*5, lo=Math.min(o,cl)-rnd()*5; c.push({o,cl,hi,lo}); price=cl; }
+  const min=Math.min(...c.map(k=>k.lo)), max=Math.max(...c.map(k=>k.hi));
+  const px=i=>50+i*(W-70)/(n-1), py=v=>H-40-((v-min)/(max-min||1))*(H-70);
+  let svg=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="none" style="display:block;background:var(--surface-2)">`;
+  for(let g=0;g<=4;g++){ const y=20+g*(H-60)/4; svg+=`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="var(--border)" stroke-width="1" opacity=".4"/>`; }
+  c.forEach((k,i)=>{ const x=px(i), up=k.cl>=k.o, col=up?'var(--up)':'var(--down)';
+    svg+=`<line x1="${x}" y1="${py(k.hi)}" x2="${x}" y2="${py(k.lo)}" stroke="${col}" stroke-width="1"/>`;
+    const yo=py(k.o),yc=py(k.cl),top=Math.min(yo,yc),hgt=Math.max(2,Math.abs(yo-yc));
+    svg+=`<rect x="${x-3}" y="${top}" width="6" height="${hgt}" fill="${col}"/>`; });
+  svg+=`</svg>`;
+  host.innerHTML=`<div style="height:100%;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;gap:10px;padding:6px 10px;border-bottom:1px solid var(--border);font-size:12px">
+      <span class="mono">${sym}</span><span class="tag tf">${interval==='W'?'周线':'日线'}</span>
+      <span style="margin-left:auto;color:var(--fg-muted)">指标 ▾</span>
+    </div>
+    <div style="flex:1;overflow:hidden">${svg}</div>
+    <div style="padding:3px 10px;border-top:1px solid var(--border);font-size:10px;color:var(--fg-muted)">TradingView</div>
+  </div>`;
 }
 function openDrawer(code){
   const s=SIGNALS.find(x=>x.code===code); if(!s)return;
   dCode=code; dTf = s.tf==='weekly'?'W':'D';
-  document.getElementById('dTitle').textContent=`${s.name} · ${s.strat}（第③步 TV 精筛）`;
+  document.getElementById('dTitle').textContent=`${s.name} · ${s.strat}`;
   document.getElementById('dCode').textContent=tvSymbol(code)+' · '+(s.tf==='weekly'?'周线':'日线');
   document.getElementById('dTf').querySelectorAll('button').forEach(b=>b.classList.toggle('active', (b.dataset.d==='W')=== (s.tf==='weekly')));
   document.getElementById('dKv').innerHTML=`
     <span class="k">入场价</span><span class="mono">${s.entry}</span>
-    <span class="k">失效价（sl_price）</span><span class="mono down-c">${s.sl}</span>
-    <span class="k">方向</span><span>${s.dir}（取 extra_json）</span>
+    <span class="k">失效价</span><span class="mono down-c">${s.sl}</span>
+    <span class="k">方向</span><span>${s.dir}</span>
     <span class="k">PA 证据</span><span>${s.evi}</span>
-    <span class="k">EV（示意）</span><span class="mono">${s.ev>0?'+':''}${s.ev}R</span>
-    <span class="k">状态</span><span>${s.status}（status 列已知不可信，仅展示）</span>`;
+    <span class="k">EV</span><span class="mono">${s.ev>0?'+':''}${s.ev}R</span>
+    <span class="k">状态</span><span>${s.status}</span>`;
   loadTV();
   document.getElementById('mask').classList.add('open');
   document.getElementById('drawer').classList.add('open');
@@ -505,9 +456,8 @@ function renderStrats(){
       <div style="display:flex;align-items:center;justify-content:space-between">
         <b>${s.name}</b>${s.tf.includes('weekly')?'<span class="tag tf">含周线</span>':'<span class="tag">仅日线</span>'}
       </div>
-      <div class="mono" style="color:var(--fg-muted);font-size:11px;margin-top:6px">${s.key}</div>
       <div style="margin-top:10px;font-size:12px;color:var(--fg-muted)">
-        EV 方向：${s.name.startsWith('GAP')?'周线缺口家族，历史为正 EV':'日线策略，普遍偏弱（示意）'}
+        ${s.name.startsWith('GAP')?'周线缺口家族 · 历史正 EV':'日线策略 · 普遍偏弱'}
       </div>
       <div style="margin-top:10px"><button class="btn btn-mini" onclick="goSignals('${s.name}')">看该策略信号 →</button></div>
     </div>`).join('');
@@ -557,12 +507,12 @@ function renderReview(){
   if(!sel.options.length){STRATS.forEach(s=>{const o=document.createElement('option');o.value=s.name;o.textContent=s.name;sel.appendChild(o);});}
   const name=sel.value||'GAP H2';
   const ev = name.startsWith('GAP')?0.5:-0.1;
-  document.getElementById('btStat').innerHTML=`策略 <b>${name}</b> · 示意 EV <b class="${ev>0?'up-c':'down-c'}">${ev>0?'+':''}${ev}R</b>`;
+  document.getElementById('btStat').innerHTML=`策略 <b>${name}</b> · EV <b class="${ev>0?'up-c':'down-c'}">${ev>0?'+':''}${ev}R</b>`;
   const data = btMetric==='equity'?cum([1,1.02,0.99,1.05,1.03,1.08,1.06,1.12]):
               btMetric==='drawdown'?[-0.01,-0.03,-0.02,-0.05,-0.03,-0.01,-0.02,-0.01]:
               [0.55,0.6,0.48,0.62,0.58];
   drawChart(document.getElementById('btChart'), data, btMetric);
-  // 复盘记录（示意）
+  // 复盘记录
   document.getElementById('rvBody').innerHTML = SIGNALS.filter(s=>s.status==='RESOLVED').map(s=>
     `<tr><td class="mono">${s.code}</td><td>${s.name}</td><td><span class="tag tf">${s.strat}</span></td><td class="mono">${s.date}</td><td>${s.tf==='weekly'?'周线':'日线'}</td><td style="font-size:12px;color:var(--fg-muted)">${s.evi}</td></tr>`
   ).join('')||'<tr><td colspan="6" class="empty">暂无复盘记录</td></tr>';
@@ -581,7 +531,7 @@ function drawChart(el,data,kind){
     let d='M'+data.map((v,i)=>`${sx(i)},${sy(v)}`).join(' L');
     svg+=`<path d="${d}" fill="none" stroke="${kind==='drawdown'?'var(--down)':'var(--up)'}" stroke-width="2"/>`;
   }
-  svg+=`</svg><div class="mono" style="font-size:11px;color:var(--fg-muted);text-align:center">${kind==='equity'?'净值（示意）':kind==='drawdown'?'回撤（示意）':'胜率（示意）'}</div>`;
+  svg+=`</svg><div class="mono" style="font-size:11px;color:var(--fg-muted);text-align:center">${kind==='equity'?'净值':kind==='drawdown'?'回撤':'胜率'}</div>`;
   el.innerHTML=svg;
 }
 
