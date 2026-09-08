@@ -148,8 +148,15 @@
   /* 抽屉 */
   .drawer-mask { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; z-index: 40; }
   .drawer-mask.open { display: block; }
-  .drawer { position: fixed; top: 0; right: 0; height: 100vh; width: 440px; max-width: 92vw; background: hsl(var(--surface)); border-left: 1px solid hsl(var(--border)); transform: translateX(100%); transition: transform .2s; z-index: 41; padding: 18px; overflow-y: auto; }
+  .drawer { position: fixed; top: 0; right: 0; height: 100vh; width: 760px; max-width: 96vw; background: hsl(var(--surface)); border-left: 1px solid hsl(var(--border)); transform: translateX(100%); transition: transform .2s; z-index: 41; padding: 18px; overflow-y: auto; }
   .drawer.open { transform: translateX(0); }
+  .d-tv-bar { display:flex; gap:8px; align-items:center; margin:10px 0 6px; flex-wrap:wrap; }
+  .d-tv-bar .sym { font-weight:700; font-size:14px; margin-right:4px; }
+  .tv-host { width:100%; height:480px; border:1px solid hsl(var(--border)); border-radius:8px; overflow:hidden; background:hsl(var(--surface-2)); position:relative; }
+  .tv-host .loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:hsl(var(--fg-muted)); font-size:12px; text-align:center; padding:0 16px; }
+  .btn-mini { background: hsl(var(--elevated)); border: 1px solid hsl(var(--border)); color: hsl(var(--fg-secondary)); border-radius: 8px; padding: 5px 12px; cursor: pointer; font-size: 12px; text-decoration: none; display: inline-block; }
+  .btn-mini:hover { border-color: hsl(var(--accent)); color: hsl(var(--fg-primary)); }
+  .btn-mini.active { background: hsl(var(--accent) / 0.2); color: hsl(var(--fg-primary)); border-color: hsl(var(--accent)); }
   .drawer .d-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
   .drawer .d-title { font-size: 16px; font-weight: 700; }
   .drawer .x { cursor: pointer; color: hsl(var(--fg-muted)); font-size: 18px; }
@@ -453,8 +460,14 @@
 <div class="drawer" id="drawer" data-page-node-id="3Jrn9IXJGoUzmX2IdE5Ib4">
   <div class="d-head" data-page-node-id="id5tZksvoGGe2HcPoaBEap"><div class="d-title" id="d-title" data-page-node-id="sV9VhXuxiLMAxceI1wPJ9H">信号详情</div><div class="x" id="d-x" data-page-node-id="JJ1GEJWEf1fIDYagCH1AHR">✕</div></div>
   <div id="d-body" data-page-node-id="gvieGralGHgsxy8lh221fD"></div>
-  <div style="margin-top:14px" data-page-node-id="2K8ei8HBXYAqtrW3E00w1q"><div class="muted" style="font-size:11px;margin-bottom:6px" data-page-node-id="awIwGviNvgCcQ2OYYpd2yJ">K 线（示意；正式版 lightweight-charts 可缩放/十字光标）</div><div id="d-chart" data-page-node-id="TFw6W5SFHCGvn0PUxbEEuF"></div></div>
-  <div class="note" data-page-node-id="BKmreB1xi7ApzqsduE1ZGf">K 线通过专用接口 GET /api/v1/chart/{ts_code}?timeframe=… 取得 OHLC JSON，横轴用 ISO 日期（红线 D5 v2）。</div>
+  <div class="d-tv-bar">
+    <span class="sym" id="tv-sym">—</span>
+    <button class="btn-mini active" id="tv-d" data-itv="D">日线</button>
+    <button class="btn-mini" id="tv-w" data-itv="W">周线</button>
+    <a class="btn-mini" id="tv-link" target="_blank" rel="noopener">在 TradingView 网页版打开 ↗</a>
+  </div>
+  <div class="tv-host" id="tv-host"><div class="loading" id="tv-loading">图表加载中…（需联网加载 TradingView 实盘图）</div></div>
+  <div class="note">这就是真实的 TradingView 图表，嵌在本页内：可缩放、画趋势线、加指标、切周期——操作和 TV 官网一致。数据源为 TV 实时行情（与我们的离线库无关，正是精筛要看的）。本系统 PA 证据见上方字段。</div>
 </div>
 
 <div class="prototype-tag" data-page-node-id="8qwWtgxzWgHSYu2zcn4nsp">HTML 交互式原型 · 版式+控件确认稿</div>
@@ -683,11 +696,45 @@ function openDrawer(code){
     <div class="kv"><span class="k">PA 证据</span><span>${s.ev}</span></div>
     <div class="kv"><span class="k">状态</span><span><span class="badge ${s.status==='活跃'?'active':s.status==='已建仓'?'filled':'invalid'}">${s.status}</span></span></div>
     <div class="kv"><span class="k">来源</span><span class="muted" style="font-size:11px">signal_archive / weekly_watchlist.json</span></div>`;
-  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
-  svg.setAttribute('width','100%'); svg.setAttribute('viewBox','0 0 400 200'); svg.id='bigc';
-  $('#d-chart').innerHTML=''; $('#d-chart').appendChild(svg);
-  drawCandles(svg, s.dir==='空'?'down':'up', 30, 400, 200);
+  const tvSym = toTV(s.code);
+  const itv = s.tf==='weekly' ? 'W' : 'D';
+  $('#tv-sym').textContent = `${s.name} · ${tvSym}`;
+  $('#tv-link').href = 'https://www.tradingview.com/chart/?symbol='+encodeURIComponent(tvSym);
+  setTvInterval(itv);
   $('#mask').classList.add('open'); $('#drawer').classList.add('open');
+  loadTV(tvSym, itv);
+}
+
+/* ============ 内嵌 TradingView 图表（桥接宿主，非复刻） ============ */
+function toTV(code){ return (code[0]==='6' ? 'SHSE:' : 'SZSE:') + code; }
+let tvWidget=null, tvLoading=false;
+function ensureTV(cb){
+  if(window.TradingView){ cb(); return; }
+  if(tvLoading) return;
+  tvLoading=true;
+  const sc=document.createElement('script');
+  sc.src='https://s3.tradingview.com/tv.js';
+  sc.onload=()=>{ tvLoading=false; cb(); };
+  sc.onerror=()=>{ tvLoading=false; const l=document.getElementById('tv-loading'); if(l) l.textContent='TradingView 图表需联网加载，当前无法显示（可点右侧「在网页版打开」）'; };
+  document.head.appendChild(sc);
+}
+function loadTV(symbol, interval){
+  ensureTV(()=>{
+    const host=document.getElementById('tv-host');
+    if(tvWidget){ try{ tvWidget.remove(); }catch(e){} tvWidget=null; }
+    host.innerHTML='';
+    tvWidget=new TradingView.widget({
+      container_id:'tv-host', autosize:true, symbol, interval,
+      timezone:'Asia/Shanghai', theme:'dark', style:'1', locale:'zh_CN',
+      toolbar_bg:'#1b1c23', enable_publishing:false, allow_symbol_change:true,
+      hideideas:true, details:true, studies:['MASimple@tv-basicstudies']
+    });
+  });
+}
+function setTvInterval(itv){
+  $$('#tv-d,#tv-w').forEach(b=>b.classList.toggle('active', b.dataset.itv===itv));
+  const sym=(document.getElementById('tv-sym').textContent.split(' · ')[1]||'').trim();
+  if(sym) loadTV(sym, itv);
 }
 function closeDrawer(){ $('#mask').classList.remove('open'); $('#drawer').classList.remove('open'); }
 $('#mask').onclick=closeDrawer; $('#d-x').onclick=closeDrawer;
@@ -711,6 +758,9 @@ $('#sig-status').onchange=e=>{sigFilter.status=e.target.value; renderSignals();}
 $('#sig-strat').onchange=e=>{sigFilter.strat=e.target.value; renderSignals();};
 $('#sig-search').oninput=e=>{sigFilter.q=e.target.value; renderSignals();};
 $('#sig-week').onchange=()=>{ /* 示意：切换周但本原型不重算 */ };
+// 抽屉内 TV 图表的日线/周线切换（重建图表到对应周期）
+$('#tv-d').onclick=()=>setTvInterval('D');
+$('#tv-w').onclick=()=>setTvInterval('W');
 // 自选视图 / 分组
 $$('#wl-view button').forEach(b=>b.onclick=()=>{ $$('#wl-view button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); wlView=b.dataset.view; renderWatch(); });
 $('#wl-add').onclick=()=>{ const g=prompt('新分组名称（按策略标签）：','自定义'); if(g&&!wlGroups.includes(g)){ wlGroups.push(g); renderWatch(); } };
