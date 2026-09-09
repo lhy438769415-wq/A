@@ -14,9 +14,11 @@ import pandas as pd
 from typing import List, Optional
 import logging
 import time
+import random
 import sys
 from functools import wraps
 from core.log_config import get_logger
+from config import settings
 
 logger = get_logger(__name__)
 
@@ -44,6 +46,19 @@ import sys
 
 _bs_lock = threading.Lock()
 _bs_logged_in = False
+
+
+def _should_throttle(hour=None):
+    """判断当前是否处于需限流的高峰时段（默认 18:00-24:00，本地时间）。
+
+    高峰时段给日线请求加随机停顿、模拟真人节奏，降低夜间被 Baostock 黑名单的概率。
+    纯函数（不联网、不 sleep），便于单元测试直接传 hour 验证。
+    """
+    if not settings.BAOSTOCK_RATE_LIMIT_ENABLED:
+        return False
+    if hour is None:
+        hour = time.localtime().tm_hour
+    return settings.BAOSTOCK_RATE_LIMIT_START_HOUR <= hour < settings.BAOSTOCK_RATE_LIMIT_END_HOUR
 
 # =========================================================================
 # 🛡️ 超时保护器 (Timeout Guard)
@@ -302,6 +317,10 @@ def bs_fetch_daily_history(symbol: str, start_date: str, end_date: str) -> Optio
     """
     with _bs_lock:
         _ensure_login()
+        # 🟢 分时段限流：夜间高峰(默认18-24点)每只股票请求前随机停顿，防黑名单
+        if _should_throttle():
+            time.sleep(random.uniform(settings.BAOSTOCK_RATE_LIMIT_DELAY_MIN,
+                                      settings.BAOSTOCK_RATE_LIMIT_DELAY_MAX))
         
         # 转换代码格式: 600000 -> sh.600000
         if not symbol.startswith(('sh.', 'sz.')):

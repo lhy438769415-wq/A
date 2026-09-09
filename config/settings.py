@@ -43,6 +43,16 @@ DATA_SOURCE_PRIORITY = ["baostock"]  # Single Source
 # 5 Worker 与 6 Worker(1死) 有效吞吐量相同，但 5 Worker 零报错、一次完成
 MAX_WORKERS = int(os.getenv("MAX_WORKERS", 5))
 
+# ================= 数据源限流配置（防夜间高峰被 Baostock 黑名单） =================
+# 分时段限流开关：True=开启（夜间高峰时段对日线请求加随机停顿，模拟真人节奏，降低被封概率）
+BAOSTOCK_RATE_LIMIT_ENABLED = True
+# 高峰时段窗口（本地时间，小时，左闭右开）：默认 18:00-24:00（收盘后数据归档时段）
+BAOSTOCK_RATE_LIMIT_START_HOUR = 18
+BAOSTOCK_RATE_LIMIT_END_HOUR = 24
+# 高峰时段内、每只股票请求前的随机停顿区间（秒）
+BAOSTOCK_RATE_LIMIT_DELAY_MIN = 0.2
+BAOSTOCK_RATE_LIMIT_DELAY_MAX = 0.5
+
 # 长图拼接数量
 MAX_IMAGES_PER_BATCH = int(os.getenv("MAX_IMAGES_PER_BATCH", 10))
 
