@@ -1,8 +1,8 @@
 {
-  "last_run": "2026-08-22T08:19:50",
+  "last_run": "2026-09-08T21:02:28",
   "status": "ok",
-  "mode": "daily",
-  "signals": 248,
+  "mode": "sync",
+  "signals": 0,
   "discord_configured": true,
   "error": null
 }
