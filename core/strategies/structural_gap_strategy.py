@@ -539,12 +539,34 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
         else:
             floor_date = pre_signal.index[len(pre_signal)//3]
         
-        # 起点: 定位波段最低价那天
-        abs_diff = (pre_signal['low'] - prior_low).abs()
-        if abs_diff.min() < 1e-4:
-            origin_date = abs_diff.idxmin()
+        # 起点: 定位丈量窗口 [BO-59, BO-2] 内的最低价那天
+        # 与 prior_low 计算窗口严格一致 (rolling(60).min().shift(2))。
+        # 修正: 旧逻辑在全历史里按 prior_low 值搜第一根, 同价双底时会指到窗口外的 touch。
+        _origin_bar = None
+        try:
+            _bo_col0 = None
+            for _cn in ['is_breakout_h2', 'is_breakout', 'is_breakout_gp']:
+                if _cn in plot_df.columns and plot_df[_cn].any():
+                    _bo_col0 = _cn
+                    break
+            if _bo_col0:
+                _bo_idx0 = plot_df.index[plot_df[_bo_col0] == True]
+                _bo_before0 = _bo_idx0[_bo_idx0 <= signal_date]
+                if len(_bo_before0):
+                    _bo_pos0 = plot_df.index.get_loc(_bo_before0[-1])
+                    _w0 = plot_df.iloc[max(0, _bo_pos0 - 59):_bo_pos0 - 1]
+                    if len(_w0):
+                        _origin_bar = _w0['low'].idxmin()
+        except Exception as _e:
+            logger.debug(f"[{strategy_type}] 丈量窗口定位失败, 回退值匹配: {_e}")
+        if _origin_bar is not None:
+            origin_date = _origin_bar
         else:
-            origin_date = pre_signal.index[0]
+            abs_diff = (pre_signal['low'] - prior_low).abs()
+            if abs_diff.min() < 1e-4:
+                origin_date = abs_diff.idxmin()
+            else:
+                origin_date = pre_signal.index[0]
         
         # 回调测试极值点
         test_date = pre_signal.index[-2] if len(pre_signal) > 1 else pre_signal.index[0]
@@ -611,47 +633,14 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
         # 已统一移至 notifier.generate_chart_bytes._draw_rating_panel 绘制,
         # 避免与 notifier 面板重复。此处仅保留缺口矩形/画线/箭头标注。
         
-        # 标注 3a. TP 测量锚点 (信号前 LOOKBACK 根最低低, TP=2×地板−该值)
-        # 注意: 该点是止盈公式的丈量起点, 但通常离 BO 很远, 不是视觉上的起跳位置
-        ax.annotate("Leg1 Low",
+        # 标注 3a. MM low (Measured Move low: 丈量窗口最低低, TP=2×地板−该值)
+        ax.annotate("MM low",
                     xy=(origin_x + 0.5, origin_true_low),
                     xytext=(origin_x + 6.5, origin_true_low),
                     arrowprops=dict(arrowstyle="->", color='#8E24AA', lw=1.2, alpha=0.55, linestyle='--'),
                     fontsize=8, color='#8E24AA', fontweight='normal', ha='left', va='center',
                     bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
 
-        # 标注 3b. BO Low (突破K前最后一波起涨的波段低点)
-        # 算法: 找信号前最后一个 BO, 取其前方最后一根仍在缺口地板下方的K线 → 到 BO 前一根之间的最低价
-        _launch_x, _launch_low = None, None
-        try:
-            _bo_col = None
-            for _cn in ['is_breakout', 'is_breakout_gp', 'is_breakout_h2']:
-                if _cn in plot_df.columns and plot_df[_cn].any():
-                    _bo_col = _cn
-                    break
-            if _bo_col:
-                _bo_idx = plot_df.index[plot_df[_bo_col] == True]
-                _bo_before = _bo_idx[_bo_idx <= signal_date]
-                if len(_bo_before):
-                    _bo_pos = plot_df.index.get_loc(_bo_before[-1])
-                    _pre_bo = plot_df.iloc[:_bo_pos]
-                    _below = _pre_bo[_pre_bo['low'] < floor_price] if (floor_price and not pd.isna(floor_price)) else _pre_bo
-                    _base_i = _below.index[-1] if len(_below) else plot_df.index[max(0, _bo_pos - 10)]
-                    _seg = plot_df.loc[_base_i: plot_df.index[_bo_pos - 1]] if _bo_pos > 0 else plot_df.loc[_base_i:_base_i]
-                    if len(_seg):
-                        _launch_x = date_list.index(_seg['low'].idxmin())
-                        _launch_low = float(_seg['low'].min())
-        except Exception as _e:
-            logger.debug(f"[{strategy_type}] BO Low 定位失败, 跳过标注: {_e}")
-            _launch_x, _launch_low = None, None
-        if _launch_x is not None:
-            ax.annotate("BO Low",
-                        xy=(_launch_x + 0.5, _launch_low),
-                        xytext=(_launch_x - 7.5, _launch_low),
-                        arrowprops=dict(arrowstyle="->", color='#6A1B9A', lw=1.5, alpha=0.7),
-                        fontsize=9, color='#6A1B9A', fontweight='normal', ha='right', va='center',
-                        bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
-        
         # 标注 3. 入场点
         if not is_pending_track:
             ax.annotate("Entry", 
@@ -668,7 +657,7 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                         fontsize=9, color='#D32F2F', fontweight='bold', ha='left', va='center',
                         bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
 
-        # 标注 3c. GAP H2 状态机节点: BO / PB / H1 / Signal (仅 GAP_H2)
+        # 标注 3c. GAP H2 状态机节点: BO / H1 / SL1 (仅 GAP_H2)
         if 'GAP_H2' in strat_upper:
             try:
                 _yrange = float(plot_df['high'].max() - plot_df['low'].min())
@@ -694,17 +683,10 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                                     arrowprops=dict(arrowstyle="-", color='#E65100', alpha=0.8),
                                     fontsize=8, color='#E65100', ha='center', va='bottom',
                                     bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
-                        # PB (低点下方)
+                        # PB 回调低点 (H1 定位依赖首个 PB bar, 不再单独标注)
                         _pb_list = list(_seg2.index[_lhll2])
                         if _pb_list:
                             _pb = _pb_list[0]
-                            _pb_x = date_list.index(_pb)
-                            ax.annotate("PB",
-                                        xy=(_pb_x + 0.5, plot_df.loc[_pb, 'low']),
-                                        xytext=(_pb_x + 0.5, plot_df.loc[_pb, 'low'] - _yrange * 0.04),
-                                        arrowprops=dict(arrowstyle="-", color='#00695C', alpha=0.8),
-                                        fontsize=8, color='#00695C', ha='center', va='top',
-                                        bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
                             # H1 (首腿PB 后首根 HH, 高点上方)
                             _h1 = None
                             for _ii in _seg2.index[_seg2.index.get_loc(_pb) + 1:]:
@@ -719,13 +701,14 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                                             arrowprops=dict(arrowstyle="-", color='#2E7D32', alpha=0.8),
                                             fontsize=8, color='#2E7D32', ha='center', va='bottom',
                                             bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
-                    # Signal (低点下方, 与首腿PB 错开高度)
+                    # SL1 (回调低点 = 信号K最低价, 新出场规则2的潜在止损位)
                     _sk_x = date_list.index(signal_date)
-                    ax.annotate("Signal",
-                                xy=(_sk_x + 0.5, plot_df.loc[signal_date, 'low']),
-                                xytext=(_sk_x + 0.5, plot_df.loc[signal_date, 'low'] - _yrange * 0.09),
-                                arrowprops=dict(arrowstyle="-", color='#C62828', alpha=0.8),
-                                fontsize=8, color='#C62828', ha='center', va='top',
+                    _sk_low = float(plot_df.loc[signal_date, 'low'])
+                    ax.annotate("SL1",
+                                xy=(_sk_x + 0.5, _sk_low),
+                                xytext=(_sk_x + 0.5, _sk_low - _yrange * 0.09),
+                                arrowprops=dict(arrowstyle="-", color='#00695C', alpha=0.85),
+                                fontsize=8, color='#00695C', ha='center', va='top',
                                 bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
             except Exception as _e:
                 logger.debug(f"[{strategy_type}] 状态机节点标注失败: {_e}")
