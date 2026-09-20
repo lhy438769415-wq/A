@@ -462,6 +462,12 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
     sig_quality = kwargs.get('sig_quality', 0)
     bears = kwargs.get('bears', 0)
     open_gap_count = 0  # 供 notifier 绘制『前序开放缺口』统计
+
+    # 可选显式锚点 (成册/复盘场景): 指定本笔交易的信号K/真实入场/离场。
+    # 不传时维持生产行为 (取窗口内最后一根信号, 供实时扫描)。
+    anchor_signal_date = kwargs.pop('anchor_signal_date', None)  # Timestamp: 本笔交易的 H2 信号K
+    entry_mark = kwargs.pop('entry_mark', None)    # (Timestamp, price): 回测真实成交入场
+    exit_mark = kwargs.pop('exit_mark', None)      # (Timestamp, price, label): 离场点
     
     # 策略列映射 — 基于 metadata 驱动
     from core.strategy_registry import StrategyRegistry
@@ -503,7 +509,16 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
         signal_date = None
         is_pending_track = False
         
-        if sig_col and sig_col in plot_df.columns and plot_df[sig_col].any():
+        _anchor_ok = False
+        if anchor_signal_date is not None:
+            try:
+                _anchor_ok = anchor_signal_date in plot_df.index
+            except Exception:
+                _anchor_ok = False
+        if _anchor_ok:
+            signal_date = anchor_signal_date
+            is_pending_track = False
+        elif sig_col and sig_col in plot_df.columns and plot_df[sig_col].any():
             signal_date = plot_df[plot_df[sig_col]].index[-1]
             is_pending_track = False
         else:
@@ -642,20 +657,64 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                     bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
 
         # 标注 3. 入场点
-        if not is_pending_track:
+        _entry_drawn = False
+        if entry_mark is not None:
+            # 显式锚点: 箭头指向回测真实成交的那根K (非信号K触发位)
+            try:
+                _em_d, _em_p = entry_mark
+                if _em_d in plot_df.index:
+                    _em_x = date_list.index(_em_d)
+                    ax.annotate("Entry",
+                                xy=(_em_x + 0.5, _em_p),
+                                xytext=(_em_x + 6.5, _em_p),
+                                arrowprops=dict(arrowstyle="->", color='#D32F2F', lw=1.5),
+                                fontsize=9, color='#D32F2F', fontweight='bold', ha='left', va='center',
+                                bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+                    _entry_drawn = True
+            except Exception as _e:
+                logger.debug(f"[{strategy_type}] Entry 锚点标注失败: {_e}")
+        if not _entry_drawn and not is_pending_track:
             ax.annotate("Entry", 
                         xy=(signal_x + 0.5, entry_price), 
                         xytext=(signal_x + 6.5, entry_price),
                         arrowprops=dict(arrowstyle="->", color='#D32F2F', lw=1.5),
                         fontsize=9, color='#D32F2F', fontweight='bold', ha='left', va='center',
                         bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
-        else:
+        elif not _entry_drawn:
             ax.annotate("Pending Entry", 
                         xy=(signal_x + 0.5, entry_price), 
                         xytext=(signal_x + 6.5, entry_price),
                         arrowprops=dict(arrowstyle="->", color='#D32F2F', lw=1.5, linestyle="--"),
                         fontsize=9, color='#D32F2F', fontweight='bold', ha='left', va='center',
                         bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+
+        # 标注 3a-2. 显式锚点模式补充: H2 信号K标签 + 离场点标记 (成册/复盘用, 生产不受影响)
+        if _anchor_ok or exit_mark is not None:
+            try:
+                _yr9 = float(plot_df['high'].max() - plot_df['low'].min())
+                if _anchor_ok:
+                    _sx9 = date_list.index(signal_date)
+                    _sh9 = float(plot_df.loc[signal_date, 'high'])
+                    ax.annotate("H2",
+                                xy=(_sx9 + 0.5, _sh9),
+                                xytext=(_sx9 + 0.5, _sh9 + _yr9 * 0.035),
+                                arrowprops=dict(arrowstyle="-", color='#6A1B9A', alpha=0.85),
+                                fontsize=8, color='#6A1B9A', ha='center', va='bottom',
+                                bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+                if exit_mark is not None:
+                    _xm_d, _xm_p, _xm_lab = exit_mark
+                    if _xm_d in plot_df.index:
+                        _xm_x = date_list.index(_xm_d)
+                        _is_sl = 'SL' in str(_xm_lab)
+                        _xc9 = '#2E7D32' if _is_sl else '#D32F2F'  # 止损绿 / 止盈红 (A股习惯)
+                        ax.annotate(str(_xm_lab),
+                                    xy=(_xm_x + 0.5, _xm_p),
+                                    xytext=(_xm_x + 6.5, _xm_p - _yr9 * 0.05),
+                                    arrowprops=dict(arrowstyle="->", color=_xc9, lw=1.5),
+                                    fontsize=9, color=_xc9, fontweight='bold', ha='left', va='center',
+                                    bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+            except Exception as _e:
+                logger.debug(f"[{strategy_type}] H2/Exit 锚点标注失败: {_e}")
 
         # 标注 3c. GAP H2 状态机节点: BO / H1 / SL1 (仅 GAP_H2)
         if 'GAP_H2' in strat_upper:

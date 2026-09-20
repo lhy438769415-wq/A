@@ -128,10 +128,12 @@ def _draw_rating_panel(ax, *, code, strategy_type, plot_df, entry, sl_price, tp1
     return 0.965 - len(lines) * line_h - 0.018
 
 
-def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0, reason="", df_override=None, ev_rating=None, sig_quality=0, bears=0, entry=0, rating=None, timeframe='日K', draw_panel=True):
+def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0, reason="", df_override=None, ev_rating=None, sig_quality=0, bears=0, entry=0, rating=None, timeframe='日K', draw_panel=True, extra_annotate=None):
     """
     绘制K线图，并将 AI 理由印在标题上 (支持 SL/TP 线)
     :param df_override: 可选，传入已计算好指标且切分好时间窗口的 DataFrame
+    :param extra_annotate: 可选 dict, 透传给策略标注函数的显式锚点
+        (anchor_signal_date / entry_mark / exit_mark, 供成册复盘场景逐笔定位)
     """
     # 延迟导入防止循环引用
     try:
@@ -319,10 +321,11 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
             from core.strategy_registry import StrategyRegistry
             strat_cls = type(StrategyRegistry.get_strategy(strategy_type))
             ax = axlist[0]
+            _extra = extra_annotate if isinstance(extra_annotate, dict) else {}
             gap_open = strat_cls.annotate_chart(ax, plot_df, strategy_type,
                                       sl_price=sl_price, tp1=tp1, tp2=tp2,
                                       ev_rating=ev_rating, sig_quality=sig_quality, bears=bears,
-                                      code=code) or 0
+                                      code=code, **_extra) or 0
         except Exception as e:
             logger.debug(f"Strategy annotation skipped: {e}")
 

@@ -113,10 +113,23 @@ def draw_trade(code, trade, label):
     r0 = entry_sig - sl0
     tp1 = entry_sig + 2.0 * r0  # 新出场: 2R 半仓位
 
+    # 显式锚点: 把标注钉在这笔交易自己的 K 线上,
+    # 防止窗口向后延伸出现新缺口+H2 时标注整体跳到后一笔形态 (用户实测踩坑)。
+    extra = {'anchor_signal_date': pd.Timestamp(trade['signal_date'])}
+    en_date = trade.get('entry_date')
+    if en_date and str(en_date)[:10] in set(dates):
+        extra['entry_mark'] = (pd.Timestamp(str(en_date)[:10]), float(trade['entry_price']))
+    exd = trade.get('exit_date')
+    if exd and str(exd)[:10] in set(dates):
+        _reason = str(trade.get('reason', ''))
+        _lab = 'Exit·SL' if 'stop' in _reason else ('Exit·L2' if 'reversal' in _reason else 'Exit')
+        extra['exit_mark'] = (pd.Timestamp(str(exd)[:10]), float(trade['exit_price']), _lab)
+
     buf = generate_chart_bytes(
         code, f"{label}", 'STRATEGY_GAP_H2', sl_price=sl0, tp1=tp1,
         entry=entry_sig, df_override=window, timeframe='日K', draw_panel=True,
         sig_quality=float(sig_row.get('sig_bar_quality_h2', 0) or 0),
+        extra_annotate=extra,
     )
     if buf is None:
         return None
