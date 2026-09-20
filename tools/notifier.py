@@ -74,8 +74,8 @@ def _draw_rating_panel(ax, *, code, strategy_type, plot_df, entry, sl_price, tp1
                        ev_rating, sig_quality, bears, factor_names):
     """绘制左上角三层信息框 (UX 约束: 三层同字体/无颜色/无图标/灰分隔线)。
 
-    第一层: 买入点 / 极限防守 / 对称止盈(RR)
-    第二层: 动能质量 / 回调连阴 / 系统评级
+    第一层: Entry / SL / TP1(RR)
+    第二层: Quality / PB bars / Rating
     第三层: 因子理由 (仅因子名, 不显示历史胜率)
 
     返回面板底边的 axes y 坐标, 供调用方在主框下方追加缺口统计等独立信息。
@@ -98,21 +98,21 @@ def _draw_rating_panel(ax, *, code, strategy_type, plot_df, entry, sl_price, tp1
         rr = 0.0
         if tp1 > entry and sl_price > 0 and entry > sl_price:
             rr = (tp1 - entry) / (entry - sl_price)
-        lines.append(f"买入点：{entry:.2f}")
-        lines.append(f"极限防守：{sl_price:.2f}")
-        lines.append(f"对称止盈：{tp1:.2f} ({rr:.2f}R)" if rr > 0 else f"对称止盈：{tp1:.2f}")
+        lines.append(f"Entry: {entry:.2f}")
+        lines.append(f"SL: {sl_price:.2f}")
+        lines.append(f"TP1: {tp1:.2f} ({rr:.2f}R)" if rr > 0 else f"TP1: {tp1:.2f}")
     else:
-        lines.append(f"极限防守：{sl_price:.2f}")
-        lines.append(f"对称止盈：{tp1:.2f}")
+        lines.append(f"SL: {sl_price:.2f}")
+        lines.append(f"TP1: {tp1:.2f}")
     lines.append("------------------")
     # 第二层: 动能/连阴/评级
     if isinstance(sig_quality, (int, float)):
-        lines.append(f"动能质量：{sig_quality:.2f}")
+        lines.append(f"Quality: {sig_quality:.2f}")
     else:
-        lines.append(f"动能质量：{sig_quality}")
-    lines.append(f"回调连阴：{bears} 连阴")
+        lines.append(f"Quality: {sig_quality}")
+    lines.append(f"PB bars: {bears}")
     if ev_rating:
-        lines.append(f"系统评级：{strip_emoji(ev_rating)}")
+        lines.append(f"Rating: {strip_emoji(ev_rating)}")
     # 第三层: 因子理由 (纯名, 无胜率/无颜色/无图标)
     if factor_names:
         lines.append("------------------")
@@ -301,13 +301,13 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
         
         # 动态添加已绘制的元素
         if 'geometric_trendline' in plot_df.columns:
-            legend_elements.append(Line2D([0], [0], color='gray', linestyle='--', lw=1.5, label='趋势线'))
+            legend_elements.append(Line2D([0], [0], color='gray', linestyle='--', lw=1.5, label='Trend'))
             
         if 'signal_mtr' in plot_df.columns and plot_df['signal_mtr'].any():
-            legend_elements.append(Line2D([0], [0], marker='*', color='w', label='买点', markerfacecolor='red', markersize=12))
+            legend_elements.append(Line2D([0], [0], marker='*', color='w', label='Entry', markerfacecolor='red', markersize=12))
             
         if 'is_sw_h_geometric' in plot_df.columns and plot_df['is_sw_h_geometric'].any():
-             legend_elements.append(Line2D([0], [0], marker='v', color='w', label='前高', markerfacecolor='blue', markersize=8))
+             legend_elements.append(Line2D([0], [0], marker='v', color='w', label='Prev High', markerfacecolor='blue', markersize=8))
 
         # 改到左下角，避开左上角三层信息框 (UX: 面板更高, 防重叠)
         if legend_elements:

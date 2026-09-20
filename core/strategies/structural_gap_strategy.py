@@ -163,7 +163,7 @@ class StructuralGapStrategy(BaseStrategy):
 
     @classmethod
     def annotate_chart(cls, ax, plot_df: pd.DataFrame, strategy_type: str, **kwargs) -> int:
-        """Structural Gap 图表标注 — 缺口矩形、买入点、止盈 (返回前序开放缺口数)"""
+        """Structural Gap 图表标注 — 缺口矩形、Entry、止盈 (返回前序开放缺口数)"""
         return _annotate_gap_strategy(ax, plot_df, strategy_type, **kwargs)
 
     def __init__(self):
@@ -594,7 +594,7 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
         label_x_mid = rect_start_x + rect_width / 2
         label_y_mid = final_gap_low + rect_height / 2
         ax.text(label_x_mid, label_y_mid,
-                "防守缺口\n(Gap Zone)", color='#2962FF', fontsize=9, fontweight='normal', ha='center', va='center',
+                "Gap", color='#2962FF', fontsize=9, fontweight='normal', ha='center', va='center',
                 bbox=dict(boxstyle='square,pad=0.2', facecolor='white', edgecolor='#2962FF', alpha=0.8))
         
         # 标注 2. 左上角参数面板
@@ -607,21 +607,21 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
             entry_price = plot_df.loc[signal_date]['high'] + 0.01
             rr_ratio = (tp1 - entry_price) / (entry_price - final_gap_low) if tp1 > entry_price and entry_price > final_gap_low else 0
         
-        # 左上角三层信息框 (买入点/防守/止盈 + 动能/连阴/评级 + 因子理由)
+        # 左上角三层信息框 (Entry/SL/TP1 + Quality/PB bars/Rating + 因子理由)
         # 已统一移至 notifier.generate_chart_bytes._draw_rating_panel 绘制,
         # 避免与 notifier 面板重复。此处仅保留缺口矩形/画线/箭头标注。
         
         # 标注 3a. TP 测量锚点 (信号前 LOOKBACK 根最低低, TP=2×地板−该值)
-        # 注意: 该点是止盈公式的丈量起点, 但通常离突破K很远, 不是视觉上的起跳位置
-        ax.annotate("测量锚点\n(前60根最低)",
+        # 注意: 该点是止盈公式的丈量起点, 但通常离 BO 很远, 不是视觉上的起跳位置
+        ax.annotate("Leg1 Low",
                     xy=(origin_x + 0.5, origin_true_low),
                     xytext=(origin_x + 6.5, origin_true_low),
                     arrowprops=dict(arrowstyle="->", color='#8E24AA', lw=1.2, alpha=0.55, linestyle='--'),
                     fontsize=8, color='#8E24AA', fontweight='normal', ha='left', va='center',
                     bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
 
-        # 标注 3b. 起跳支点 (突破K前最后一波起涨的波段低点)
-        # 算法: 找信号前最后一个突破K, 取其前方最后一根仍在缺口地板下方的K线 → 到突破K前一根之间的最低价
+        # 标注 3b. BO Low (突破K前最后一波起涨的波段低点)
+        # 算法: 找信号前最后一个 BO, 取其前方最后一根仍在缺口地板下方的K线 → 到 BO 前一根之间的最低价
         _launch_x, _launch_low = None, None
         try:
             _bo_col = None
@@ -642,10 +642,10 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                         _launch_x = date_list.index(_seg['low'].idxmin())
                         _launch_low = float(_seg['low'].min())
         except Exception as _e:
-            logger.debug(f"[{strategy_type}] 起跳支点定位失败, 跳过标注: {_e}")
+            logger.debug(f"[{strategy_type}] BO Low 定位失败, 跳过标注: {_e}")
             _launch_x, _launch_low = None, None
         if _launch_x is not None:
-            ax.annotate("起跳支点",
+            ax.annotate("BO Low",
                         xy=(_launch_x + 0.5, _launch_low),
                         xytext=(_launch_x - 7.5, _launch_low),
                         arrowprops=dict(arrowstyle="->", color='#6A1B9A', lw=1.5, alpha=0.7),
@@ -654,21 +654,21 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
         
         # 标注 3. 入场点
         if not is_pending_track:
-            ax.annotate("买入点 (Buy Stop)", 
+            ax.annotate("Entry", 
                         xy=(signal_x + 0.5, entry_price), 
                         xytext=(signal_x + 6.5, entry_price),
                         arrowprops=dict(arrowstyle="->", color='#D32F2F', lw=1.5),
                         fontsize=9, color='#D32F2F', fontweight='bold', ha='left', va='center',
                         bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
         else:
-            ax.annotate("预期买点 (待反转)", 
+            ax.annotate("Pending Entry", 
                         xy=(signal_x + 0.5, entry_price), 
                         xytext=(signal_x + 6.5, entry_price),
                         arrowprops=dict(arrowstyle="->", color='#D32F2F', lw=1.5, linestyle="--"),
                         fontsize=9, color='#D32F2F', fontweight='bold', ha='left', va='center',
                         bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
 
-        # 标注 3c. GAP H2 状态机节点: 突破K / 首腿LHLL / 高1 H1 / 信号K (仅 GAP_H2)
+        # 标注 3c. GAP H2 状态机节点: BO / PB / H1 / Signal (仅 GAP_H2)
         if 'GAP_H2' in strat_upper:
             try:
                 _yrange = float(plot_df['high'].max() - plot_df['low'].min())
@@ -686,26 +686,26 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                         _seg2 = plot_df.iloc[_bo_pos2:_sig_pos2 + 1]
                         _lhll2 = (_seg2['high'] < _seg2['high'].shift(1)) & (_seg2['low'] < _seg2['low'].shift(1))
                         _hh2 = _seg2['high'] > _seg2['high'].shift(1)
-                        # 突破K (高点上方)
+                        # BO (高点上方)
                         _bo_x2 = date_list.index(_bo_before2[-1])
-                        ax.annotate("突破K",
+                        ax.annotate("BO",
                                     xy=(_bo_x2 + 0.5, plot_df.iloc[_bo_pos2]['high']),
                                     xytext=(_bo_x2 + 0.5, plot_df.iloc[_bo_pos2]['high'] + _yrange * 0.035),
                                     arrowprops=dict(arrowstyle="-", color='#E65100', alpha=0.8),
                                     fontsize=8, color='#E65100', ha='center', va='bottom',
                                     bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
-                        # 首腿回调 LHLL (低点下方)
+                        # PB (低点下方)
                         _pb_list = list(_seg2.index[_lhll2])
                         if _pb_list:
                             _pb = _pb_list[0]
                             _pb_x = date_list.index(_pb)
-                            ax.annotate("首腿LHLL",
+                            ax.annotate("PB",
                                         xy=(_pb_x + 0.5, plot_df.loc[_pb, 'low']),
                                         xytext=(_pb_x + 0.5, plot_df.loc[_pb, 'low'] - _yrange * 0.04),
                                         arrowprops=dict(arrowstyle="-", color='#00695C', alpha=0.8),
                                         fontsize=8, color='#00695C', ha='center', va='top',
                                         bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
-                            # 高1 H1 (首腿LHLL 后首根 HH, 高点上方)
+                            # H1 (首腿PB 后首根 HH, 高点上方)
                             _h1 = None
                             for _ii in _seg2.index[_seg2.index.get_loc(_pb) + 1:]:
                                 if _hh2.loc[_ii]:
@@ -713,15 +713,15 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                                     break
                             if _h1 is not None:
                                 _h1_x = date_list.index(_h1)
-                                ax.annotate("高1 H1",
+                                ax.annotate("H1",
                                             xy=(_h1_x + 0.5, plot_df.loc[_h1, 'high']),
                                             xytext=(_h1_x + 0.5, plot_df.loc[_h1, 'high'] + _yrange * 0.035),
                                             arrowprops=dict(arrowstyle="-", color='#2E7D32', alpha=0.8),
                                             fontsize=8, color='#2E7D32', ha='center', va='bottom',
                                             bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
-                    # 信号K (低点下方, 与首腿LHLL 错开高度)
+                    # Signal (低点下方, 与首腿PB 错开高度)
                     _sk_x = date_list.index(signal_date)
-                    ax.annotate("信号K",
+                    ax.annotate("Signal",
                                 xy=(_sk_x + 0.5, plot_df.loc[signal_date, 'low']),
                                 xytext=(_sk_x + 0.5, plot_df.loc[signal_date, 'low'] - _yrange * 0.09),
                                 arrowprops=dict(arrowstyle="-", color='#C62828', alpha=0.8),
@@ -733,7 +733,7 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
         # 标注 4. 测量缺口止盈
         if tp1 > 0:
             ax.axhline(y=tp1, color='#D32F2F', linestyle='--', linewidth=1.2, alpha=0.6)
-            ax.annotate("TP (目标)", 
+            ax.annotate("TP1", 
                         xy=(signal_x, tp1), 
                         xytext=(signal_x - 8, tp1),
                         arrowprops=dict(arrowstyle="-", color='#D32F2F', alpha=0),

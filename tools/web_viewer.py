@@ -210,7 +210,7 @@ def draw_chart(code, name, entry, sl, tp, is_pending, ev_rating, sig_quality, be
             label_x_mid = rect_start_x + rect_width / 2
             label_y_mid = final_gap_low + rect_height / 2
             ax.text(label_x_mid, label_y_mid,
-                    "防守缺口\n(Gap Zone)", color='#2962FF', fontsize=9, fontweight='normal', ha='center', va='center',
+                    "Gap", color='#2962FF', fontsize=9, fontweight='normal', ha='center', va='center',
                     bbox=dict(boxstyle='square,pad=0.2', facecolor='white', edgecolor='#2962FF', alpha=0.8))
 
             # Left panel
@@ -218,27 +218,27 @@ def draw_chart(code, name, entry, sl, tp, is_pending, ev_rating, sig_quality, be
             # 🟢 [P2 Fix] sig_quality 为 0 时标注 (待确认)；ev_rating 用 truthiness 判断而非 pd.notna
             quality_str = f"{sig_quality:.2f}" if sig_quality > 0 else "(待确认)"
             rating_str = ev_rating if ev_rating else 'N/A'
-            panel_text = f"买入点：{entry:.2f}\n" \
-                         f"极限防守：{sl:.2f}\n" \
-                         f"对称止盈：{tp:.2f} ({rr_ratio:.2f}R)\n" \
+            panel_text = f"Entry: {entry:.2f}\n" \
+                         f"SL: {sl:.2f}\n" \
+                         f"TP1: {tp:.2f} ({rr_ratio:.2f}R)\n" \
                          f"------------------\n" \
-                         f"动能质量：{quality_str}\n" \
-                         f"回调连阴：{bears} 连阴\n" \
-                         f"系统评级：{rating_str}"
+                         f"Quality: {quality_str}\n" \
+                         f"PB bars: {bears}\n" \
+                         f"Rating: {rating_str}"
             
             ax.text(0.02, 0.96, panel_text, transform=ax.transAxes, fontsize=10,
                     verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.9, edgecolor='gray'))
             
             # Annotate Origin
-            # 测量锚点 (TP公式起点: 信号前60根最低低)
-            ax.annotate("测量锚点\n(前60根最低)",
+            # Leg1 Low (TP公式起点: 信号前60根最低低)
+            ax.annotate("Leg1 Low",
                         xy=(origin_x + 0.5, origin_true_low),
                         xytext=(origin_x + 6.5, origin_true_low),
                         arrowprops=dict(arrowstyle="->", color='#8E24AA', lw=1.2, alpha=0.55, linestyle='--'),
                         fontsize=8, color='#8E24AA', fontweight='normal', ha='left', va='center',
                         bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
 
-            # 起跳支点 (突破K前最后一波起涨的波段低点)
+            # BO Low (BO 前最后一波起涨的波段低点)
             _launch_x, _launch_low = None, None
             try:
                 _bo_idx = plot_df.index[plot_df['is_breakout'] == True] if 'is_breakout' in plot_df.columns else pd.Index([])
@@ -255,7 +255,7 @@ def draw_chart(code, name, entry, sl, tp, is_pending, ev_rating, sig_quality, be
             except Exception:
                 _launch_x, _launch_low = None, None
             if _launch_x is not None:
-                ax.annotate("起跳支点",
+                ax.annotate("BO Low",
                             xy=(_launch_x + 0.5, _launch_low),
                             xytext=(_launch_x - 7.5, _launch_low),
                             arrowprops=dict(arrowstyle="->", color='#6A1B9A', lw=1.5, alpha=0.7),
@@ -264,14 +264,14 @@ def draw_chart(code, name, entry, sl, tp, is_pending, ev_rating, sig_quality, be
 
             # Arrows
             if not is_pending:
-                ax.annotate("买入点 (Buy Stop)", 
+                ax.annotate("Entry", 
                             xy=(signal_x + 0.5, entry), 
                             xytext=(signal_x + 6.5, entry),
                             arrowprops=dict(arrowstyle="->", color='#D32F2F', lw=1.5),
                             fontsize=9, color='#D32F2F', fontweight='bold', ha='left', va='center',
                             bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
             else:
-                ax.annotate("预期买点 (待反转)", 
+                ax.annotate("Pending Entry", 
                             xy=(signal_x + 0.5, entry), 
                             xytext=(signal_x + 6.5, entry),
                             arrowprops=dict(arrowstyle="->", color='#D32F2F', lw=1.5, linestyle="--"),
@@ -280,7 +280,7 @@ def draw_chart(code, name, entry, sl, tp, is_pending, ev_rating, sig_quality, be
                             
             if tp and tp > 0:
                 ax.axhline(y=tp, color='#D32F2F', linestyle='--', linewidth=1.2, alpha=0.6)
-                ax.annotate("TP (目标)", 
+                ax.annotate("TP1", 
                             xy=(signal_x, tp), 
                             xytext=(signal_x - 8, tp),
                             arrowprops=dict(arrowstyle="-", color='#D32F2F', alpha=0),
