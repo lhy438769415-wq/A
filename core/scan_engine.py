@@ -65,7 +65,8 @@ def _get_strategy_cols(strategy_name: str) -> dict:
     try:
         meta = StrategyRegistry.get_metadata(strategy_name)
     except Exception as e:
-        logger.debug(f"[{StrategyRegistry.get_metadata(strategy_name).get('display_name', strategy_name)}] 获取策略列映射失败: {e}")
+        # 注意: 此处不能再次调用 get_metadata (未知名会再抛 KeyError), 只用 strategy_name 记日志
+        logger.debug(f"[{strategy_name}] 获取策略列映射失败: {e}")
         return {}
 
     tp_cols = meta.get('tp_columns', [])

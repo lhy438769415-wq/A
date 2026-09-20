@@ -611,13 +611,46 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
         # 已统一移至 notifier.generate_chart_bytes._draw_rating_panel 绘制,
         # 避免与 notifier 面板重复。此处仅保留缺口矩形/画线/箭头标注。
         
-        # 标注 3. 测量缺口的起点
-        ax.annotate("起跳支点", 
-                    xy=(origin_x + 0.5, origin_true_low), 
+        # 标注 3a. TP 测量锚点 (信号前 LOOKBACK 根最低低, TP=2×地板−该值)
+        # 注意: 该点是止盈公式的丈量起点, 但通常离突破K很远, 不是视觉上的起跳位置
+        ax.annotate("测量锚点\n(前60根最低)",
+                    xy=(origin_x + 0.5, origin_true_low),
                     xytext=(origin_x + 6.5, origin_true_low),
-                    arrowprops=dict(arrowstyle="->", color='#6A1B9A', lw=1.5, alpha=0.7),
-                    fontsize=9, color='#6A1B9A', fontweight='normal', ha='left', va='center',
+                    arrowprops=dict(arrowstyle="->", color='#8E24AA', lw=1.2, alpha=0.55, linestyle='--'),
+                    fontsize=8, color='#8E24AA', fontweight='normal', ha='left', va='center',
                     bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+
+        # 标注 3b. 起跳支点 (突破K前最后一波起涨的波段低点)
+        # 算法: 找信号前最后一个突破K, 取其前方最后一根仍在缺口地板下方的K线 → 到突破K前一根之间的最低价
+        _launch_x, _launch_low = None, None
+        try:
+            _bo_col = None
+            for _cn in ['is_breakout', 'is_breakout_gp', 'is_breakout_h2']:
+                if _cn in plot_df.columns and plot_df[_cn].any():
+                    _bo_col = _cn
+                    break
+            if _bo_col:
+                _bo_idx = plot_df.index[plot_df[_bo_col] == True]
+                _bo_before = _bo_idx[_bo_idx <= signal_date]
+                if len(_bo_before):
+                    _bo_pos = plot_df.index.get_loc(_bo_before[-1])
+                    _pre_bo = plot_df.iloc[:_bo_pos]
+                    _below = _pre_bo[_pre_bo['low'] < floor_price] if (floor_price and not pd.isna(floor_price)) else _pre_bo
+                    _base_i = _below.index[-1] if len(_below) else plot_df.index[max(0, _bo_pos - 10)]
+                    _seg = plot_df.loc[_base_i: plot_df.index[_bo_pos - 1]] if _bo_pos > 0 else plot_df.loc[_base_i:_base_i]
+                    if len(_seg):
+                        _launch_x = date_list.index(_seg['low'].idxmin())
+                        _launch_low = float(_seg['low'].min())
+        except Exception as _e:
+            logger.debug(f"[{strategy_type}] 起跳支点定位失败, 跳过标注: {_e}")
+            _launch_x, _launch_low = None, None
+        if _launch_x is not None:
+            ax.annotate("起跳支点",
+                        xy=(_launch_x + 0.5, _launch_low),
+                        xytext=(_launch_x - 7.5, _launch_low),
+                        arrowprops=dict(arrowstyle="->", color='#6A1B9A', lw=1.5, alpha=0.7),
+                        fontsize=9, color='#6A1B9A', fontweight='normal', ha='right', va='center',
+                        bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
         
         # 标注 3. 入场点
         if not is_pending_track:
@@ -634,6 +667,68 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                         arrowprops=dict(arrowstyle="->", color='#D32F2F', lw=1.5, linestyle="--"),
                         fontsize=9, color='#D32F2F', fontweight='bold', ha='left', va='center',
                         bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+
+        # 标注 3c. GAP H2 状态机节点: 突破K / 首腿LHLL / 高1 H1 / 信号K (仅 GAP_H2)
+        if 'GAP_H2' in strat_upper:
+            try:
+                _yrange = float(plot_df['high'].max() - plot_df['low'].min())
+                _bo_col2 = None
+                for _cn in ['is_breakout_h2', 'is_breakout', 'is_breakout_gp']:
+                    if _cn in plot_df.columns and plot_df[_cn].any():
+                        _bo_col2 = _cn
+                        break
+                if _bo_col2:
+                    _bo_idx2 = plot_df.index[plot_df[_bo_col2] == True]
+                    _bo_before2 = _bo_idx2[_bo_idx2 <= signal_date]
+                    if len(_bo_before2):
+                        _bo_pos2 = plot_df.index.get_loc(_bo_before2[-1])
+                        _sig_pos2 = plot_df.index.get_loc(signal_date)
+                        _seg2 = plot_df.iloc[_bo_pos2:_sig_pos2 + 1]
+                        _lhll2 = (_seg2['high'] < _seg2['high'].shift(1)) & (_seg2['low'] < _seg2['low'].shift(1))
+                        _hh2 = _seg2['high'] > _seg2['high'].shift(1)
+                        # 突破K (高点上方)
+                        _bo_x2 = date_list.index(_bo_before2[-1])
+                        ax.annotate("突破K",
+                                    xy=(_bo_x2 + 0.5, plot_df.iloc[_bo_pos2]['high']),
+                                    xytext=(_bo_x2 + 0.5, plot_df.iloc[_bo_pos2]['high'] + _yrange * 0.035),
+                                    arrowprops=dict(arrowstyle="-", color='#E65100', alpha=0.8),
+                                    fontsize=8, color='#E65100', ha='center', va='bottom',
+                                    bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+                        # 首腿回调 LHLL (低点下方)
+                        _pb_list = list(_seg2.index[_lhll2])
+                        if _pb_list:
+                            _pb = _pb_list[0]
+                            _pb_x = date_list.index(_pb)
+                            ax.annotate("首腿LHLL",
+                                        xy=(_pb_x + 0.5, plot_df.loc[_pb, 'low']),
+                                        xytext=(_pb_x + 0.5, plot_df.loc[_pb, 'low'] - _yrange * 0.04),
+                                        arrowprops=dict(arrowstyle="-", color='#00695C', alpha=0.8),
+                                        fontsize=8, color='#00695C', ha='center', va='top',
+                                        bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+                            # 高1 H1 (首腿LHLL 后首根 HH, 高点上方)
+                            _h1 = None
+                            for _ii in _seg2.index[_seg2.index.get_loc(_pb) + 1:]:
+                                if _hh2.loc[_ii]:
+                                    _h1 = _ii
+                                    break
+                            if _h1 is not None:
+                                _h1_x = date_list.index(_h1)
+                                ax.annotate("高1 H1",
+                                            xy=(_h1_x + 0.5, plot_df.loc[_h1, 'high']),
+                                            xytext=(_h1_x + 0.5, plot_df.loc[_h1, 'high'] + _yrange * 0.035),
+                                            arrowprops=dict(arrowstyle="-", color='#2E7D32', alpha=0.8),
+                                            fontsize=8, color='#2E7D32', ha='center', va='bottom',
+                                            bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+                    # 信号K (低点下方, 与首腿LHLL 错开高度)
+                    _sk_x = date_list.index(signal_date)
+                    ax.annotate("信号K",
+                                xy=(_sk_x + 0.5, plot_df.loc[signal_date, 'low']),
+                                xytext=(_sk_x + 0.5, plot_df.loc[signal_date, 'low'] - _yrange * 0.09),
+                                arrowprops=dict(arrowstyle="-", color='#C62828', alpha=0.8),
+                                fontsize=8, color='#C62828', ha='center', va='top',
+                                bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+            except Exception as _e:
+                logger.debug(f"[{strategy_type}] 状态机节点标注失败: {_e}")
         
         # 标注 4. 测量缺口止盈
         if tp1 > 0:

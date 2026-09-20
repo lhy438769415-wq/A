@@ -230,12 +230,37 @@ def draw_chart(code, name, entry, sl, tp, is_pending, ev_rating, sig_quality, be
                     verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.9, edgecolor='gray'))
             
             # Annotate Origin
-            ax.annotate("起跳支点", 
-                        xy=(origin_x + 0.5, origin_true_low), 
+            # 测量锚点 (TP公式起点: 信号前60根最低低)
+            ax.annotate("测量锚点\n(前60根最低)",
+                        xy=(origin_x + 0.5, origin_true_low),
                         xytext=(origin_x + 6.5, origin_true_low),
-                        arrowprops=dict(arrowstyle="->", color='#6A1B9A', lw=1.5, alpha=0.7),
-                        fontsize=9, color='#6A1B9A', fontweight='normal', ha='left', va='center',
+                        arrowprops=dict(arrowstyle="->", color='#8E24AA', lw=1.2, alpha=0.55, linestyle='--'),
+                        fontsize=8, color='#8E24AA', fontweight='normal', ha='left', va='center',
                         bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+
+            # 起跳支点 (突破K前最后一波起涨的波段低点)
+            _launch_x, _launch_low = None, None
+            try:
+                _bo_idx = plot_df.index[plot_df['is_breakout'] == True] if 'is_breakout' in plot_df.columns else pd.Index([])
+                _bo_before = _bo_idx[_bo_idx <= signal_date]
+                if len(_bo_before):
+                    _bo_pos = plot_df.index.get_loc(_bo_before[-1])
+                    _pre_bo = plot_df.iloc[:_bo_pos]
+                    _below = _pre_bo[_pre_bo['low'] < sl] if (sl and not pd.isna(sl)) else _pre_bo
+                    _base_i = _below.index[-1] if len(_below) else plot_df.index[max(0, _bo_pos - 10)]
+                    _seg = plot_df.loc[_base_i: plot_df.index[_bo_pos - 1]] if _bo_pos > 0 else plot_df.loc[_base_i:_base_i]
+                    if len(_seg):
+                        _launch_x = idx_list.index(_seg['low'].idxmin())
+                        _launch_low = float(_seg['low'].min())
+            except Exception:
+                _launch_x, _launch_low = None, None
+            if _launch_x is not None:
+                ax.annotate("起跳支点",
+                            xy=(_launch_x + 0.5, _launch_low),
+                            xytext=(_launch_x - 7.5, _launch_low),
+                            arrowprops=dict(arrowstyle="->", color='#6A1B9A', lw=1.5, alpha=0.7),
+                            fontsize=9, color='#6A1B9A', fontweight='normal', ha='right', va='center',
+                            bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
 
             # Arrows
             if not is_pending:
