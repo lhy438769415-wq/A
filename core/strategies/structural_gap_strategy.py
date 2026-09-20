@@ -465,9 +465,29 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
 
     # 可选显式锚点 (成册/复盘场景): 指定本笔交易的信号K/真实入场/离场。
     # 不传时维持生产行为 (取窗口内最后一根信号, 供实时扫描)。
-    anchor_signal_date = kwargs.pop('anchor_signal_date', None)  # Timestamp: 本笔交易的 H2 信号K
-    entry_mark = kwargs.pop('entry_mark', None)    # (Timestamp, price): 回测真实成交入场
-    exit_mark = kwargs.pop('exit_mark', None)      # (Timestamp, price, label): 离场点
+    anchor_signal_date = kwargs.pop('anchor_signal_date', None)  # str/Timestamp: 本笔交易的 H2 信号K
+    entry_mark = kwargs.pop('entry_mark', None)    # (date, price): 回测真实成交入场
+    exit_mark = kwargs.pop('exit_mark', None)      # (date, price, label): 离场点
+    extra_marks = kwargs.pop('extra_marks', None)  # [(date, price, label[, color]), ...]: 阶段事件点
+
+    def _resolve_date(d):
+        """把 str/Timestamp 日期解析为 plot_df.index 中的同型值。
+        兼容三种形态: date 普通列+整数索引 (Baostock 原始) / DatetimeIndex (notifier set_index 后) / 其它。
+        解析失败返回 None, 调用方回退默认行为。"""
+        try:
+            ds = str(d)[:10]
+            if 'date' in plot_df.columns:
+                m = (plot_df['date'].astype(str).str[:10] == ds).to_numpy()
+                if m.any():
+                    return plot_df.index[m][0]
+            if isinstance(plot_df.index, pd.DatetimeIndex):
+                ts = pd.Timestamp(ds)
+                return ts if ts in plot_df.index else None
+            if d in plot_df.index:
+                return d
+        except Exception:
+            pass
+        return None
     
     # 策略列映射 — 基于 metadata 驱动
     from core.strategy_registry import StrategyRegistry
@@ -511,28 +531,29 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
         
         _anchor_ok = False
         if anchor_signal_date is not None:
-            try:
-                _anchor_ok = anchor_signal_date in plot_df.index
-            except Exception:
-                _anchor_ok = False
-        if _anchor_ok:
-            signal_date = anchor_signal_date
-            is_pending_track = False
-        elif sig_col and sig_col in plot_df.columns and plot_df[sig_col].any():
-            signal_date = plot_df[plot_df[sig_col]].index[-1]
-            is_pending_track = False
-        else:
-            # 尝试寻找 pending 状态的突破
-            breakout_col = None
-            for col_name in ['is_breakout', 'is_breakout_gp', 'is_breakout_h2']:
-                if col_name in plot_df.columns and plot_df[col_name].any():
-                    if ev_rating and '追踪' in str(ev_rating):
-                        signal_date = plot_df.index[-1]
-                        breakout_col = col_name
-                        is_pending_track = True
-                        break
-            if signal_date is None:
-                return
+            _resolved = _resolve_date(anchor_signal_date)
+            if _resolved is not None:
+                signal_date = _resolved
+                _anchor_ok = True
+                is_pending_track = False
+        if not _anchor_ok and anchor_signal_date is not None:
+            logger.warning(f"[{strategy_type}] 显式锚定日期 {anchor_signal_date} 不在绘图窗口内, 回退默认定位")
+        if not _anchor_ok:
+            if sig_col and sig_col in plot_df.columns and plot_df[sig_col].any():
+                signal_date = plot_df[plot_df[sig_col]].index[-1]
+                is_pending_track = False
+            else:
+                # 尝试寻找 pending 状态的突破
+                breakout_col = None
+                for col_name in ['is_breakout', 'is_breakout_gp', 'is_breakout_h2']:
+                    if col_name in plot_df.columns and plot_df[col_name].any():
+                        if ev_rating and '追踪' in str(ev_rating):
+                            signal_date = plot_df.index[-1]
+                            breakout_col = col_name
+                            is_pending_track = True
+                            break
+                if signal_date is None:
+                    return
         
         signal_price = plot_df.loc[signal_date]['low']
         
@@ -660,19 +681,18 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
         _entry_drawn = False
         if entry_mark is not None:
             # 显式锚点: 箭头指向回测真实成交的那根K (非信号K触发位)
-            try:
-                _em_d, _em_p = entry_mark
-                if _em_d in plot_df.index:
-                    _em_x = date_list.index(_em_d)
-                    ax.annotate("Entry",
-                                xy=(_em_x + 0.5, _em_p),
-                                xytext=(_em_x + 6.5, _em_p),
-                                arrowprops=dict(arrowstyle="->", color='#D32F2F', lw=1.5),
-                                fontsize=9, color='#D32F2F', fontweight='bold', ha='left', va='center',
-                                bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
-                    _entry_drawn = True
-            except Exception as _e:
-                logger.debug(f"[{strategy_type}] Entry 锚点标注失败: {_e}")
+            _em_d2 = _resolve_date(entry_mark[0])
+            if _em_d2 is not None:
+                _em_x = date_list.index(_em_d2)
+                ax.annotate("Entry",
+                            xy=(_em_x + 0.5, entry_mark[1]),
+                            xytext=(_em_x + 6.5, entry_mark[1]),
+                            arrowprops=dict(arrowstyle="->", color='#D32F2F', lw=1.5),
+                            fontsize=9, color='#D32F2F', fontweight='bold', ha='left', va='center',
+                            bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+                _entry_drawn = True
+            else:
+                logger.warning(f"[{strategy_type}] Entry 锚定日期 {entry_mark[0]} 不在绘图窗口内")
         if not _entry_drawn and not is_pending_track:
             ax.annotate("Entry", 
                         xy=(signal_x + 0.5, entry_price), 
@@ -702,16 +722,34 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                                 fontsize=8, color='#6A1B9A', ha='center', va='bottom',
                                 bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
                 if exit_mark is not None:
-                    _xm_d, _xm_p, _xm_lab = exit_mark
-                    if _xm_d in plot_df.index:
-                        _xm_x = date_list.index(_xm_d)
-                        _is_sl = 'SL' in str(_xm_lab)
+                    _xm_d2 = _resolve_date(exit_mark[0])
+                    if _xm_d2 is not None:
+                        _xm_x = date_list.index(_xm_d2)
+                        _is_sl = 'SL' in str(exit_mark[2])
                         _xc9 = '#2E7D32' if _is_sl else '#D32F2F'  # 止损绿 / 止盈红 (A股习惯)
-                        ax.annotate(str(_xm_lab),
-                                    xy=(_xm_x + 0.5, _xm_p),
-                                    xytext=(_xm_x + 6.5, _xm_p - _yr9 * 0.05),
+                        ax.annotate(str(exit_mark[2]),
+                                    xy=(_xm_x + 0.5, exit_mark[1]),
+                                    xytext=(_xm_x + 6.5, exit_mark[1] - _yr9 * 0.05),
                                     arrowprops=dict(arrowstyle="->", color=_xc9, lw=1.5),
                                     fontsize=9, color=_xc9, fontweight='bold', ha='left', va='center',
+                                    bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+                    else:
+                        logger.warning(f"[{strategy_type}] Exit 锚定日期 {exit_mark[0]} 不在绘图窗口内")
+                # 阶段事件点 (TP1·半仓 / SH·新高移损 等, 成册场景)
+                if extra_marks:
+                    for _mk in extra_marks:
+                        _mk_d = _resolve_date(_mk[0])
+                        if _mk_d is None:
+                            logger.warning(f"[{strategy_type}] extra_mark 日期 {_mk[0]} 不在绘图窗口内, 跳过")
+                            continue
+                        _mk_x = date_list.index(_mk_d)
+                        _mk_lab = str(_mk[2])
+                        _mk_c = _mk[3] if len(_mk) > 3 else '#E65100'
+                        ax.annotate(_mk_lab,
+                                    xy=(_mk_x + 0.5, _mk[1]),
+                                    xytext=(_mk_x + 6.5, _mk[1] + _yr9 * 0.05),
+                                    arrowprops=dict(arrowstyle="->", color=_mk_c, lw=1.3),
+                                    fontsize=8, color=_mk_c, fontweight='bold', ha='left', va='center',
                                     bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
             except Exception as _e:
                 logger.debug(f"[{strategy_type}] H2/Exit 锚点标注失败: {_e}")

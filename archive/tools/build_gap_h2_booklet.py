@@ -115,15 +115,30 @@ def draw_trade(code, trade, label):
 
     # 显式锚点: 把标注钉在这笔交易自己的 K 线上,
     # 防止窗口向后延伸出现新缺口+H2 时标注整体跳到后一笔形态 (用户实测踩坑)。
-    extra = {'anchor_signal_date': pd.Timestamp(trade['signal_date'])}
+    # 日期一律传字符串 (YYYY-MM-DD), 标注函数内部按 date 列解析, 兼容整数索引。
+    extra = {'anchor_signal_date': str(trade['signal_date'])}
     en_date = trade.get('entry_date')
     if en_date and str(en_date)[:10] in set(dates):
-        extra['entry_mark'] = (pd.Timestamp(str(en_date)[:10]), float(trade['entry_price']))
+        extra['entry_mark'] = (str(en_date)[:10], float(trade['entry_price']))
     exd = trade.get('exit_date')
     if exd and str(exd)[:10] in set(dates):
         _reason = str(trade.get('reason', ''))
         _lab = 'Exit·SL' if 'stop' in _reason else ('Exit·L2' if 'reversal' in _reason else 'Exit')
-        extra['exit_mark'] = (pd.Timestamp(str(exd)[:10]), float(trade['exit_price']), _lab)
+        extra['exit_mark'] = (str(exd)[:10], float(trade['exit_price']), _lab)
+
+    # 阶段事件点: TP1·2R 半仓止盈 / SH·新高(触发移损) / 低2离场由 exit_mark 表达
+    marks = []
+    hd = trade.get('half_exit_date')
+    hp_ = trade.get('half_exit_price')
+    if (hd and hp_ is not None and not (isinstance(hp_, float) and np.isnan(hp_))
+            and str(hd)[:10] in set(dates)):
+        marks.append((str(hd)[:10], float(hp_), 'TP1·2R', '#C62828'))
+    scd = trade.get('sh_cross_date')
+    if scd and str(scd)[:10] in set(dates):
+        _sh_pos = int(np.where(dates == str(scd)[:10])[0][-1])
+        marks.append((str(scd)[:10], float(sdf.iloc[_sh_pos]['high']), 'SH·新高', '#E65100'))
+    if marks:
+        extra['extra_marks'] = marks
 
     buf = generate_chart_bytes(
         code, f"{label}", 'STRATEGY_GAP_H2', sl_price=sl0, tp1=tp1,
@@ -175,6 +190,16 @@ def add_trade_page(pdf, code, trade, label, seq):
            f"入价 {trade.get('entry_price', float('nan')):.2f}   出价 "
            f"{trade.get('exit_price', float('nan')):.2f}   半仓位 {half_s}   "
            f"total_R {r:+.3f}   离场原因 {trade.get('reason','-')}")
+    # 阶段事件日期 (与图上 TP1·2R / SH·新高 标注呼应)
+    stage_bits = []
+    hd = trade.get('half_exit_date')
+    if hd:
+        stage_bits.append(f"2R半仓日 {str(hd)[:10]}")
+    scd = trade.get('sh_cross_date')
+    if scd:
+        stage_bits.append(f"新高移损日 {str(scd)[:10]}")
+    if stage_bits:
+        cap += "\n" + "   ".join(stage_bits)
     fig.text(0.05, 0.10, cap, fontsize=10.5, color='#1f2328', va='top')
     pdf.savefig(fig); plt.close(fig)
     return True
