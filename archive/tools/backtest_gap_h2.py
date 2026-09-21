@@ -11,7 +11,7 @@ import numpy as np
 import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(project_root)
 from core.paths import ensure_importable
 ensure_importable()
@@ -36,6 +36,12 @@ def evaluate_trade(df, signal_idx):
         tp_price = sig_row['tp_gap_h2']
         gap_floor = sig_row['gap_h2_floor_exact']
 
+        # 动态挂单: 策略已给出真正收口成交K(entry_bar_gap_h2); 有则仅在该K成交
+        _eb = sig_row.get('entry_bar_gap_h2', np.nan)
+        entry_bar = (_eb if (isinstance(_eb, (int, float, np.integer, np.floating))
+                             and not pd.isna(_eb)) else None)
+        i_entry = (int(entry_bar) - (signal_idx + 1)) if entry_bar is not None else None
+
         if pd.isna(entry_price) or pd.isna(sl_price) or pd.isna(tp_price):
             return {'status': 'ERROR', 'reason': 'NaN'}
 
@@ -59,6 +65,18 @@ def evaluate_trade(df, signal_idx):
             row_date = row['date'] if 'date' in row else post.index[i]
 
             if status == 'WAITING':
+                if entry_bar is not None:
+                    if i == i_entry:
+                        actual_entry = max(entry_price, row['open'])
+                        entry_date = row_date
+                        status = 'IN_TRADE'
+                        if row['low'] <= sl_price:
+                            return {**base, 'status': 'LOSS', 'entry_date': entry_date, 'exit_date': entry_date,
+                                    'entry_price': actual_entry, 'exit_price': sl_price, 'reason': 'same_day_stop'}
+                        if row['high'] >= tp_price:
+                            return {**base, 'status': 'WIN', 'entry_date': entry_date, 'exit_date': entry_date,
+                                    'entry_price': actual_entry, 'exit_price': tp_price, 'reason': 'same_day_tp'}
+                    continue
                 bars_waited += 1
                 if row['low'] < gap_floor - 1e-3:
                     return {**base, 'status': 'INVALIDATED', 'reason': 'gap_filled'}

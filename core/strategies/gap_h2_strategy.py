@@ -276,6 +276,12 @@ class GapH2Strategy(BaseStrategy):
         _already = _signal_raw.groupby(_bars_since_breakout).cumsum().shift(1).fillna(0) > 0
         df['signal_gap_h2'] = _signal_raw & ~_already
 
+        # 动态入场价: H2 跟踪挂单 (顺回调下移, 直到 HH 收口才成交)
+        _dyn_sig, _dyn_entry, _dyn_bar = self._apply_dynamic_entry(
+            df, df['signal_gap_h2'], _gap_floor, _target_uncond, timeout=30)
+        df['signal_gap_h2'] = _dyn_sig
+        df['entry_bar_gap_h2'] = _dyn_bar
+
         # 回测/分析数据
         df['bars_since_breakout_h2'] = _bars_since_breakout
 
@@ -285,8 +291,8 @@ class GapH2Strategy(BaseStrategy):
         # SL = Gap Floor
         df['sl_gap_h2'] = np.where(df['signal_gap_h2'], _gap_floor, np.nan)
 
-        # Entry = 信号 K 线 (第二次回调 LHLL) 的最高点，次日挂 Buy Stop
-        df['entry_gap_h2'] = np.where(df['signal_gap_h2'], df['high'], np.nan)
+        # Entry = H2 动态跟踪挂单价 (信号K起, 顺回调下移, HH 收口成交)
+        df['entry_gap_h2'] = _dyn_entry
 
         # TP = 2 * Gap_Floor - Prior_Swing_Low
         df['tp_gap_h2'] = np.where(df['signal_gap_h2'], _target_uncond, np.nan)
@@ -308,6 +314,74 @@ class GapH2Strategy(BaseStrategy):
         df['gap_h2_test_date'] = df.index.to_series().shift(1)
 
         return df
+
+    # =====================================================================
+    # 动态入场价: H2 跟踪挂单
+    # ---------------------------------------------------------------------
+    # 旧逻辑把 Entry 死钉在"信号K(第二腿回调起点)的最高点"。但信号K之后常再出
+    # 阴跌跟随K(高低点都下降), 真正的 H2 反转要等到"高点抬升"那根才成立。因此
+    # 挂单价应顺着回调往下调, 直到出现 HH(高点抬升)收口才成交:
+    #   扫描(信号K之后, 窗口内逐根):
+    #     - low <= 缺口地板            → 破位, 撤单, 该信号失效(signal=False)
+    #     - 高低点都下降(LHLL)          → 挂单下移到该K上方, 参考更新为该K, 继续
+    #     - 高点抬升(HH: high>参考.high) → 收口, Entry=参考K.high, 该根突破即成交
+    #     - 其余(内包/模糊)             → 不动挂单, 继续
+    #   扫满窗口仍未收口                → 信号过期失效(signal=False)
+    # 失败信号 signal 置 False + entry 置 NaN, 回测/生产自然跳过, 不产生幽灵信号。
+    # =====================================================================
+    def _apply_dynamic_entry(self, df: pd.DataFrame, signal: pd.Series,
+                            floor_series: pd.Series, tp_series: pd.Series = None,
+                            timeout: int = 30):
+        """动态入场价: H2 跟踪挂单。
+
+        信号K(第二腿回调起点)为初始挂单价; 其后逐根扫描:
+          - 破缺口地板 / 测量目标先达 / 超时 → 撤单失效(signal=False)
+          - 高低点都下降(LHLL)                → 挂单下移到该K上方, 参考更新, 继续
+          - 高点抬升(HH: high>参考.high)        → 收口成交(Entry=参考K.high, 成交K=该根)
+        返回 (final_signal, entry_price, entry_bar); entry_bar 为成交K全局索引, 失效为 NaN。
+        回测据此在指定K成交, 不再用"首根 high>=entry"简单阈值 (那样会在阴跌K提前触发)。
+        """
+        n = len(df)
+        high = df['high'].values.astype(float)
+        low = df['low'].values.astype(float)
+        sig_idx = np.where(signal.fillna(False).values)[0]
+        final = signal.copy()
+        entry = pd.Series(np.nan, index=df.index, dtype=float)
+        entry_bar = pd.Series(np.nan, index=df.index, dtype=float)
+        SCAN = int(self.MAX_PULLBACK_WINDOW)
+        for i in sig_idx:
+            fl = floor_series.iloc[i]
+            tp = (tp_series.iloc[i] if (tp_series is not None
+                and not pd.isna(tp_series.iloc[i])) else np.inf)
+            if pd.isna(fl):
+                final.iloc[i] = False
+                continue
+            ref_high, ref_low, e = high[i], low[i], high[i]
+            ok, bar, bw = False, np.nan, 0
+            end = min(n, i + 1 + SCAN)
+            for j in range(i + 1, end):
+                bw += 1
+                hj, lj = high[j], low[j]
+                if lj <= fl + 1e-9:                 # 破缺口地板 → 撤单
+                    break
+                if hj >= tp:                         # 测量目标先达 → 作废
+                    break
+                if bw > timeout:                     # 超时 → 过期
+                    break
+                if (hj < ref_high) and (lj < ref_low):   # LHLL 阴跌跟随 → 下移
+                    ref_high, ref_low, e = hj, lj, hj
+                    continue
+                if hj > ref_high:                    # HH 高点抬升 → 收口成交
+                    e, ok, bar = ref_high, True, j
+                    break
+                # 内包/模糊 → 不动挂单, 继续
+            if ok:
+                entry.iloc[i], entry_bar.iloc[i] = e, bar
+            else:
+                final.iloc[i] = False
+                entry.iloc[i] = np.nan
+                entry_bar.iloc[i] = np.nan
+        return final, entry, entry_bar
 
     def _calculate_context(self, df: pd.DataFrame) -> str:
         """为 AI 审计提供结构上下文"""

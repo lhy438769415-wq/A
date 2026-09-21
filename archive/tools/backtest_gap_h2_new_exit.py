@@ -73,6 +73,13 @@ def evaluate_trade_new_exit(df, signal_idx, timeout=LIFECYCLE_TIMEOUT_BARS):
         bsg = sig_row['bars_since_breakout_h2']
         tp_measured = sig_row['tp_gap_h2']       # 仅用于"入场前先达作废"过滤
 
+        # 动态挂单: 策略已给出真正的收口成交K(entry_bar_gap_h2);
+        # 有则仅在指定K成交, 否则回退旧"首根 high>=E"规则(兼容无该列的策略)。
+        _eb = sig_row.get('entry_bar_gap_h2', np.nan)
+        entry_bar = (_eb if (isinstance(_eb, (int, float, np.integer, np.floating))
+                             and not pd.isna(_eb)) else None)
+        i_entry = (int(entry_bar) - (signal_idx + 1)) if entry_bar is not None else None
+
         if pd.isna(E) or pd.isna(SL0) or pd.isna(sig_low) or pd.isna(gap_floor):
             return {'status': 'ERROR', 'reason': 'NaN'}
         if pd.isna(tp_measured):
@@ -115,6 +122,31 @@ def evaluate_trade_new_exit(df, signal_idx, timeout=LIFECYCLE_TIMEOUT_BARS):
             high = float(row['high']); low = float(row['low']); op = float(row['open'])
 
             if status == 'WAITING':
+                # 动态挂单: 指定成交K直接成交; 等待期内其余K不成交(挂单价已下移)
+                if entry_bar is not None:
+                    if i == i_entry:
+                        actual_entry = max(E, op)
+                        entry_date = row_date
+                        status = 'IN_TRADE'
+                        R = actual_entry - SL0
+                        if R <= 0:
+                            return {**base, 'status': 'ERROR', 'reason': 'R<=0'}
+                        T2 = actual_entry + 2 * R
+                        if low <= current_sl:
+                            exit_p = min(current_sl, op)
+                            total_r = remaining_frac * (exit_p - actual_entry) / R
+                            return {**base, 'status': 'LOSS', 'entry_date': entry_date, 'exit_date': row_date,
+                                    'entry_price': actual_entry, 'exit_price': exit_p,
+                                    'half_exit_price': np.nan, 'total_r': total_r,
+                                    'half_exit_date': None, 'sh_cross_date': None, 'reason': 'same_day_stop'}
+                        if high >= T2:
+                            hp = max(T2, op)
+                            realized_r += remaining_frac * 0.5 * (hp - actual_entry) / R
+                            remaining_frac *= 0.5
+                            half_done = True
+                            half_exit_date = row_date
+                    continue
+                # 回退旧逻辑 (无 entry_bar 的策略)
                 bars_waited += 1
                 if low < gap_floor - 1e-3:
                     return {**base, 'status': 'INVALIDATED', 'reason': 'gap_filled'}
@@ -145,7 +177,7 @@ def evaluate_trade_new_exit(df, signal_idx, timeout=LIFECYCLE_TIMEOUT_BARS):
                         remaining_frac *= 0.5
                         half_done = True
                         half_exit_date = row_date
-                continue
+                    continue
 
             # ---- IN_TRADE ----
             R = actual_entry - current_sl  # 动态风险 (移动止损后变化)
