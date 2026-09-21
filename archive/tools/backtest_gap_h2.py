@@ -117,6 +117,12 @@ def backtest_single(code, timeframe='daily', limit=1500):
         df = add_indicators(df)
         strategy = GapH2Strategy()
         df = strategy.calculate_signals(df)
+        # 自算动态入场(只看高点HH): 挂单顺回调下移, HH收口成交, 失败信号作废
+        _fin, _de, _db = strategy._apply_dynamic_entry(
+            df, df['signal_gap_h2'], df['sl_gap_h2'], df['tp_gap_h2'], timeout=30)
+        df['signal_gap_h2'] = _fin
+        df['entry_gap_h2'] = _de
+        df['entry_bar_gap_h2'] = _db
 
         sig_col = 'signal_gap_h2'
         indices = [i for i, v in enumerate(df[sig_col]) if v]

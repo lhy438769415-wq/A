@@ -46,18 +46,17 @@ def _build_hit(code: str, strat, df_strat: pd.DataFrame, strategy_key: str = '')
     # P1: 使用策略自描述接口替代硬编码列映射
     signal_info = strat.get_signal_info(df_strat)
 
-    # 映射止损列
-    sl_col = strat.get_metadata().get('sl_column', '')
+    # 映射止损/入场/止盈列 — 优先生产活跃列(active_*), 无声明则回退原列
+    _meta = strat.get_metadata()
+    sl_col = _meta.get('active_sl_column') or _meta.get('sl_column', '')
     if sl_col and sl_col in df_strat.columns:
         df_strat['sl_price'] = df_strat[sl_col]
 
-    # 映射入场价
-    entry_col = strat.get_metadata().get('entry_column', '')
+    entry_col = _meta.get('active_entry_column') or _meta.get('entry_column', '')
     if entry_col and entry_col in df_strat.columns:
         df_strat['entry_price'] = df_strat[entry_col]
 
-    # 映射止盈价
-    tp_cols = strat.get_metadata().get('tp_columns', [])
+    tp_cols = _meta.get('active_tp_columns') or _meta.get('tp_columns', [])
     if tp_cols and tp_cols[0] in df_strat.columns:
         df_strat['tp1_price'] = df_strat[tp_cols[0]]
         if len(tp_cols) > 1 and tp_cols[1] in df_strat.columns:
@@ -143,7 +142,8 @@ def run_scanner(code: str, strategy_name: str = 'MTR_MASTER') -> Optional[Dict[s
         try:
             strat = StrategyRegistry.get_strategy(name)
             df_strat = strat.calculate_signals(df.copy())
-            latest_signal = df_strat.iloc[-1][strat.signal_column]
+            _sig_col = strat.get_metadata().get('active_signal_column') or strat.signal_column
+            latest_signal = df_strat.iloc[-1][_sig_col]
             if latest_signal:
                 display_name = StrategyRegistry.get_metadata(name).get('display_name', strat.name)
                 logger.info(f"✨ 策略命中 [{display_name}]: {code}")
@@ -172,7 +172,8 @@ def run_scanner_all(code: str, strategy_names: Optional[List[str]] = None) -> Li
         try:
             strat = StrategyRegistry.get_strategy(name)
             df_strat = strat.calculate_signals(df.copy())
-            latest_signal = df_strat.iloc[-1][strat.signal_column]
+            _sig_col = strat.get_metadata().get('active_signal_column') or strat.signal_column
+            latest_signal = df_strat.iloc[-1][_sig_col]
             if latest_signal:
                 display_name = StrategyRegistry.get_metadata(name).get('display_name', strat.name)
                 logger.info(f"✨ 策略命中 [{display_name}]: {code}")

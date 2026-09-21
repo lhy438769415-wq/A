@@ -72,6 +72,12 @@ class GapH2Strategy(BaseStrategy):
             'ai_audit': False,
             'bars_since_breakout_column': 'bars_since_breakout_h2',
             'gap_top_exact_column': 'gap_h2_top_exact',
+            # 生产活跃列 (日线 last-bar-only 持续提醒): 活跃单投影到最后一根K,
+            # 挂单价随回调动态下移; 信号K列(signal_gap_h2 等)保留给回测/评级/画图定位
+            'active_signal_column': 'signal_active_gap_h2',
+            'active_entry_column': 'entry_active_gap_h2',
+            'active_sl_column': 'sl_active_gap_h2',
+            'active_tp_columns': ['tp2r_active_gap_h2', 'tp_active_gap_h2'],
         }
 
     @classmethod
@@ -276,12 +282,6 @@ class GapH2Strategy(BaseStrategy):
         _already = _signal_raw.groupby(_bars_since_breakout).cumsum().shift(1).fillna(0) > 0
         df['signal_gap_h2'] = _signal_raw & ~_already
 
-        # 动态入场价: H2 跟踪挂单 (顺回调下移, 直到 HH 收口才成交)
-        _dyn_sig, _dyn_entry, _dyn_bar = self._apply_dynamic_entry(
-            df, df['signal_gap_h2'], _gap_floor, _target_uncond, timeout=30)
-        df['signal_gap_h2'] = _dyn_sig
-        df['entry_bar_gap_h2'] = _dyn_bar
-
         # 回测/分析数据
         df['bars_since_breakout_h2'] = _bars_since_breakout
 
@@ -291,8 +291,8 @@ class GapH2Strategy(BaseStrategy):
         # SL = Gap Floor
         df['sl_gap_h2'] = np.where(df['signal_gap_h2'], _gap_floor, np.nan)
 
-        # Entry = H2 动态跟踪挂单价 (信号K起, 顺回调下移, HH 收口成交)
-        df['entry_gap_h2'] = _dyn_entry
+        # Entry = 信号 K 线 (第二次回调 LHLL) 的最高点，次日挂 Buy Stop
+        df['entry_gap_h2'] = np.where(df['signal_gap_h2'], df['high'], np.nan)
 
         # TP = 2 * Gap_Floor - Prior_Swing_Low
         df['tp_gap_h2'] = np.where(df['signal_gap_h2'], _target_uncond, np.nan)
@@ -313,34 +313,37 @@ class GapH2Strategy(BaseStrategy):
 
         df['gap_h2_test_date'] = df.index.to_series().shift(1)
 
+        # ==============================================================================
+        # 第六步：生产活跃投影 (日线持续提醒) — 活跃单投影到最后一根K
+        # 与回测动态入场共用"只看高点 HH"判据: 高点没抬升(含内包K)就下移, 抬升就收口。
+        # 生产只把"截至今天仍活着的挂单"浮到今天这根K, 供 last-bar-only 扫描读取。
+        # ==============================================================================
+        _active_sig, _active_entry, _active_sl, _active_tp, _active_tp2r = self._project_active_entry(
+            df, df['signal_gap_h2'], _gap_floor, _target_uncond, timeout=30)
+        df['signal_active_gap_h2'] = _active_sig
+        df['entry_active_gap_h2'] = _active_entry
+        df['sl_active_gap_h2'] = _active_sl
+        df['tp_active_gap_h2'] = _active_tp
+        df['tp2r_active_gap_h2'] = _active_tp2r
+
         return df
 
     # =====================================================================
-    # 动态入场价: H2 跟踪挂单
+    # 动态入场价: H2 跟踪挂单 (回测/复盘用, 只看高点 HH)
     # ---------------------------------------------------------------------
-    # 旧逻辑把 Entry 死钉在"信号K(第二腿回调起点)的最高点"。但信号K之后常再出
-    # 阴跌跟随K(高低点都下降), 真正的 H2 反转要等到"高点抬升"那根才成立。因此
-    # 挂单价应顺着回调往下调, 直到出现 HH(高点抬升)收口才成交:
-    #   扫描(信号K之后, 窗口内逐根):
-    #     - low <= 缺口地板            → 破位, 撤单, 该信号失效(signal=False)
-    #     - 高低点都下降(LHLL)          → 挂单下移到该K上方, 参考更新为该K, 继续
-    #     - 高点抬升(HH: high>参考.high) → 收口, Entry=参考K.high, 该根突破即成交
-    #     - 其余(内包/模糊)             → 不动挂单, 继续
-    #   扫满窗口仍未收口                → 信号过期失效(signal=False)
-    # 失败信号 signal 置 False + entry 置 NaN, 回测/生产自然跳过, 不产生幽灵信号。
+    # 信号K(第二腿回调起点)为初始挂单价; 其后逐根扫描:
+    #   - low <= 缺口地板            → 破位撤单, 信号失效(signal=False)
+    #   - high >= 测量目标(MM)       → 先达目标作废(signal=False)
+    #   - 超时(>timeout根)           → 过期(signal=False)
+    #   - high > 参考高点            → 高点抬升(HH), 收口成交(entry=参考高点, 成交K=该根)
+    #   - 否则(high <= 参考, 含内包K) → 挂单下移到该K高点, 继续
+    # 判据只认"高点抬升(HH)", 不要求低点也下降(LHLL) — Al Brooks: 回调=趋势中任何暂停,
+    # 含单根内包K; 回调结束的唯一标志是出现更高的高点。
+    # 返回 (final_signal, entry_price, entry_bar); entry_bar 为成交K全局索引, 失效为 NaN。
     # =====================================================================
     def _apply_dynamic_entry(self, df: pd.DataFrame, signal: pd.Series,
-                            floor_series: pd.Series, tp_series: pd.Series = None,
-                            timeout: int = 30):
-        """动态入场价: H2 跟踪挂单。
-
-        信号K(第二腿回调起点)为初始挂单价; 其后逐根扫描:
-          - 破缺口地板 / 测量目标先达 / 超时 → 撤单失效(signal=False)
-          - 高低点都下降(LHLL)                → 挂单下移到该K上方, 参考更新, 继续
-          - 高点抬升(HH: high>参考.high)        → 收口成交(Entry=参考K.high, 成交K=该根)
-        返回 (final_signal, entry_price, entry_bar); entry_bar 为成交K全局索引, 失效为 NaN。
-        回测据此在指定K成交, 不再用"首根 high>=entry"简单阈值 (那样会在阴跌K提前触发)。
-        """
+                             floor_series: pd.Series, tp_series: pd.Series = None,
+                             timeout: int = 30):
         n = len(df)
         high = df['high'].values.astype(float)
         low = df['low'].values.astype(float)
@@ -356,32 +359,92 @@ class GapH2Strategy(BaseStrategy):
             if pd.isna(fl):
                 final.iloc[i] = False
                 continue
-            ref_high, ref_low, e = high[i], low[i], high[i]
+            ref_high = high[i]          # 初始挂单价 = 信号K高点
+            e = high[i]
             ok, bar, bw = False, np.nan, 0
             end = min(n, i + 1 + SCAN)
             for j in range(i + 1, end):
                 bw += 1
                 hj, lj = high[j], low[j]
-                if lj <= fl + 1e-9:                 # 破缺口地板 → 撤单
+                if lj <= fl + 1e-9:     # 破地板 → 撤单
                     break
-                if hj >= tp:                         # 测量目标先达 → 作废
+                if hj >= tp:            # 测量目标先达 → 作废
                     break
-                if bw > timeout:                     # 超时 → 过期
+                if bw > timeout:        # 超时 → 过期
                     break
-                if (hj < ref_high) and (lj < ref_low):   # LHLL 阴跌跟随 → 下移
-                    ref_high, ref_low, e = hj, lj, hj
-                    continue
-                if hj > ref_high:                    # HH 高点抬升 → 收口成交
+                if hj > ref_high:       # HH 高点抬升 → 收口成交
                     e, ok, bar = ref_high, True, j
                     break
-                # 内包/模糊 → 不动挂单, 继续
+                ref_high = hj           # 未抬升(含内包K) → 下移
             if ok:
                 entry.iloc[i], entry_bar.iloc[i] = e, bar
             else:
                 final.iloc[i] = False
-                entry.iloc[i] = np.nan
-                entry_bar.iloc[i] = np.nan
         return final, entry, entry_bar
+
+    # =====================================================================
+    # 生产活跃投影 (日线 last-bar-only 持续提醒)
+    # ---------------------------------------------------------------------
+    # 对每个信号K, 从信号K逐根走到最后一根K(今天), 判据与回测一致(只看高点HH):
+    #   - 破地板 / 先达目标 / 超时 / 高点抬升收口 → 该单不再"待挂" (不投影)
+    #   - 否则(未收口) → 挂单价持续下移, 走到今天仍活着 = 活跃挂单
+    # 取"最新触发"的活跃单, 把 signal/entry/sl/tp/2R 投影到最后一根K,
+    # 供生产 scanner 的 iloc[-1] 读取 → 每晚图上 Entry = 现在该挂的价。
+    # 2R = 挂单价 + 2×(挂单价 − 地板); MM(测量目标) = 固定值(随信号K确定, 不随挂单价变)。
+    # =====================================================================
+    def _project_active_entry(self, df: pd.DataFrame, signal: pd.Series,
+                              floor_series: pd.Series, tp_series: pd.Series = None,
+                              timeout: int = 30):
+        n = len(df)
+        active_sig = pd.Series(False, index=df.index)
+        active_entry = pd.Series(np.nan, index=df.index, dtype=float)
+        active_sl = pd.Series(np.nan, index=df.index, dtype=float)
+        active_tp = pd.Series(np.nan, index=df.index, dtype=float)
+        active_tp2r = pd.Series(np.nan, index=df.index, dtype=float)
+        if n == 0:
+            return active_sig, active_entry, active_sl, active_tp, active_tp2r
+        high = df['high'].values.astype(float)
+        low = df['low'].values.astype(float)
+        sig_idx = np.where(signal.fillna(False).values)[0]
+        last = n - 1
+        best = None  # (信号K索引, 当前挂单价, 地板, MM目标)
+        for i in sig_idx:
+            fl = floor_series.iloc[i]
+            tp = (tp_series.iloc[i] if (tp_series is not None
+                and not pd.isna(tp_series.iloc[i])) else np.inf)
+            if pd.isna(fl):
+                continue
+            ref_high = high[i]          # 初始挂单价 = 信号K高点
+            alive = True
+            bw = 0
+            for j in range(i + 1, n):
+                bw += 1
+                hj, lj = high[j], low[j]
+                if lj <= fl + 1e-9:     # 破地板 → 撤单
+                    alive = False
+                    break
+                if hj >= tp:            # 目标先达 → 作废
+                    alive = False
+                    break
+                if bw > timeout:        # 超时 → 过期
+                    alive = False
+                    break
+                if hj > ref_high:       # HH 收口成交 → 已成交, 不再待挂
+                    alive = False
+                    break
+                ref_high = hj           # 未抬升(含内包K) → 下移
+            if alive and (best is None or i > best[0]):
+                best = (i, ref_high, fl, tp)
+        if best is not None:
+            i, ref_high, fl, tp = best
+            active_sig.iloc[last] = True
+            active_entry.iloc[last] = ref_high
+            active_sl.iloc[last] = fl
+            active_tp.iloc[last] = tp
+            r = ref_high - fl
+            if r > 0:
+                active_tp2r.iloc[last] = ref_high + 2.0 * r
+        return active_sig, active_entry, active_sl, active_tp, active_tp2r
 
     def _calculate_context(self, df: pd.DataFrame) -> str:
         """为 AI 审计提供结构上下文"""

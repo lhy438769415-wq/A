@@ -5,6 +5,7 @@ from .strategies.three_k_strategy import ThreeKStrategy
 from .strategies.structural_gap_strategy import StructuralGapStrategy
 from .strategies.gap_pinbar_strategy import GapPinbarStrategy
 from .strategies.gap_h2_strategy import GapH2Strategy
+from .strategies.gap_h2_enhanced_strategy import GapH2EnhancedStrategy
 from .strategies.awil_strategy import AWILStrategy
 from .strategies.monthly_range_break_strategy import MonthlyRangeBreakStrategy
 
@@ -40,6 +41,10 @@ class StrategyRegistry:
         "STRATEGY_GAP_H2": {
             'class': GapH2Strategy,
             'metadata': GapH2Strategy.get_metadata(),
+        },
+        "STRATEGY_GAP_H2_ENHANCED": {
+            'class': GapH2EnhancedStrategy,
+            'metadata': GapH2EnhancedStrategy.get_metadata(),
         },
         "STRATEGY_AWIL": {
             'class': AWILStrategy,

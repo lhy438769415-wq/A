@@ -276,6 +276,12 @@ def _worker(code, configs, limit):
         for cfg in configs:
             strat = _make_strategy(cfg)
             sdf = strat.calculate_signals(df.copy())
+            # 自算动态入场(只看高点HH): 挂单顺回调下移, HH收口成交, 失败信号作废
+            _fin, _de, _db = strat._apply_dynamic_entry(
+                sdf, sdf['signal_gap_h2'], sdf['sl_gap_h2'], sdf['tp_gap_h2'], timeout=30)
+            sdf['signal_gap_h2'] = _fin
+            sdf['entry_gap_h2'] = _de
+            sdf['entry_bar_gap_h2'] = _db
             sig_col = 'signal_gap_h2'
             indices = [i for i, v in enumerate(sdf[sig_col].fillna(False).values) if v]
             for idx in indices:

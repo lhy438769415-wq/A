@@ -53,6 +53,9 @@ class GapH2EnhancedStrategy(GapH2Strategy):
             'display_name': 'GAP H2 增强(实验)',
             'supported_timeframes': ['backtest'],
         })
+        # 增强版仅回测, calculate_signals 不产出生产活跃列(active_*), 移除父类声明避免误读
+        for _k in ('active_signal_column', 'active_entry_column', 'active_sl_column', 'active_tp_columns'):
+            meta.pop(_k, None)
         return meta
 
     def __init__(self, gap_mode: str = 'body', reset_on_newhigh: bool = True,
@@ -149,16 +152,11 @@ class GapH2EnhancedStrategy(GapH2Strategy):
         _already = signal.groupby(bs).cumsum().shift(1).fillna(0) > 0
         df['signal_gap_h2'] = signal & ~_already
 
-        # 动态入场价: H2 跟踪挂单 (顺回调下移, 直到 HH 收口才成交)
-        _dyn_sig, _dyn_entry, _dyn_bar = self._apply_dynamic_entry(
-            df, df['signal_gap_h2'], floor, target, timeout=30)
-        df['signal_gap_h2'] = _dyn_sig
-        df['entry_bar_gap_h2'] = _dyn_bar
-
         # ------------------------------------------------------------------
         # 3. 定单参数
         # ------------------------------------------------------------------
-        df['entry_gap_h2'] = _dyn_entry  # H2 动态跟踪挂单价
+        # Entry = 信号K高点(初始挂单价); 动态入场由回测脚本自调 _apply_dynamic_entry 计算
+        df['entry_gap_h2'] = np.where(df['signal_gap_h2'], df['high'], np.nan)
         if self.sl_mode == 'pullback':
             # 回调低点止损: 第二次回调 (信号K, 即LHLL) 最低价下方缓冲
             df['sl_gap_h2'] = np.where(df['signal_gap_h2'], df['low'] - self.sl_tick_buffer, np.nan)
