@@ -68,6 +68,15 @@ def evaluate_trade_2r_all(df, signal_idx, timeout=LIFECYCLE_TIMEOUT_BARS):
         bsg = sig_row['bars_since_breakout_h2']
         tp_measured = sig_row['tp_gap_h2']       # 仅用于"入场前先达即作废"过滤
 
+        # 动态挂单: 策略给出的收口成交K(全局位置索引); 非空时回测须在该K定点成交
+        _eb = sig_row.get('entry_bar_gap_h2', np.nan)
+        _i_entry = None
+        if not pd.isna(_eb):
+            try:
+                _i_entry = int(round(float(_eb))) - (signal_idx + 1)
+            except (TypeError, ValueError):
+                _i_entry = None
+
         try:
             E = float(E); SL0 = float(SL0); gap_floor = float(gap_floor)
         except (TypeError, ValueError):
@@ -104,7 +113,17 @@ def evaluate_trade_2r_all(df, signal_idx, timeout=LIFECYCLE_TIMEOUT_BARS):
                     return {**base, 'status': 'VOIDED', 'reason': 'tp_before_entry'}
                 if bars_waited > timeout:
                     return {**base, 'status': 'TIMEOUT', 'reason': 'timeout'}
-                if high >= E:
+                # 动态挂单: 有 entry_bar 时仅在收口成交K(i==_i_entry)成交,
+                # 等待期其余K不提前触发(否则会用最终下移价在阴跌K提前进场);
+                # 无 entry_bar(兼容旧数据/其他策略)回退"首根 high>=E"规则
+                _enter = False
+                if _i_entry is not None:
+                    if i == _i_entry:
+                        _enter = True
+                else:
+                    if high >= E:
+                        _enter = True
+                if _enter:
                     actual_entry = max(E, op)
                     entry_date = row_date
                     status = 'IN_TRADE'
@@ -332,6 +351,16 @@ def analyze(trades):
                  f"D' EV = {d2['ev']:+.4f}（{'优于' if d2['ev']>base['ev'] else '劣于'} A）。")
     lines.append("- 含义：2R全止盈把每笔盈利封顶在≈2R，亏损固定≈1R（地板），结构上是纯 2:1 目标单；"
                  "与阶段式新出场比，少了「让利润奔跑」(跟踪/反转) 的部分，也少了「移损到信号K低点减亏」的部分。")
+    lines.append("")
+    lines.append("## 四、口径说明（动态入场改造后）")
+    lines.append("")
+    lines.append("> 本表为 **H2 动态入场改造后** 的回测：入场不再死钉信号K高点，而是由策略 `_apply_dynamic_entry` "
+                 "跟踪扫描——从信号K后若跟一根 LHLL 阴跌K 则挂单下移，直到出现 HH（最低价未扫到缺口地板）才收口成交；"
+                 "破地板 / 测量目标先达 / 超时(30bar) 则信号作废（`signal_gap_h2=False`）。")
+    lines.append("> 改造效应：约 31% 的「回调后不再创新高」失败信号被取消，故信号基数由原 3629(A/B/B') / 2344(D/D') "
+                 "降至 2484(A/B/B') / 1628(D/D')。取消的多为失败信号，故 B'/D' 的 EV 较改造前抬升。")
+    lines.append("> 入场定点：`evaluate_trade_2r_all` 读 `entry_bar_gap_h2` 仅在收口成交K成交，等待期不提前触发"
+                 "（避免用最终下移价在阴跌K误进场）；无该列时回退「首根 high>=E」旧规则（兼容其他策略）。")
     lines.append("")
     lines.append(f"> 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}。EV 为单笔数学期望（以初始整仓 R 计）。")
 
