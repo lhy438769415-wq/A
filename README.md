@@ -2,7 +2,7 @@
 
 > 基于 **Al Brooks 价格行为（PA）理论**的 A 股量化扫描系统。
 > 本地离线行情 + 多周期（日/周/月）策略扫描 + Discord 实时推送 + 桌面/Web 看板。
-> **只推信号、不下单**——交易员在 TradingView 精筛、在券商下单，系统只做"找结构 + 提醒 + 标注"。
+> **只推信号、不下单**——系统做"找结构 →（可选）AI 二次审计 → 提醒 + 标注"，交易员在 TradingView 精筛、在券商下单。AI 二次审计是真实接线的环节（`hunter.py` 编排层按各策略 `ai_audit` 开关调用 DeepSeek），当前因 DeepSeek 偶发幻觉、verdict 不可靠，多数策略临时设 `ai_audit=False` 跳过（等同技术面直通）；可用 `python hunter.py --no-ai` 显式旁路或在交互提示选"否"，功能完整、待幻觉修复后可逐策略重开。
 
 ---
 
@@ -83,6 +83,18 @@
 
 ---
 
+## AI 二次审计（DeepSeek，可旁路）
+
+这是**真实存在、已完整接线**的辅助决策环节，不是占位接口。扫描命中后，`hunter.py` 编排层会按每个策略 `get_metadata()['ai_audit']` 决定是否调用 DeepSeek（**默认 True**）：
+
+- `process_ai_daily`（`hunter.py:128`）把 K 线数据喂给策略的 `format_prompt()`，调用 `core/api_client.py:15 query_deepseek`，再用 `parse_result()` 解析出 `PASS/REJECT` 与理由，通过才进入推送队列。
+- **当前多数策略 `ai_audit=False`，是"主动暂时跳过"而非"功能缺失"**——因为 DeepSeek 偶发幻觉、verdict 不可靠，先关掉待修复；关掉时等同技术面直通。
+- 旁路方式：命令行 `python hunter.py --no-ai`，或交互提示时选"否"；重开只需把对应策略的 `ai_audit` 改回 `True`。
+
+> AI 只给建议、不代替交易员下单，属于"只推信号不下单"体系里的辅助一环。
+
+---
+
 ## 目录结构
 
 ```
@@ -101,7 +113,7 @@
 │   ├── database.py           数据库管理 (唯一 schema 主人)
 │   ├── calculator.py         技术指标计算 (向量化)
 │   ├── rating.py / rating_core.py  PA 因子评级
-│   ├── api_client.py         DeepSeek 接口 (保留, 未接入生产流水线)
+│   ├── api_client.py         DeepSeek 接口 (AI 二次审计调用, 受各策略 ai_audit 开关控制)
 │   ├── patterns/             形态求解器 (含 weekly_bull_flag 等历史模块)
 │   ├── signal_tracker/       信号生命周期管理
 │   └── strategies/           策略实现 (11 文件, 见上"核心策略")
@@ -170,7 +182,7 @@ python hunter.py --track --report       # 信号追踪 + 报表
 | V10.0+ | 2026-09-03 | 月线策略移出 `_OFFICIAL_LIST`，修复日线扫描混入月线信号；明确"周线只跑缺口三家族"。 |
 | V10.0+ | 2026-09-05 | 新增 `docs/项目自述_面向Agent.md`（多 Agent 接手必读，含架构/注册表/已知缺陷/文档陈旧警示）。 |
 | V10.0+ | 2026-09-19 | 周线口径纠偏：周线入口仅传缺口三家族，3K/MTR/AIL 仅日线；修正日/周线共用权重符号的根因。 |
-| V10.0+ | 2026-09-22 | GAP-H2 / MTR **策略卡 + 典型形态示意图**（利旧 `notifier` 出图工具 + 合成数据）；项目信息 `STATUS.md` / `项目自述` 同步刷新并推 GitHub；本 README 重写（去除过时的"AI 二次筛选"等假功能描述）。 |
+| V10.0+ | 2026-09-22 | GAP-H2 / MTR **策略卡 + 典型形态示意图**（利旧 `notifier` 出图工具 + 合成数据）；项目信息 `STATUS.md` / `项目自述` 同步刷新并推 GitHub；本 README 重写——修正目录/策略表/架构，并**更正对 AI 二次审计的描述**（该功能真实存在、已接线，仅因 DeepSeek 幻觉按策略 `ai_audit=False` 临时关闭，非假功能）。 |
 | V9.20 | 2026-07-20 | 新增 AWIL 策略（Always In Long H2 顺势入场）。 |
 | V9.5 | 2026-03-09 | MTR 升维至 Gap Strategy；建立 `core/patterns` 插件化形态库。 |
 | V9.0 | 2026-03-01 | 周线 Structural Gap 四因子积分评级。 |
