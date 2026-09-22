@@ -116,7 +116,7 @@
 │   ├── api_client.py         DeepSeek 接口 (AI 二次审计调用, 受各策略 ai_audit 开关控制)
 │   ├── patterns/             形态求解器 (含 weekly_bull_flag 等历史模块)
 │   ├── signal_tracker/       信号生命周期管理
-│   └── strategies/           策略实现 (11 文件, 见上"核心策略")
+│   └── strategies/           策略实现 (12 个 .py 文件, 见上"核心策略")
 │
 ├── tools/                    ← 工具集
 │   ├── notifier.py           Discord 推送 + K 线图绘制
@@ -128,12 +128,13 @@
 │   └── ...                   心跳/部署/评级校验等
 │
 ├── config/                   ← 配置 (settings.py / sop_rules.md / fonts/)
-├── data/                     ← 数据存储 (.gitignore, 不入库)
-│   └── baostock.db           行情库 (~590MB, 含日/周/月线)
+├── data/                     ← 数据存储 (部分入库: *.json 缓存已跟踪, *.db* 被 .gitignore 排除)
+│   ├── baostock.db           行情库 (~590MB, gitignored 不入库, 含日/周/月线)
+│   └── *.json                运行缓存 (watchlist/stock_names 等, 已入库)
 │
 ├── docs/                     ← 策略与工程文档 (大量 .md)
 ├── strategy_lab/             ← 策略研究 / 回测脚本
-├── tests/                    ← 自动化测试 (156 测试函数, 门禁守卫)
+├── tests/                    ← 自动化测试 (199 测试函数, 门禁守卫基线已过时见下)
 ├── archive/                  ← 归档历史件
 └── .agent/ .workbuddy/       ← 本地 Agent 上下文与记忆 (gitignore)
 ```
@@ -167,7 +168,7 @@ python hunter.py --track --report       # 信号追踪 + 报表
 ## 工程纪律（给接手的同学/AI）
 
 - **PA 铁律**：评级因子只能是价格行为（OHLC/形态结构），成交量/指标/基本面禁入。
-- **质量门禁**：每次提交前 `pre-commit` 自动跑 `quality_gate`（红线检查 + 测试数守卫），测试基线 **156**、红线 **0**。
+- **质量门禁**：每次提交前 `pre-commit` 自动跑 `quality_gate`（红线检查 + 测试数守卫）。测试函数数**当前实测 199**；门禁基线文件 `.agent/test_baseline.txt` 仍记 **156（已过时）**——质量门禁仅校验"不低于基线"，故 199≥156 仍通过，建议跑 `python .agent/quality_gate.py --init-baseline` 刷新。红线 **0**。
 - **数据不入库**：`data/*.db*`、`.agent/`、`.workbuddy/`、`logs/` 等已在 `.gitignore`，推送 GitHub 时不会带上本地行情库。
 - **核心三文档不擅动**：`README.md` / `AGENTS.md` / `DATA_SAFETY.md` 与身份三件套（`BOOTSTRAP.md`/`SOUL.md`/`USER.md`）非经确认不改。
 - **更完整、最新的项目自述**（面向 Agent）见 `docs/项目自述_面向Agent.md`；项目快照见 `.agent/context/STATUS.md`。
@@ -178,7 +179,7 @@ python hunter.py --track --report       # 信号追踪 + 报表
 
 | 版本 | 日期 | 主要变更 |
 |:---:|:---:|:---|
-| V10.0 | 2026-07-25 | **架构收敛 + 工程守门 + 高可用（质变）**：入口/编排单引擎；自动门禁 hook（quality_gate 红线/测试数守卫）；运行监控/崩溃告警；全流程 156 测试全绿、0 红线。 |
+| V10.0 | 2026-07-25 | **架构收敛 + 工程守门 + 高可用（质变）**：入口/编排单引擎；自动门禁 hook（quality_gate 红线/测试数守卫）；运行监控/崩溃告警；全流程测试全绿、0 红线。 |
 | V10.0+ | 2026-09-03 | 月线策略移出 `_OFFICIAL_LIST`，修复日线扫描混入月线信号；明确"周线只跑缺口三家族"。 |
 | V10.0+ | 2026-09-05 | 新增 `docs/项目自述_面向Agent.md`（多 Agent 接手必读，含架构/注册表/已知缺陷/文档陈旧警示）。 |
 | V10.0+ | 2026-09-19 | 周线口径纠偏：周线入口仅传缺口三家族，3K/MTR/AIL 仅日线；修正日/周线共用权重符号的根因。 |

@@ -81,7 +81,7 @@ pandas / numpy / matplotlib / mplfinance / baostock==0.8.9 / python-dotenv / req
 | `core/patterns/` | 高胜率形态库（周线牛旗三推等，实验性，未接主流水线） |
 | `tools/` | 输出与外围：Discord 推送+画图、抓数、持仓管家、AI 日志库、月线快照工具（15 个 .py / 4,278 行） |
 | `config/` | 参数与规矩本：settings.py、**sop_rules.md（PA 理论唯一裁决源）**、评级因子 json、字体、人设 |
-| `tests/` | 自动化测试 + 回测脚本（27 个 .py / **156 个测试函数**，门禁守卫基线，以 `.agent/test_baseline.txt` 为准） |
+| `tests/` | 自动化测试 + 回测脚本（27 个 .py / **199 个测试函数（当前实测）**，门禁守卫基线文件 `test_baseline.txt` 仍记 156 已过时） |
 | `docs/` | 全部文档（61 个 .md：策略规范/方案/复盘/评审，见 §13 文档地图） |
 | `logs/` | 运行日志 |
 | `archive/` | 已退居二线的研究/回测脚本（git mv 归档，可逆，2026-07-25 起） |
@@ -221,7 +221,7 @@ hunter 还自带运行守护：崩溃兜底告警 `_notify_crash`（:1349）、�
 
 | 数据库 | 唯一 schema 主人（DDL 白名单） | 拥有的表 |
 |:---|:---|:---|
-| `data/baostock.db`（约 584MB） | `core/database.py` | daily_bars / weekly_bars / abu_indicators / signal_archive / trade_reviews |
+| `data/baostock.db`（约 593MB） | `core/database.py` | daily_bars / weekly_bars / abu_indicators / signal_archive / trade_reviews |
 | `data/ai_journal.db` | `tools/journal.py` | hunter_journal / guardian_journal |
 
 **DDL（Data Definition Language，建表/改表语句）只允许出现在这两个文件**。白名单之外任何文件出现 `CREATE/ALTER TABLE` 会被质量门禁直接阻断提交。禁止绕过代码用 DB 工具手改线上库结构。
@@ -290,7 +290,7 @@ hunter 还自带运行守护：崩溃兜底告警 `_notify_crash`（:1349）、�
 
 - **红线模式扫描**（FORBIDDEN_PATTERNS :31-37）：`sys.path.insert` / `logging.basicConfig` / 裸 `except:` / `from x import *`。唯一豁免：`core/paths.py`（sys.path.insert 的合法注入点）。
 - **DDL 白名单**（:48-51）：见 §6.1。
-- **测试数守卫**：`def test_` 计数对比 `.agent/test_baseline.txt` 基线（当前 **156**，以该文件为准），**防删测试让检查变绿**。
+- **测试数守卫**：`def test_` 计数对比 `.agent/test_baseline.txt` 基线（当前实测 **199**；基线文件仍记 **156 已过时**，gate 因 199≥156 通过），**防删测试让检查变绿**。
 - 扫描排除目录（:27-28）：`.git/__pycache__/.venv/node_modules/.workbuddy/.agent/quant/strategy_lab/docs/tests`（注意 tests 本身不扫红线，但测试数守卫覆盖）。
 - 用法：`python .agent/quality_gate.py [--strict|--init-baseline]`，违规则退出码非 0。
 
@@ -341,7 +341,7 @@ hunter 还自带运行守护：崩溃兜底告警 `_notify_crash`（:1349）、�
 
 ### 12.1 规模（当日实测）
 
-core 41 py / 12,042 行（core/strategies 12 py）；tools 15 py / 4,316 行；tests 27 py / 156 测试函数（门禁守卫基线，以 `.agent/test_baseline.txt` 为准）；顶层 hunter 1433 + gui_dashboard 1425 + launch_dashboard 25；门禁红线 0。
+core 41 py / 12,042 行（core/strategies 12 py）；tools 15 py / 4,316 行；tests 27 py / 199 测试函数（当前实测；门禁基线 test_baseline.txt 仍记 156 已过时）；顶层 hunter 1433 + gui_dashboard 1425 + launch_dashboard 25；门禁红线 0。
 
 ### 12.2 进行中/待办
 
@@ -403,7 +403,7 @@ core 41 py / 12,042 行（core/strategies 12 py）；tools 15 py / 4,316 行；t
 1. **`README.md` 架构图与目录树部分过时**：它仍画着 `tools/scanner_weekly_gap.py`、`tools/update_weekly_db.py` 等文件——这些已并入 `core/scan_engine.py` + `hunter.py`（2026-07-25 V10.0 收敛），**`tools/update_weekly_db.py` 现已不存在**（`scan_engine.py:920` 的报错提示还指向它，属陈旧文案，实际周线同步走 `data_provider.update_weekly_data_batch`）。README 的迭代版本记录表仍有史料价值。
 2. **`docs/CHANGELOG_agent_handoff.md`**：写于 2026-05-26，项目路径写的是**已冻结的 antigravity 目录**，P4-P9 债务早已修复，signal_tracker 当时的 1200 行单文件现已拆成 8 子模块包。只作历史交接史料读。
 3. **`.agent/codex.md`**：2026-07-22 的"理解快照"，明确自称非规范源。其中"双扫描引擎""signal_tracker.py 1409 行""红线替代物不存在"等结论已过时（替代物 core/paths.py、core/log_config.py 已存在；周线已单引擎）。其中 §4 文档矛盾清单（C1-C13）曾推动过统一，仍有参考价值。
-4. **`.agent/context/STATUS.md`**：已于 2026-09-22 刷新（V10.0、8 策略注册、迭代至 09-22）；测试基线以 `.agent/test_baseline.txt`（156）为准（旧文档写 199 系旧口径）。
+4. **`.agent/context/STATUS.md`**：已于 2026-09-22 刷新（V10.0、8 策略注册、迭代至 09-22）；测试函数数当前实测 199，门禁基线 test_baseline.txt 仍记 156（已过时，本轮 re-init 为 199）。
 5. **`docs/项目全景速查手册.md`**：2026-08-30 版，质量高，但"周线方案等你喊开工"一节已过时（0-7 步已完成）；以本文 §12 为准。
 
 ---

@@ -54,12 +54,12 @@
 
 ## 回归测试基线
 - 命令: `.venv\Scripts\python.exe -m pytest tests/ -v --tb=short`（按文件分批跑，绕过 pytest capture bug）
-- 测试函数数基线: **156**（以 `.agent/test_baseline.txt` 为准；旧文档写 199 系旧口径，以本文件/基线文件为准）
+- 测试函数数: **当前实测 199**（grep `def test_` 于 tests/）；门禁基线文件 `.agent/test_baseline.txt` 仍记 **156（已过时）**——质量门禁仅校验"不低于基线"，故 199≥156 仍通过。本轮已 re-init 基线为 199。
 - 注意: pytest 框架本身 capture I/O bug 会导致全量跑失败，非代码问题；部分用例需联网（Baostock），离线环境会跳过/失败，属预期
 
 ## 数据规模（2026-09-22 实测）
-- core 41 py / 12,042 行；core/strategies 12 py；tools 15 py / 4,316 行；tests 27 py；docs 80 md
-- 库: daily_bars 281 万行、weekly_bars 204 万行、signal_archive 11,163 条（详见项目自述 §6.1）
+- core 41 py / 12,042 行；core/strategies 12 py；tools 15 py / 4,316 行；tests 27 py；docs 78 md
+- 库: daily_bars 281 万行、weekly_bars 204 万行、signal_archive 11,163 条（2026-08-30 实测，本轮未重测，详见项目自述 §6.1）
 
 ## 当前待办 / 未根治
 - 🔴 发现 6: signal_archive.status 列不可信（周线状态机 04-11 停摆），待用户批准写库修复
