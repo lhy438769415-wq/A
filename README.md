@@ -1,128 +1,184 @@
 # Brooks-AI Quant System V10.0
 
-> 基于 Al Brooks 价格行为理论的 A 股全自动量化扫描系统。
-> 支持日线/周线双周期扫描、多策略信号检测、AI 二次筛选、Discord 实时推送。
+> 基于 **Al Brooks 价格行为（PA）理论**的 A 股量化扫描系统。
+> 本地离线行情 + 多周期（日/周/月）策略扫描 + Discord 实时推送 + 桌面/Web 看板。
+> **只推信号、不下单**——交易员在 TradingView 精筛、在券商下单，系统只做"找结构 + 提醒 + 标注"。
+
+---
+
+## 这套系统到底干嘛的（人话版）
+
+1. **扫描**：每天/每周用 PA 规则扫全市场 A 股，找出"可能要走出行情的形态"（缺口家族、主趋势反转、顺势 H2 等）。
+2. **标注**：自动在 K 线上画出买点、止损、目标位，并算出风险收益比。
+3. **推送**：把信号和 K 线图推到 Discord（含买卖点标注），当做"待办提醒"。
+4. **你来做决定**：第二天开盘前，你人工在 TradingView 复核、挂突破条件单；持仓管理（动态止盈/跟踪止损）由你在券商端完成。
+
+> 系统**不自动交易、不自动下单**。它是一台"形态雷达 + 看图助手"，最终买卖由人拍板。
 
 ---
 
 ## 系统架构
 
 ```
-hunter.py (主入口)
-    │
-    ├── [日线扫描] → core/scanner.py → 基础策略筛选 → Discord 推送
-    │
-    └── [周线扫描与验证] → 高胜率插件化形态库 (High Win-Rate Pattern Library)
-                              ├── Weekly Bull Flag (周线牛旗三推)
-                              └── Weekly Gap IOI (突破缺口+内外内收敛)
+                 ┌─────────────────────────────────────────────┐
+                 │            数据层 (离线 T+1)                  │
+                 │  Baostock 本地 SQLite (data/baostock.db)      │
+                 │  core/data_provider.py · database.py          │
+                 └───────────────────────┬─────────────────────┘
+                                         │
+            ┌────────────────────────────┼────────────────────────────┐
+            ▼                             ▼                            ▼
+   ┌─────────────────┐         ┌────────────────────┐      ┌──────────────────┐
+   │  日线扫描         │         │  周线扫描            │      │  月线快照(只读)    │
+   │  core/scanner.py │         │  core/scan_engine.py │      │  tools/          │
+   │  _OFFICIAL_LIST  │         │  WEEKLY_GAP_STRATS   │      │  monthly_        │
+   │  (6 策略)         │         │  (缺口三家族)         │      │  pinbar_         │
+   │                  │         │                     │      │  snapshot.py     │
+   └────────┬─────────┘         └─────────┬───────────┘      └──────────────────┘
+            │                             │
+            ▼                             ▼
+   ┌──────────────────────────────────────────────────────────┐
+   │  core/strategy_registry.py  —  策略注册表 (8 个策略)         │
+   │  core/strategies/  —  策略实现 (MTR / 3K / GAP 家族 / AIL)  │
+   │  core/calculator.py  —  技术指标 (向量化)                  │
+   │  core/rating.py  —  PA 因子评级                            │
+   └───────────────────────────────┬──────────────────────────┘
+                                   │
+            ┌──────────────────────┼──────────────────────┐
+            ▼                      ▼                       ▼
+   ┌─────────────────┐   ┌────────────────────┐   ┌──────────────────┐
+   │  Discord 推送     │   │  桌面操盘台 (Tk GUI)  │   │  Web 看板         │
+   │  tools/          │   │  launch_dashboard   │   │  tools/          │
+   │  notifier.py     │   │  .py +              │   │  web_viewer.py   │
+   │  (含 K 线图绘制)  │   │  gui_dashboard.py   │   │  (规划中 v2)      │
+   └─────────────────┘   └────────────────────┘   └──────────────────┘
 ```
+
+> 注：早期版本的 `core/patterns/`（周线牛旗/IOI 形态库）已不再是周线扫描主路径；当前周线只跑"缺口三家族"（见下）。
+
+---
+
+## 核心策略（注册表实测，2026-09-22）
+
+系统共注册 **8 个策略**，按扫描池分三类：
+
+| 注册名 | 显示名 | 周期 | 类型 | 简述 |
+|:---|:---:|:---:|:---:|:---|
+| `MTR_MASTER` | MTR | 日线 | 生产扫描 | 主趋势反转（5 点结构序列 + 斐波那契测量） |
+| `STRATEGY_3K` | 3K | 日线 | 生产扫描 | 连续 3 根阳线 + 缺口/陷阱动量突破 |
+| `STRATEGY_AWIL` | AIL | 日线 | 生产扫描 | EMA20 上方两腿回调 H2 顺势入场 |
+| `STRATEGY_STRUCTURAL_GAP` | GAP H1 | 日+周 | 生产扫描 | 结构性测量缺口（突破缺口 + 回测反转） |
+| `STRATEGY_GAP_PINBAR` | GAP PINBAR | 日+周 | 生产扫描 | 缺口测试 Pinbar（缺口上沿刺入 + EMA20 穿刺） |
+| `STRATEGY_GAP_H2` | GAP H2 | 日+周 | 生产扫描 | 缺口 + H2 两腿回调（缺口后回踩不破地板） |
+| `STRATEGY_GAP_H2_ENHANCED` | GAP H2 增强(实验) | 回测专用 | 仅回测 | 增强基底实验版，不进日/周生产扫描池 |
+| `STRATEGY_MONTHLY_RANGE_BREAK` | 月线区间破位Pinbar | 月线 | 只读快照 | 月线区间破位长下影回收，不入扫描池 |
+
+**扫描池划分（实测）：**
+- **日线池**（`_OFFICIAL_LIST`）：MTR、3K、AIL、GAP H1、GAP PINBAR、GAP H2
+- **周线池**（`WEEKLY_GAP_STRATS`）：GAP H1、GAP PINBAR、GAP H2 —— 即"缺口三家族"
+- **月线**：月线破位 Pinbar 只读快照（手动跑，不推送）
+- **GAP H2 增强**：仅用于回测对比，不进生产
+
+各策略的逐条规则清单见 `docs/gap_h2_strategy_card.md` 与 `docs/mtr_strategy_card.md`（含典型形态示意图），其余策略文档在 `docs/` 下按名称检索。
+
+---
 
 ## 目录结构
 
 ```
 📦 Brooks-AI/
-├── hunter.py                ← 统一主入口 (日线/周线扫描)
-├── README.md
-├── requirements.txt
+├── hunter.py                 ← 命令行统一入口 (日线/周线扫描, 信号追踪)
+├── gui_dashboard.py          ← 桌面操盘台主界面 (Tk GUI)
+├── launch_dashboard.py       ← 桌面操盘台启动器
+├── README.md / AGENTS.md / DATA_SAFETY.md   ← 三份核心说明（不擅动）
+├── requirements.txt          ← Python 依赖
 │
-├── core/                    ← 核心引擎
-│   ├── calculator.py        技术指标计算 (向量化)
-│   ├── data_provider.py     数据层 (Baostock 本地 DB)
-│   ├── database.py          数据库管理
-│   ├── scanner.py           日线扫描器
-│   ├── strategy_registry.py 策略注册表
-│   ├── strategies/          遗留策略实现
-│   │   ├── mtr_strategy.py          MTR 主趋势反转
-│   │   ├── three_k_strategy.py      3K 动量突破
-│   │   └── structural_gap_strategy.py  结构性测量缺口
-│   └── patterns/            高胜率形态库 (Gap Strategy 演进版)
-│       ├── base.py                 Registry 与 Base 接口
-│       ├── weekly_bull_flag.py     周线牛旗三推形态 (58% Win Rate, +0.06 EV)
-│       └── weekly_ioi.py           周线缺口+IOI形态 (75% Win Rate, 极致爆发)
+├── core/                     ← 核心引擎
+│   ├── scanner.py            日线扫描器
+│   ├── scan_engine.py        周线扫描编排
+│   ├── strategy_registry.py  策略注册表 (8 策略)
+│   ├── data_provider.py      数据层 (Baostock 本地 DB)
+│   ├── database.py           数据库管理 (唯一 schema 主人)
+│   ├── calculator.py         技术指标计算 (向量化)
+│   ├── rating.py / rating_core.py  PA 因子评级
+│   ├── api_client.py         DeepSeek 接口 (保留, 未接入生产流水线)
+│   ├── patterns/             形态求解器 (含 weekly_bull_flag 等历史模块)
+│   ├── signal_tracker/       信号生命周期管理
+│   └── strategies/           策略实现 (11 文件, 见上"核心策略")
 │
-├── config/                  ← 配置
-│   ├── settings.py          全局设置 (DB路径/字体/参数)
-│   └── fonts/               字体文件
+├── tools/                    ← 工具集
+│   ├── notifier.py           Discord 推送 + K 线图绘制
+│   ├── watchlist.py          信号观察名单 / 生命周期
+│   ├── fetcher_baostock.py   Baostock 数据同步
+│   ├── journal.py            AI 决策日志
+│   ├── web_viewer.py         Web 看板 (规划中 v2)
+│   ├── monthly_pinbar_snapshot.py  月线快照工具
+│   └── ...                   心跳/部署/评级校验等
 │
-├── tools/                   ← 工具集
-│   ├── notifier.py          Discord 推送 + K线图绘制
-│   ├── (周线扫描已并入根目录 hunter.py --timeframe weekly + core/scan_engine)
-│   ├── watchlist.py             信号生命周期管理
-│   ├── journal.py           AI 决策日志
-│   ├── fetcher_baostock.py  Baostock 数据同步
-│   ├── update_weekly_db.py  周线数据更新
-│   └── ...                  回测/研究/可视化工具
+├── config/                   ← 配置 (settings.py / sop_rules.md / fonts/)
+├── data/                     ← 数据存储 (.gitignore, 不入库)
+│   └── baostock.db           行情库 (~590MB, 含日/周/月线)
 │
-├── data/                    ← 数据存储 (.gitignore)
-│   ├── baostock.db          日线行情数据库 (~500MB)
-│   ├── baostock_weekly.db   周线行情数据库
-│   └── *.json               观察名单/验证报告
-│
-├── docs/                    ← 策略文档
-│   ├── gap_evolution_plan.md  Gap Strategy 最新的演进规划
-│   ├── MTR_V35_0_STRATEGY.md  当前版本策略说明
-│   └── archive/             历史版本文档
-│
-├── strategy_lab/            ← 策略研究
-│   ├── EXPERIMENT_LOG.md    实验记录
-│   └── *.py / *.csv         回测脚本与数据
-│
-└── tests/                   ← 自动化测试
+├── docs/                     ← 策略与工程文档 (大量 .md)
+├── strategy_lab/             ← 策略研究 / 回测脚本
+├── tests/                    ← 自动化测试 (156 测试函数, 门禁守卫)
+├── archive/                  ← 归档历史件
+└── .agent/ .workbuddy/       ← 本地 Agent 上下文与记忆 (gitignore)
 ```
+
+---
 
 ## 快速开始
 
 ```bash
-# 1. 安装依赖
+# 1. 安装依赖 (推荐项目内置 .venv)
 pip install -r requirements.txt
 
-# 2. 一个命令搞定所有 (交互式三选菜单)
-python hunter.py
-#   → 1. 扫描新机会 (日线/周线)
-#   → 2. 信号追踪 (仪表盘 + Discord 推送)
-#   → 3. 持仓管家
+# 2. 同步行情数据 (首次或定期)
+python tools/fetcher_baostock.py
 
-# 3. CLI 快捷方式 (定时任务/自动化)
-python hunter.py --timeframe weekly          # 直接周线扫描
-python hunter.py --track --report            # 追踪 + 报表
+# 3. 启动桌面操盘台 (日常使用入口, Tk GUI)
+python launch_dashboard.py
+#   → 界面含「下载行情 / 策略扫描 / 信号看板 / 周线模式」等
+#   → 扫描结果含买卖点标注 + Discord 推送开关
+
+# 4. 命令行扫描 (定时任务 / 自动化)
+python hunter.py --timeframe weekly     # 直接跑周线扫描 (缺口三家族)
+python hunter.py --timeframe daily      # 日线扫描
+python hunter.py --track --report       # 信号追踪 + 报表
 ```
 
-## 核心策略
+> **Discord 推送**需要 `.env` 里配置 `DISCORD_WEBHOOK_URL`；未配置时扫描照常跑、只是不推。
 
-| 策略 | 周期 | 简述 |
-|:---|:---:|:---|
-| **Gap Pattern Library** | 周线 | (NEW) 高胜率插件化形态库 (牛旗三推, IOI, etc.)，内置大样本回测框架与 EV 评测 |
-| **MTR** (Major Trend Reversal) | 日线 | 主趋势反转信号，作为储备选项 |
-| **3K** (Three-K Momentum) | 日线 | 三K动量突破 + 缺口测试确认 |
-| **Structural Gap** | 周线 | 结构性测量缺口，V9.0 四因子积分评级 |
-| **AWIL** (Always In Long) | 日线 | EMA20上方两腿回调 H2 顺势入场，收盘顶部2%强势阳线确认 |
+---
+
+## 工程纪律（给接手的同学/AI）
+
+- **PA 铁律**：评级因子只能是价格行为（OHLC/形态结构），成交量/指标/基本面禁入。
+- **质量门禁**：每次提交前 `pre-commit` 自动跑 `quality_gate`（红线检查 + 测试数守卫），测试基线 **156**、红线 **0**。
+- **数据不入库**：`data/*.db*`、`.agent/`、`.workbuddy/`、`logs/` 等已在 `.gitignore`，推送 GitHub 时不会带上本地行情库。
+- **核心三文档不擅动**：`README.md` / `AGENTS.md` / `DATA_SAFETY.md` 与身份三件套（`BOOTSTRAP.md`/`SOUL.md`/`USER.md`）非经确认不改。
+- **更完整、最新的项目自述**（面向 Agent）见 `docs/项目自述_面向Agent.md`；项目快照见 `.agent/context/STATUS.md`。
+
+---
 
 ## 迭代版本记录
 
 | 版本 | 日期 | 主要变更 |
 |:---:|:---:|:---|
-| V10.0 | 2026-07-25 | **架构收敛 + 工程守门 + 高可用（质变版本）**：①入口/编排层单引擎——周线/3K 扫描入口统一到 `hunter.py` 单一 CLI + `core/scan_engine` 共享编排，删除两个重复 scanner 脚本，等价 diff 零逻辑漂移（注：3K 硬编码例外刻意保留；`core/scan_engine.py:30` 的 core→tools 倒置为已知债）；②自动门禁 hook（pre-commit 自动跑 quality_gate，红线/DDL/测试数守卫拦截，测试基线 143→156）；③运行监控/崩溃告警（hunter 入口崩溃兜底发 Discord + crash_log，心跳 last_run.json，新增 check_heartbeat.py）；④配套：死代码归档、项目代码全书、文档收尾、全流程验证 156 测试全绿、0 红线。 |
-| V9.20 | 2026-07-20 | **新增 AWIL 策略 (Always In Long H2 顺势入场)**：基于 Al Brooks PA 的 Always In Long 理论，当 EMA20 上行且价格始终运行在 EMA20 上方时，识别 40 根 K 线波段高点后的两腿回调 (L1→H1→L2→H2) 信号。H2 K 线必须为强势阳线且收盘在顶部 2% 以内 (close_loc ≥ 0.98)。数学证明 EMA20 趋势向上为冗余条件已移除。包含 10 个单元测试。 |
-| V9.19 | 2026-06-26 | **股票中文名本地持久化**：将 `get_stock_name()` 从内存空则联网拉取改造为内存缓存-本地JSON-降级返回代码的纯只读函数,彻底杜绝在扫描/推送阶段连接Baostock,大幅降低黑名单概率。`bs_fetch_stock_list()` 同时返回代码列表和中文名字典(零额外网络开销),Phase 2 同步成功后自动持久化到 `data/stock_names.json`。安全机制:原子写入防损坏、动态安全阀(旧缓存50%)防空数据抹杀、合并策略(新数据优先+保留停牌股)防误删。 |
-| V9.18 | 2026-06-25 | **Baostock 黑名单防护与查询超时保护**：(1) 新增 `BsBlacklistedError` 异常类，在 `_ensure_login()` 登录、`bs_fetch_daily_history()` / `bs_fetch_weekly_history()` 查询两层检测 Baostock 服务端返回的“黑名单”封禁，通过 `retry_on_failure` 装饰器放行、`fetcher.py` 适配层放行、`_fetch_worker` 放行、主循环捕获四层穿透，实现黑名单时立即终止同步。修复此前“每次同步产生 ≥9 次失败登录反复延长封禁”的死亡螺旋。(2) 为 `query_history_k_data_plus()` 日线/周线查询加入 `_run_with_timeout(45s)` 超时保护，与 V9.16 已有的 `login` / `query_stock_basic` 超时保护对齐，修复多进程环境下 socket 挂起导致全部 worker 卡死的问题。 |
-| V9.17 | 2026-06-04 | **图表历史缺口标注精简 (TradingView 风格)**：将 `_annotate_gap_strategy()` 中的历史止盈缺口全量叠加（绿色填充矩形+前序止盈文字框+历史TP右侧标签）精简为：(1) 可视范围 70 根 K 线内未被回补的前序多头缺口以薄虚线标注 gap floor 位置；(2) 历史达标次数汇总为面板下方一行文字。删除所有绿色填充矩形和散布文字标签，大幅提升图表可读性。 |
-| V9.16 | 2026-05-27 | **Baostock 网络超时保护 + Discord 推送格式统一**：(1) 针对 VPN/海外网络环境下 `bs.login()` 和 `bs.query_stock_basic()` 因底层 TCP socket 无超时设置而无限挂起的问题，在 `tools/fetcher_baostock.py` 中引入 `_run_with_timeout()` 通用超时保护器（基于 threading.Event），为登录操作设置 20s 超时、为股票列表查询设置 45s 超时，同步修复 `core/data_provider.py` 中 `get_stock_name()` 的同类隐患。(2) **统一日线/周线 Discord 推送格式**：以周线推送的成熟信息层次为标准模板，重构日线 `_compose_report()` 从"按策略分组"改为"按评级分组"（标题区→统计区→A+/A详细双行展示→B/C压缩汇总→观察区→状态变更→看板），新增 `format_signal_line()` 通用格式函数替代原有三套独立模板，图表推送从全量改为仅推 A+/A 级（与周线对齐）。 |
-| V9.15 | 2026-05-24 | **缺口与 MTR 策略标注修复、美化与日线去重优化**：(1) 彻底修复 `tools/notifier.py` 内部由于合并错误导致的 `SyntaxError` 语法崩溃问题；(2) 完美恢复 MTR 策略经典的四阶段波段反转标注；(3) 针对所有缺口策略（`STRUCTURAL_GAP`, `GAP_PINBAR`, `GAP_H2`）引入防御性 Fallback 机制以确保画图不崩溃；(4) 大幅升级并优化 PA 标注视觉，包括波段低点起跳支点、Gap Zone 虚线矩形及入场/止盈 TP 圆角气泡框；(5) 针对新策略 `Gap+H2` 和 `Gap+Pinbar` 绕过 Watchlist 去重拦截限制，确保日线新信号每次均能照常推送。 |
-| V9.14 | 2026-05-24 | **日周流程统一与多策略扫描增强**：(1) 简化日线机会扫描流程：增加 `--no-ai` 命令行参数和交互式 AI 旁路开关，支持“纯技术面直通”模式，显著提升大批量检索效率。(2) 增强周线机会扫描：周线引入策略选择交互菜单及命令行选项，完全兼容新开发的 `Gap+H2` 等策略，字段反射映射与扫描器解耦，无任何硬编码公式。 |
-| V9.13 | 2026-05-19 | **数据同步双重 Bug 修复**：(1) 定位 `as_completed(timeout=30)` 是全局超时而非单任务间隔超时，30 秒一到即强制终止整个迭代器，导致每次只能同步约 400 只股票。修复为 `future.result(timeout=60)` 单任务超时。(2) 修复 `bs_fetch_stock_list()` 缺少 `type==1` 过滤，将指数(上证红利/上证B股等 ~229 个 type=2)误判为深市主板股票，每次"发现"~400只伪新股并浪费下载时间。 |
-| V9.12 | 2026-05-15 | **Gap + Pinbar (缺口测试) 形态全市场 EV 研究**：独立构建 `tools/research_gap_pinbar_ev.py` 研究脚本进行日线/周线双盲扫。在核心识别逻辑中植入原汁原味的 Al Brooks 价格行为理论（强制要求 Pinbar 低点探入或接近缺口上沿并在 EMA20 附近开放），并得出极其强烈的统计学结论——周线级别“突破缺口 + 缺口测试 Pinbar + 缺口下沿止损” 具备 **+0.456R** 的极高单笔数学期望，且优于基于波段低点的宽止损策略。 |
-| V9.11 | 2026-05-15 | **Discord 多图推送高可用修复**：修复大批量高分辨率信号图推送时引起的 `Read timed out` 与断连问题。为发送接口加入 3 次容错重试机制、将网络超时放宽至 150 秒，并下调 K 线图输出分辨率 (DPI) 以压降大体积负载，恢复原设定的 10 图连发机制，确保每日推送完整连贯。 |
-| V9.10 | 2026-05-09 | **Baostock 数据源网络死锁修复**：修复由于 Baostock 官方在 2026-04-22 升级底层 API 及服务器节点导致的 `bs.login()` 无限挂起死锁问题，升级依赖环境 `baostock` 至 `0.9.1` 最新版本，恢复历史数据同步功能的正常运行。 |
-| V9.9 | 2026-04-11 | **Discord 推送与生命周期修复**：重构 `notifier.py` 突破 2000 字符推送截断限制（按行智能分段）；移除由于时间拖延导致的 D 级人为丢弃限制，恢复 "只要缺口开放即持续观察" 规则。 |
-| V9.8 | 2026-04-04 | **Gap 策略全量回测闭环**：完成 LB=60 vs 100 对比回测 (确认 60 为最优)；Gap 演进计划全阶段闭环；配置显式化；清理临时文件；补全测试文档 |
-| V9.7 | 2026-03-27 | **Phase2 架构重构**：拆分 `hunter.py` God Function 为 4 子函数；Signal Tracker `iterrows` 向量化；新增 15 个 `calculator` 单元测试 |
-| V9.6 | 2026-03-27 | **Phase1 代码审计优化**：修复 EMA20 双重绘制；清理 MTR V29/V30 死代码(-65行)；移除 abu_indicators 僵尸表 JOIN；统一数据层导入；SQL 参数化查询；新增 8 个回归测试 |
-| V9.5 | 2026-03-09 | MTR 全面升维至 **Gap Strategy**；建立 `core/patterns` 插件化形态库；新增周线牛旗三推、周线IOI收敛高胜率核武器；集成动能+无时限 EV 回测框架 |
-| V9.3 | 2026-03-05 | 日线同步性能优化（MAX_WORKERS 4→6、DB 批量 commit、SQLite cache）；信号追踪按状态分类推送（止盈→止损→失效→持仓→等待），10 图连发 |
-| V9.2 | 2026-03-05 | 修复 signal_date 关键 Bug (trade_date vs date)；数据同步集成主菜单；Discord 多图推送；A+ 三级分层仪表盘 |
-| V9.1 | 2026-03-02 | Signal Tracker 信号追踪器；交互式三选主菜单；个股仪表盘 |
-| V9.0 | 2026-03-01 | 周线 Structural Gap 四因子积分评级 (经 4988 样本鲁棒性验证) |
-| V8.8 | 2026-02-28 | Hunter 日线/周线统一入口；系统文件整理 |
-| V8.5 | 2026-02-25 | 3K 策略回测框架；信号生命周期管理 |
-| V8.0 | 2026-02-22 | MTR 信号首次触发机制；观察名单三级推送 |
-| V7.1 | 2026-02-20 | Baostock 本地数据库；离线扫描架构 |
+| V10.0 | 2026-07-25 | **架构收敛 + 工程守门 + 高可用（质变）**：入口/编排单引擎；自动门禁 hook（quality_gate 红线/测试数守卫）；运行监控/崩溃告警；全流程 156 测试全绿、0 红线。 |
+| V10.0+ | 2026-09-03 | 月线策略移出 `_OFFICIAL_LIST`，修复日线扫描混入月线信号；明确"周线只跑缺口三家族"。 |
+| V10.0+ | 2026-09-05 | 新增 `docs/项目自述_面向Agent.md`（多 Agent 接手必读，含架构/注册表/已知缺陷/文档陈旧警示）。 |
+| V10.0+ | 2026-09-19 | 周线口径纠偏：周线入口仅传缺口三家族，3K/MTR/AIL 仅日线；修正日/周线共用权重符号的根因。 |
+| V10.0+ | 2026-09-22 | GAP-H2 / MTR **策略卡 + 典型形态示意图**（利旧 `notifier` 出图工具 + 合成数据）；项目信息 `STATUS.md` / `项目自述` 同步刷新并推 GitHub；本 README 重写（去除过时的"AI 二次筛选"等假功能描述）。 |
+| V9.20 | 2026-07-20 | 新增 AWIL 策略（Always In Long H2 顺势入场）。 |
+| V9.5 | 2026-03-09 | MTR 升维至 Gap Strategy；建立 `core/patterns` 插件化形态库。 |
+| V9.0 | 2026-03-01 | 周线 Structural Gap 四因子积分评级。 |
+| V8.8 | 2026-02-28 | Hunter 日线/周线统一入口。 |
+| V7.1 | 2026-02-20 | Baostock 本地数据库；离线扫描架构。 |
+
+> 更多历史条目见 `docs/RELEASE_V10.0.md` 与 `docs/archive/`。
+
+---
+
+*本系统为个人量化研究工具，所有信号仅供学习参考，不构成投资建议。*
