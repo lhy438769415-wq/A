@@ -15,7 +15,7 @@
 
 > 📊 **配图**：下图由项目出图工具（`notifier.generate_chart_bytes`）用**合成数据**生成，非真实个股。对照六类看：左上 H0 主高（EMA20 上方）→ 一路阴跌至 L1 极值（卖压高潮，橙线 EMA20 全程压在价格上方）→ 第一腿反弹上穿 EMA20（H1，性质改变，二类）→ 回调 TL 回到 EMA 下方踩前低（三类）→ 末端红星 Entry=信号K（强阳收盘上半部）→ 绿线 SL=min(L1,TL)、红线 TP1=2R、紫线 TP2=3R（四类）。
 
-![MTR 典型形态全过程示意](mtr_typical_chart.png)
+![MTR 典型形态全过程示意](typical_chart_mtr.png)
 
 ---
 
