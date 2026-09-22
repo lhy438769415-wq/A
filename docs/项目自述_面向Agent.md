@@ -226,7 +226,7 @@ hunter 还自带运行守护：崩溃兜底告警 `_notify_crash`（:1349）、�
 
 **DDL（Data Definition Language，建表/改表语句）只允许出现在这两个文件**。白名单之外任何文件出现 `CREATE/ALTER TABLE` 会被质量门禁直接阻断提交。禁止绕过代码用 DB 工具手改线上库结构。
 
-**数据规模（2026-08-30 实测）**：daily_bars 281 万行、weekly_bars 204 万行、signal_archive 11,163 条（daily 8,015 + weekly 3,148）。
+**数据规模（2026-09-22 只读重数）**：daily_bars 2,868,090 行（约 287 万）、weekly_bars 2,049,030 行（约 205 万）、signal_archive 14,696 条（daily 11,531 / weekly 3,154 / monthly 11；其中 6,162 条为 `BT_` 回测污染行，见 §7.3 发现 6）。
 
 改表正确流程：只在主人文件改 DDL → 跑 `core/schema_guard.py` + `tests/test_schema_integrity.py` → 评审 → 提交。
 

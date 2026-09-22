@@ -59,7 +59,7 @@
 
 ## 数据规模（2026-09-22 实测）
 - core 41 py / 12,042 行；core/strategies 12 py；tools 15 py / 4,316 行；tests 27 py；docs 78 md
-- 库: daily_bars 281 万行、weekly_bars 204 万行、signal_archive 11,163 条（2026-08-30 实测，本轮未重测，详见项目自述 §6.1）
+- 库（2026-09-22 只读重数）: daily_bars 2,868,090 行（≈287 万）、weekly_bars 2,049,030 行（≈205 万）、signal_archive 14,696 条（daily 11,531 / weekly 3,154 / monthly 11；含 6,162 条 BT_ 回测污染，见发现 6）
 
 ## 当前待办 / 未根治
 - 🔴 发现 6: signal_archive.status 列不可信（周线状态机 04-11 停摆），待用户批准写库修复
