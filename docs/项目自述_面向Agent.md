@@ -75,13 +75,13 @@ pandas / numpy / matplotlib / mplfinance / baostock==0.8.9 / python-dotenv / req
 
 | 目录 | 装什么（大白话） |
 |:---|:---|
-| `core/` | 发动机舱：取数、算指标、扫描、评级、信号生命周期（40 个 .py / 11,474 行，2026-09-05 实测） |
-| `core/strategies/` | 策略实现 + 几何求解器（10 文件，见 §5） |
+| `core/` | 发动机舱：取数、算指标、扫描、评级、信号生命周期（41 个 .py / 12,042 行，2026-09-22 实测） |
+| `core/strategies/` | 策略实现 + 几何求解器（12 文件，见 §5） |
 | `core/signal_tracker/` | 信号"户口本"：归档/去重/生命周期（8 子模块，见 §7） |
 | `core/patterns/` | 高胜率形态库（周线牛旗三推等，实验性，未接主流水线） |
 | `tools/` | 输出与外围：Discord 推送+画图、抓数、持仓管家、AI 日志库、月线快照工具（15 个 .py / 4,278 行） |
 | `config/` | 参数与规矩本：settings.py、**sop_rules.md（PA 理论唯一裁决源）**、评级因子 json、字体、人设 |
-| `tests/` | 自动化测试 + 回测脚本（27 个 .py / **199 个测试函数**，门禁守卫基线） |
+| `tests/` | 自动化测试 + 回测脚本（27 个 .py / **156 个测试函数**，门禁守卫基线，以 `.agent/test_baseline.txt` 为准） |
 | `docs/` | 全部文档（61 个 .md：策略规范/方案/复盘/评审，见 §13 文档地图） |
 | `logs/` | 运行日志 |
 | `archive/` | 已退居二线的研究/回测脚本（git mv 归档，可逆，2026-07-25 起） |
@@ -190,10 +190,11 @@ hunter 还自带运行守护：崩溃兜底告警 `_notify_crash`（:1349）、�
 | `STRATEGY_STRUCTURAL_GAP` | GAP H1 | 日线+周线 | `structural_gap_strategy.py` |
 | `STRATEGY_GAP_PINBAR` | GAP Pinbar | 日线+周线 | `gap_pinbar_strategy.py` |
 | `STRATEGY_GAP_H2` | GAP H2 | 日线+周线 | `gap_h2_strategy.py` |
+| `STRATEGY_GAP_H2_ENHANCED` | GAP H2 增强（回测专用） | backtest（回测专用） | `gap_h2_enhanced_strategy.py` |
 | `STRATEGY_AWIL` | AWIL趋势 | 日线 | `awil_strategy.py` |
 | `STRATEGY_MONTHLY_RANGE_BREAK` | （月线区间破位Pinbar） | 月线（仅工具用） | `monthly_range_break_strategy.py` |
 
-- `_strategies` 共 **7 项**（:23-52）；`_OFFICIAL_LIST`（:57）只含前 6 项 = 日/周扫描实际遍历的策略池；月线那项是快照工具专用，**不得**加回官方列表。
+- `_strategies` 共 **8 项**（:24-57）；`_OFFICIAL_LIST`（:62）只含前 6 项（MTR_MASTER / STRATEGY_3K / STRUCTURAL_GAP / GAP_PINBAR / GAP_H2 / AWIL）= 日/周扫描实际遍历的策略池；`STRATEGY_GAP_H2_ENHANCED`（回测专用，不在官方池）与 `STRATEGY_MONTHLY_RANGE_BREAK`（快照工具专用）**不得**加回官方列表。
 - 查询接口：`list_strategies()`（官方 6 项）、`get_metadata(name)`、`get_strategies_by_timeframe(tf)`。未知策略名**显式报错**（:93-98，不再静默回退 MTR——防 CLI 拼错名字悄悄跑错策略）。
 
 ### 5.2 自描述协议（新策略接入只改 3 处）
@@ -289,7 +290,7 @@ hunter 还自带运行守护：崩溃兜底告警 `_notify_crash`（:1349）、�
 
 - **红线模式扫描**（FORBIDDEN_PATTERNS :31-37）：`sys.path.insert` / `logging.basicConfig` / 裸 `except:` / `from x import *`。唯一豁免：`core/paths.py`（sys.path.insert 的合法注入点）。
 - **DDL 白名单**（:48-51）：见 §6.1。
-- **测试数守卫**：`def test_` 计数对比 `.agent/test_baseline.txt` 基线（当前 199），**防删测试让检查变绿**。
+- **测试数守卫**：`def test_` 计数对比 `.agent/test_baseline.txt` 基线（当前 **156**，以该文件为准），**防删测试让检查变绿**。
 - 扫描排除目录（:27-28）：`.git/__pycache__/.venv/node_modules/.workbuddy/.agent/quant/strategy_lab/docs/tests`（注意 tests 本身不扫红线，但测试数守卫覆盖）。
 - 用法：`python .agent/quality_gate.py [--strict|--init-baseline]`，违规则退出码非 0。
 
@@ -336,17 +337,19 @@ hunter 还自带运行守护：崩溃兜底告警 `_notify_crash`（:1349）、�
 
 ---
 
-## 十二、当前状态快照（2026-09-05）
+## 十二、当前状态快照（2026-09-22 刷新）
 
 ### 12.1 规模（当日实测）
 
-core 40 py / 11,474 行；tools 15 py / 4,278 行；tests 27 py / 199 测试函数；顶层 hunter 1433 + gui_dashboard 1425 + launch_dashboard 25；门禁红线 0。
+core 41 py / 12,042 行（core/strategies 12 py）；tools 15 py / 4,316 行；tests 27 py / 156 测试函数（门禁守卫基线，以 `.agent/test_baseline.txt` 为准）；顶层 hunter 1433 + gui_dashboard 1425 + launch_dashboard 25；门禁红线 0。
 
 ### 12.2 进行中/待办
 
 | 项 | 状态 |
 |:---|:---|
 | 周线接入操盘台 8 步方案 | 第 0-7 步**已完成**（判据/底层进度终止/界面切换隔离/状态栏报数/补跑跟进/截至周口径去重/周 K 图/待建仓栏）；**第 8 步 = 用户实跑验收，未做**。方案文档 `docs/周线接入操盘台_方案.md` |
+| GAP H2 动态入场研究 | ✅ **已完成**（09-21）：生产“活跃投影”（日线持续标注当前挂单价，顺回调下移、内包 K 也下移、HH 收口才成交）+ 回测自算动态入场；4 组配置回测（A 原版出场 EV 最高 / B 新出场胜率最高）；HH-only 判据经 Al Brooks 核实 |
+| GAP-H2 / MTR 策略卡 + 示意图 | ✅ **已完成**（09-22）：两份“六类交易员视角”策略卡（`docs/gap_h2_strategy_card.md` / `docs/mtr_strategy_card.md`，逐条对照生产代码核实、纠正旧 spec 漂移）+ 两张利旧 `notifier` 出图工具的典型形态示意图 PNG，已嵌入卡内并入库 |
 | 发现 6（status 停摆） | 🔴 待用户批准写库修复，见 §7.3 |
 | track_signals 单步缺陷 | 🔴 已绕过（跑两轮），未根治，见 §7.2 |
 | 低优先级 backlog | 漏扫日提醒 / 回测期 backfill（补信号回填）/ watchlist 每日定点推送 |
@@ -359,6 +362,11 @@ core 40 py / 11,474 行；tools 15 py / 4,278 行；tests 27 py / 199 测试函�
 
 ### 12.4 最近演进时间线（git log 摘要，新→旧）
 
+- 09-22 `cf3457b` GAP-H2/MTR 策略卡 + 典型形态示意图（利旧 notifier 出图，合成数据，嵌入卡内）
+- 09-21 `b7844e8`+`6102028` GAP H2 动态入场：生产活跃投影（日线持续提醒）+ 回测自算（HH-only 判据，经 Al Brooks 核实）
+- 09-09 `9c1c2bd` Baostock 夜间高峰分时段限流 + 黑名单专项说明
+- 09-08 Web 操盘台 v2 原型系列（需求规格 / 高保真 / UX·场景评审 / 纠偏重评估，二期事项未动生产代码）
+- 09-05 `3212971` 新增面向 Agent 的项目自述文件
 - 09-03 `bd0947b` 月线策略移出 _OFFICIAL_LIST，修复日线扫描混入月线信号
 - 09-02 月线彻底降维（`16f35a2` 移除 GUI/hunter/scan_engine/signal_tracker 全部 monthly 代码）；固化沙盒 git 删除 bug 长期约束
 - 08-30 周线接入定稿并完成第 0-7 步；周线剔除 3K（`6ef6371`）；扫描回执化（`6597383`）；界面周期隔离（`a71e4c5`）等
@@ -387,7 +395,7 @@ core 40 py / 11,474 行；tools 15 py / 4,278 行；tests 27 py / 199 测试函�
 | 回测方法学 | `docs/backtest_methodology.md` / `回测方法学与计划_人工评审稿.md` |
 | 事故复盘/审计 | `docs/incident_postmortem_2026-07-31.md` / `integrity_audit_2026-08-01.md` / `accident_prevention_constraints.md` |
 | 系统手册 | `docs/SYSTEM_MANUAL.md` |
-| 当前版本/待办 | `.agent/context/STATUS.md`（07-25 后未更新，结合 §12 看） |
+| 当前版本/待办 | `.agent/context/STATUS.md`（已于 2026-09-22 刷新，结合 §12 看） |
 | 项目长期记忆 | `.workbuddy/memory/MEMORY.md` + 同目录日期日志 |
 
 ### 13.2 ⚠️ 陈旧文档警示（防止被旧文档带偏——"不能有理解偏差"的关键）
@@ -395,7 +403,7 @@ core 40 py / 11,474 行；tools 15 py / 4,278 行；tests 27 py / 199 测试函�
 1. **`README.md` 架构图与目录树部分过时**：它仍画着 `tools/scanner_weekly_gap.py`、`tools/update_weekly_db.py` 等文件——这些已并入 `core/scan_engine.py` + `hunter.py`（2026-07-25 V10.0 收敛），**`tools/update_weekly_db.py` 现已不存在**（`scan_engine.py:920` 的报错提示还指向它，属陈旧文案，实际周线同步走 `data_provider.update_weekly_data_batch`）。README 的迭代版本记录表仍有史料价值。
 2. **`docs/CHANGELOG_agent_handoff.md`**：写于 2026-05-26，项目路径写的是**已冻结的 antigravity 目录**，P4-P9 债务早已修复，signal_tracker 当时的 1200 行单文件现已拆成 8 子模块包。只作历史交接史料读。
 3. **`.agent/codex.md`**：2026-07-22 的"理解快照"，明确自称非规范源。其中"双扫描引擎""signal_tracker.py 1409 行""红线替代物不存在"等结论已过时（替代物 core/paths.py、core/log_config.py 已存在；周线已单引擎）。其中 §4 文档矛盾清单（C1-C13）曾推动过统一，仍有参考价值。
-4. **`.agent/context/STATUS.md`**：停在 07-25，测试基线写 156，现已是 199。
+4. **`.agent/context/STATUS.md`**：已于 2026-09-22 刷新（V10.0、8 策略注册、迭代至 09-22）；测试基线以 `.agent/test_baseline.txt`（156）为准（旧文档写 199 系旧口径）。
 5. **`docs/项目全景速查手册.md`**：2026-08-30 版，质量高，但"周线方案等你喊开工"一节已过时（0-7 步已完成）；以本文 §12 为准。
 
 ---
