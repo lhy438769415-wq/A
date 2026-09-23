@@ -1,0 +1,45 @@
+{
+  "meta": {
+    "symbol": "603650",
+    "adj": "qfq",
+    "n_structures": 21,
+    "old_signal_logic": "TL后首根阳线收上半部; 入场=信号K最高价",
+    "new_signal_logic": "TL后首根close>EMA20 & 连阳>=2 & close_loc>=0.8; 入场=版本B(先回调再高1)",
+    "sl": "min(L1,TL)-0.01",
+    "tp": "2R",
+    "max_hold": 60,
+    "new_signal_window": 40,
+    "b_scan_window": 250,
+    "generated_at": "2026-09-23T11:16:36+08:00"
+  },
+  "old": {
+    "trades": 19,
+    "wins": 10,
+    "win_rate_pct": 52.63,
+    "win_ci_95": [
+      31.71,
+      72.67
+    ],
+    "ev_net_R": 0.1616,
+    "avg_net_R": 0.1616,
+    "avg_gross_R": 0.1737,
+    "avg_bars_held": 31.6
+  },
+  "new": {
+    "trades": 14,
+    "wins": 3,
+    "win_rate_pct": 21.43,
+    "win_ci_95": [
+      7.57,
+      47.59
+    ],
+    "ev_net_R": -0.2477,
+    "avg_net_R": -0.2477,
+    "avg_gross_R": -0.2424,
+    "avg_bars_held": 52.6
+  },
+  "old_no_entry_invalidated": 1,
+  "new_no_entry_invalidated": 4,
+  "new_skip_no_pullback": 0,
+  "new_skip_no_breakout": 0
+}
