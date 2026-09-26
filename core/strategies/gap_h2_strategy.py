@@ -78,6 +78,8 @@ class GapH2Strategy(BaseStrategy):
             'active_entry_column': 'entry_active_gap_h2',
             'active_sl_column': 'sl_active_gap_h2',
             'active_tp_columns': ['tp2r_active_gap_h2', 'tp_active_gap_h2'],
+            # [多缺口并行] 最后一根承载"同时存活缺口"列表, scanner 据此产出多条命中
+            'active_gaps_column': 'active_gaps_gap_h2',
         }
 
     @classmethod
@@ -208,101 +210,103 @@ class GapH2Strategy(BaseStrategy):
         # ==============================================================================
         _prior_swing_low_raw = df['low'].rolling(min_periods=1, window=self.LOOKBACK_WINDOW).min().shift(2)
 
-        _gap_floor = np.where(df['is_breakout_h2'], _gap_floor_raw, np.nan)
-        _gap_floor = pd.Series(_gap_floor, index=df.index).ffill()
-
-        _prior_swing_low = np.where(df['is_breakout_h2'], _prior_swing_low_raw, np.nan)
-        _prior_swing_low = pd.Series(_prior_swing_low, index=df.index).ffill()
-
         # ==============================================================================
-        # 第三步：缺口存活监控 (与 gap_pinbar 一致)
+        # 第三步：[多缺口并行] 每个突破缺口独立成实体
+        #   旧逻辑用 is_breakout.cumsum() 把全历史切成"最新突破组"，新突破即弃管旧缺口、
+        #   地板被 ffill 覆盖 -> 旧缺口在 H2 走完前被误判死亡 (如 000906 的 9/2 缺口)。
+        #   新逻辑：遍历每个突破K线 b，以 b 为起点独立跑"缺口存活 + 两腿回调状态机"，
+        #   自身地板破才弃；多个缺口可同时存活。signal 取各缺口信号的并集。
         # ==============================================================================
-        _bars_since_breakout = df['is_breakout_h2'].cumsum()
-        _bar_count = df.groupby(_bars_since_breakout).cumcount()
+        n = len(df)
+        high = df['high'].values.astype(float)
+        low = df['low'].values.astype(float)
+        last = n - 1
+        breakout_idx = np.where(df['is_breakout_h2'].values)[0]
 
-        _group_min_low = df['low'].groupby(_bars_since_breakout).expanding().min().droplevel(0)
-        df['gap_h2_open'] = _group_min_low > (_gap_floor - 1e-3)
+        signal = pd.Series(False, index=df.index)
+        sl_series = pd.Series(np.nan, index=df.index, dtype=float)
+        entry_series = pd.Series(np.nan, index=df.index, dtype=float)
+        tp_series = pd.Series(np.nan, index=df.index, dtype=float)
+        floor_series = pd.Series(np.nan, index=df.index, dtype=float)
+        psl_series = pd.Series(np.nan, index=df.index, dtype=float)
+        top_series = pd.Series(np.nan, index=df.index, dtype=float)
+        bsb_series = pd.Series(np.nan, index=df.index, dtype=float)  # 距本缺口起点的K线数
+        gap_open_all = pd.Series(False, index=df.index)
+        active_gaps = []  # 最后一根仍存活(待成交)的缺口挂单列表
 
-        # ==============================================================================
-        # 第四步：两腿回调状态机 (High 2 State Machine)
-        # ==============================================================================
-        # 回调时间窗口
-        in_window = (_bar_count >= self.MIN_PULLBACK_WINDOW) & (_bar_count <= self.MAX_PULLBACK_WINDOW)
-        in_window = in_window & (_bars_since_breakout > 0)
+        for b in breakout_idx:
+            floor_b = float(_gap_floor_raw.iloc[b])
+            psl_b = float(_prior_swing_low_raw.iloc[b])
+            target_b = 2.0 * floor_b - psl_b
+            sub = df.iloc[b:]
+            sub_n = len(sub)
 
-        # --- 基础 PA 模式识别 ---
-        # LHLL (Lower High + Lower Low): 回调特征 K 线
-        is_lhll = (df['high'] < df['high'].shift(1)) & (df['low'] < df['low'].shift(1))
-        # HH (Higher High): 多头恢复特征 K 线
-        is_hh = df['high'] > df['high'].shift(1)
+            # 缺口存活：从 b 起累计最低价未破地板
+            sub_low = sub['low'].values.astype(float)
+            cummin_low = np.minimum.accumulate(sub_low)
+            alive_mask = cummin_low > (floor_b - 1e-3)
 
-        # --- Phase 1：检测第一次回调 (首根 LHLL) ---
-        lhll_cum = is_lhll.groupby(_bars_since_breakout).cumsum()
-        phase1_done = lhll_cum >= 1  # 第一次回调已发生
+            # 两腿回调状态机（在 sub 内独立跑，不依赖全局组号）
+            s_high = sub['high']; s_low = sub['low']
+            is_lhll = (s_high < s_high.shift(1)) & (s_low < s_low.shift(1))
+            is_hh = s_high > s_high.shift(1)
+            lhll_cum = is_lhll.cumsum()
+            phase1 = lhll_cum >= 1
+            is_hh_after_pb1 = is_hh & phase1
+            phase2 = is_hh_after_pb1.cumsum() >= 1
+            is_lhll_after_h1 = is_lhll & phase2
+            lhll_cum_after_h1 = is_lhll_after_h1.cumsum()
+            prev = lhll_cum_after_h1.shift(1).fillna(0)
+            is_second_pb_start = (prev == 0) & (lhll_cum_after_h1 >= 1)
+            bar_count = np.arange(sub_n)
+            in_window = (bar_count >= self.MIN_PULLBACK_WINDOW) & (bar_count <= self.MAX_PULLBACK_WINDOW)
 
-        # --- Phase 2：检测 High 1 (第一次回调后的首根 HH) ---
-        is_hh_after_pb1 = is_hh & phase1_done
-        hh_cum_after_pb1 = is_hh_after_pb1.groupby(_bars_since_breakout).cumsum()
-        phase2_done = hh_cum_after_pb1 >= 1  # High 1 已确认
+            sub_max_high = np.maximum.accumulate(s_high.values.astype(float))
+            mm_not_reached = (sub_max_high < target_b) | np.isnan(target_b)
 
-        # --- Phase 3：检测第二次回调 (High 1 后的首根 LHLL) → 信号! ---
-        is_lhll_after_h1 = is_lhll & phase2_done
-        lhll_cum_after_h1 = is_lhll_after_h1.groupby(_bars_since_breakout).cumsum()
+            sig_raw = in_window & alive_mask & is_second_pb_start.values & mm_not_reached
+            already = pd.Series(sig_raw).cumsum().shift(1).fillna(0).values > 0
+            sig_raw = sig_raw & ~already
 
-        # 锁定"首根"：上一根的累计计数为 0，当前变为 1
-        prev_lhll_cum = lhll_cum_after_h1.groupby(_bars_since_breakout).shift(1).fillna(0)
-        is_second_pullback_start = (prev_lhll_cum == 0) & (lhll_cum_after_h1 >= 1)
+            for li in np.where(sig_raw)[0]:
+                gi = b + int(li)
+                if not bool(signal.iloc[gi]):
+                    signal.iloc[gi] = True
+                    sl_series.iloc[gi] = floor_b
+                    entry_series.iloc[gi] = float(high[gi])
+                    tp_series.iloc[gi] = target_b
+                    floor_series.iloc[gi] = floor_b
+                    psl_series.iloc[gi] = psl_b
+                    top_series.iloc[gi] = float(high[b])
+                    bsb_series.iloc[gi] = float(li)
+                    # 该信号至今是否仍待成交 -> 活跃挂单
+                    alive, ref_high = self._project_from_signal(df, gi, floor_b, target_b, timeout=30)
+                    if alive:
+                        active_gaps.append(self._make_active_gap(ref_high, floor_b, target_b, int(b), df))
 
-        # 信号 K 线质量指标
+            # 标记该缺口存活区间（供图表/评级）
+            for k in range(sub_n):
+                if alive_mask[k]:
+                    gap_open_all.iloc[b + k] = True
+
+        # 信号 K 线质量指标（逐根，与缺口无关）
         _bar_range = df['high'] - df['low']
         _safe_range = _bar_range.replace(0, np.nan)
         _sig_quality = (df['close'] - df['low']) / _safe_range
         df['sig_bar_quality_h2'] = _sig_quality.round(3)
 
-        # ==============================================================================
-        # [高潮规避器] TP = 2 * Gap_Floor - Prior_Swing_Low
-        # ==============================================================================
-        _target_uncond = 2 * _gap_floor - _prior_swing_low
+        # 落列
+        df['signal_gap_h2'] = signal
+        df['gap_h2_open'] = gap_open_all
+        df['bars_since_breakout_h2'] = bsb_series
+        df['sl_gap_h2'] = sl_series
+        df['entry_gap_h2'] = entry_series
+        df['tp_gap_h2'] = tp_series
+        df['gap_h2_prior_low'] = psl_series
+        df['gap_h2_floor_exact'] = floor_series
+        df['gap_h2_top_exact'] = top_series
 
-        _group_max_high = df['high'].groupby(_bars_since_breakout).expanding().max().droplevel(0)
-        _mm_not_reached = (_group_max_high < _target_uncond) | _target_uncond.isna()
-        _mm_not_reached = _mm_not_reached.fillna(True)
-
-        # ==============================================================================
-        # 组装完整信号
-        # ==============================================================================
-        _signal_raw = (
-            in_window &                    # 时间窗口
-            df['gap_h2_open'] &            # 缺口存活
-            is_second_pullback_start &     # 两腿回调状态机通过
-            _mm_not_reached                # 高潮规避
-        )
-
-        # 去重：每次突破仅取首次信号
-        _already = _signal_raw.groupby(_bars_since_breakout).cumsum().shift(1).fillna(0) > 0
-        df['signal_gap_h2'] = _signal_raw & ~_already
-
-        # 回测/分析数据
-        df['bars_since_breakout_h2'] = _bars_since_breakout
-
-        # ==============================================================================
-        # 第五步：定单参数生成
-        # ==============================================================================
-        # SL = Gap Floor
-        df['sl_gap_h2'] = np.where(df['signal_gap_h2'], _gap_floor, np.nan)
-
-        # Entry = 信号 K 线 (第二次回调 LHLL) 的最高点，次日挂 Buy Stop
-        df['entry_gap_h2'] = np.where(df['signal_gap_h2'], df['high'], np.nan)
-
-        # TP = 2 * Gap_Floor - Prior_Swing_Low
-        df['tp_gap_h2'] = np.where(df['signal_gap_h2'], _target_uncond, np.nan)
-
-        # 关键锚点 (绘图/通知)
-        df['gap_h2_prior_low'] = np.where(df['signal_gap_h2'], _prior_swing_low, np.nan)
-        df['gap_h2_floor_exact'] = np.where(df['signal_gap_h2'], _gap_floor, np.nan)
-        df['gap_h2_top_exact'] = np.where(df['signal_gap_h2'], _group_min_low.shift(1), np.nan)
-
-        # 时间坐标
+        # 时间坐标（与旧逻辑一致，按滚动窗口取锚点日）
         try:
             df['gap_h2_prior_low_date'] = df['low'].rolling(
                 window=self.LOOKBACK_WINDOW, min_periods=1).idxmin().shift(2)
@@ -310,21 +314,27 @@ class GapH2Strategy(BaseStrategy):
                 window=self.LOOKBACK_WINDOW, min_periods=1).idxmax().shift(2)
         except AttributeError:
             pass
-
         df['gap_h2_test_date'] = df.index.to_series().shift(1)
 
         # ==============================================================================
-        # 第六步：生产活跃投影 (日线持续提醒) — 活跃单投影到最后一根K
-        # 与回测动态入场共用"只看高点 HH"判据: 高点没抬升(含内包K)就下移, 抬升就收口。
-        # 生产只把"截至今天仍活着的挂单"浮到今天这根K, 供 last-bar-only 扫描读取。
+        # 第六步：生产活跃投影（多缺口并行）
+        #   兼容旧单列读取：signal_active_* 取首个存活缺口；另输出 active_gaps_gap_h2 列表
+        #   供 scanner 产出多条命中（同日多缺口 = 多推送多画图）。
         # ==============================================================================
-        _active_sig, _active_entry, _active_sl, _active_tp, _active_tp2r = self._project_active_entry(
-            df, df['signal_gap_h2'], _gap_floor, _target_uncond, timeout=30)
-        df['signal_active_gap_h2'] = _active_sig
-        df['entry_active_gap_h2'] = _active_entry
-        df['sl_active_gap_h2'] = _active_sl
-        df['tp_active_gap_h2'] = _active_tp
-        df['tp2r_active_gap_h2'] = _active_tp2r
+        df['signal_active_gap_h2'] = False
+        df['entry_active_gap_h2'] = np.nan
+        df['sl_active_gap_h2'] = np.nan
+        df['tp_active_gap_h2'] = np.nan
+        df['tp2r_active_gap_h2'] = np.nan
+        df['active_gaps_gap_h2'] = None
+        if active_gaps:
+            first = active_gaps[0]
+            df['signal_active_gap_h2'].iloc[last] = True
+            df['entry_active_gap_h2'].iloc[last] = first['entry']
+            df['sl_active_gap_h2'].iloc[last] = first['sl']
+            df['tp_active_gap_h2'].iloc[last] = first['tp']
+            df['tp2r_active_gap_h2'].iloc[last] = first.get('tp2r', np.nan)
+            df['active_gaps_gap_h2'].iloc[last] = active_gaps
 
         return df
 
@@ -445,6 +455,52 @@ class GapH2Strategy(BaseStrategy):
             if r > 0:
                 active_tp2r.iloc[last] = ref_high + 2.0 * r
         return active_sig, active_entry, active_sl, active_tp, active_tp2r
+
+    # =====================================================================
+    # [多缺口并行] 从"已触发信号的K线"投影其挂单到今天是否仍待成交
+    # ---------------------------------------------------------------------
+    # 与回测动态入场共用"只看高点 HH"判据: 低点破地板/先达目标/超时/高点抬升收口
+    # -> 该单不再待挂; 否则挂单价持续下移, 走到今天仍活着 = 活跃挂单。
+    # 返回 (alive, ref_high)。多缺口并行下对每个缺口独立调用。
+    # =====================================================================
+    def _project_from_signal(self, df: pd.DataFrame, gi: int,
+                             floor_b: float, target_b: float, timeout: int = 30):
+        n = len(df)
+        if gi >= n - 1:
+            # 信号就在最后一根 -> 刚触发, 视为仍待挂
+            return True, float(df['high'].iloc[gi])
+        high = df['high'].values.astype(float)
+        low = df['low'].values.astype(float)
+        ref_high = float(high[gi])
+        bw = 0
+        for j in range(gi + 1, n):
+            bw += 1
+            hj = high[j]; lj = low[j]
+            if lj <= floor_b + 1e-9:          # 破地板 -> 撤单
+                return False, np.nan
+            if (not np.isnan(target_b)) and hj >= target_b:  # 目标先达 -> 作废
+                return False, np.nan
+            if bw > timeout:                  # 超时 -> 过期
+                return False, np.nan
+            if hj > ref_high:                 # HH 收口成交 -> 已成交, 不再待挂
+                return False, np.nan
+            ref_high = hj                     # 未抬升(含内包K) -> 下移
+        return True, ref_high
+
+    def _make_active_gap(self, ref_high, floor_b, target_b, anchor_idx, df):
+        """组装一个缺口活跃挂单的字典（供 active_gaps 列表 / scanner 多命中）"""
+        r = ref_high - floor_b
+        tp2r = ref_high + 2.0 * r if r > 0 else np.nan
+        date_val = ''
+        if 'date' in df.columns and anchor_idx < len(df):
+            d = df['date'].iloc[anchor_idx]
+            if pd.notna(d):
+                date_val = str(d)
+        return {
+            'entry': float(ref_high), 'sl': float(floor_b), 'tp': float(target_b),
+            'tp2r': tp2r, 'floor': float(floor_b), 'anchor_idx': int(anchor_idx),
+            'anchor_date': date_val,
+        }
 
     def _calculate_context(self, df: pd.DataFrame) -> str:
         """为 AI 审计提供结构上下文"""

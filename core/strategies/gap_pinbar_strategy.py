@@ -206,97 +206,94 @@ class GapPinbarStrategy(BaseStrategy):
         # ==============================================================================
         _prior_swing_low_raw = df['low'].rolling(min_periods=1, window=self.LOOKBACK_WINDOW).min().shift(2)
 
-        # 仅在突破时刻锁定，向后 ffill
-        _gap_floor = np.where(df['is_breakout_gp'], _gap_floor_raw, np.nan)
-        _gap_floor = pd.Series(_gap_floor, index=df.index).ffill()
-
-        _prior_swing_low = np.where(df['is_breakout_gp'], _prior_swing_low_raw, np.nan)
-        _prior_swing_low = pd.Series(_prior_swing_low, index=df.index).ffill()
-
         # ==============================================================================
-        # 第三步：缺口存活监控 (Gap Survival)
+        # 第三步：[多缺口并行] 每个突破缺口独立成实体
+        #   旧逻辑用 is_breakout.cumsum() 把全历史切成"最新突破组"，新突破即弃管旧缺口、
+        #   地板被 ffill 覆盖 -> 旧缺口的 Pinbar 信号在成形前被误杀。
+        #   新逻辑：遍历每个突破K线 b，以 b 为起点独立跑"缺口存活 + 首次EMA20刺破"判定，
+        #   自身地板破才弃；多个缺口可同时存活。signal 取各缺口信号的并集。
+        #   (pinbar 无 active 投影机制，仅修检测; 推送沿用 signal_gap_pinbar 当日命中)
         # ==============================================================================
-        _bars_since_breakout = df['is_breakout_gp'].cumsum()
-        _bar_count = df.groupby(_bars_since_breakout).cumcount()
+        n = len(df)
+        high = df['high'].values.astype(float)
+        low = df['low'].values.astype(float)
+        breakout_idx = np.where(df['is_breakout_gp'].values)[0]
 
-        _group_min_low = df['low'].groupby(_bars_since_breakout).expanding().min().droplevel(0)
-        # 护城河铁律：回调期内最低点不得击穿 Gap Floor
-        df['gap_pinbar_open'] = _group_min_low > (_gap_floor - 1e-3)
+        signal = pd.Series(False, index=df.index)
+        sl_series = pd.Series(np.nan, index=df.index, dtype=float)
+        entry_series = pd.Series(np.nan, index=df.index, dtype=float)
+        tp_series = pd.Series(np.nan, index=df.index, dtype=float)
+        floor_series = pd.Series(np.nan, index=df.index, dtype=float)
+        psl_series = pd.Series(np.nan, index=df.index, dtype=float)
+        top_series = pd.Series(np.nan, index=df.index, dtype=float)
+        bsb_series = pd.Series(np.nan, index=df.index, dtype=float)
+        gap_open_all = pd.Series(False, index=df.index)
 
-        # ==============================================================================
-        # 第四步：回调首次刺破 EMA20 的 Pinbar 确认 (Signal Bar Confirmation)
-        # ==============================================================================
-
-        # 4.1 回调时间窗口
-        in_window = (_bar_count >= self.MIN_PULLBACK_WINDOW) & (_bar_count <= self.MAX_PULLBACK_WINDOW)
-        in_window = in_window & (_bars_since_breakout > 0)
-
-        # 4.2 Pinbar 形态判定
+        # 信号K线质量(pinbar 用, 逐根)
         _bar_range = df['high'] - df['low']
         _safe_range = _bar_range.replace(0, np.nan)
-
-        # 信号 K 线收盘位置质量 (CLV)
         _sig_quality = (df['close'] - df['low']) / _safe_range
         df['sig_bar_quality_gp'] = _sig_quality.round(3)
-
-        # Pinbar 条件：下影线占比 >= 40%，收盘位置 >= 50%
         _lower_wick = df[['open', 'close']].min(axis=1) - df['low']
         _lower_wick_ratio = _lower_wick / _safe_range
         is_pinbar = (_lower_wick_ratio >= self.PINBAR_LOWER_WICK_MIN) & (_sig_quality >= self.PINBAR_CLOSE_LOC_MIN)
 
-        # 4.3 首次刺破 EMA20 均线判定
-        is_pierced_today = df['low'] <= df['ema20']
-        # 分组统计截至前一天为止的累计刺破次数，以锁定"首次"
-        _pierce_count_prev = is_pierced_today.groupby(_bars_since_breakout).cumsum().shift(1).fillna(0)
-        is_first_pierce = (_pierce_count_prev == 0) & is_pierced_today
+        for b in breakout_idx:
+            floor_b = float(_gap_floor_raw.iloc[b])
+            psl_b = float(_prior_swing_low_raw.iloc[b])
+            target_b = 2.0 * floor_b - psl_b
+            sub = df.iloc[b:]
+            sub_n = len(sub)
 
-        # 4.4 组装信号条件
-        _reversal_confirm_raw = (
-            in_window &
-            df['gap_pinbar_open'] &
-            is_pinbar &
-            is_first_pierce &
-            (df['close'] > df['ema20'])  # 收盘站回 EMA20 上方
-        )
+            # 缺口存活：从 b 起累计最低价未破地板
+            sub_low = sub['low'].values.astype(float)
+            cummin_low = np.minimum.accumulate(sub_low)
+            alive_mask = cummin_low > (floor_b - 1e-3)
 
-        # ==============================================================================
-        # [高潮规避器] TP = 2 * Gap_Floor - Prior_Swing_Low (起涨区间上翻)
-        # ==============================================================================
-        _target_uncond = 2 * _gap_floor - _prior_swing_low
+            # 首次刺破 EMA20（在 sub 内独立计数）
+            sub_ema = sub['ema20'].values.astype(float)
+            is_pierced = sub['low'].values.astype(float) <= sub_ema
+            _pc = np.cumsum(is_pierced).astype(float)
+            pierce_count_prev = np.concatenate([[0.0], _pc[:-1]])  # shift(1), 首根 0
+            is_first_pierce = (pierce_count_prev == 0) & is_pierced
 
-        _group_max_high = df['high'].groupby(_bars_since_breakout).expanding().max().droplevel(0)
-        _mm_not_reached = (_group_max_high < _target_uncond) | _target_uncond.isna()
-        _mm_not_reached = _mm_not_reached.fillna(True)
+            bar_count = np.arange(sub_n)
+            in_window = (bar_count >= self.MIN_PULLBACK_WINDOW) & (bar_count <= self.MAX_PULLBACK_WINDOW)
 
-        _signal_raw = _reversal_confirm_raw & _mm_not_reached
+            sub_max_high = np.maximum.accumulate(sub['high'].values.astype(float))
+            mm_not_reached = (sub_max_high < target_b) | np.isnan(target_b)
 
-        # 去重：每次突破仅取首次信号
-        _already_confirmed = _signal_raw.groupby(_bars_since_breakout).cumsum().shift(1).fillna(0) > 0
-        df['signal_gap_pinbar'] = _signal_raw & ~_already_confirmed
+            close_sub = sub['close'].values.astype(float)
+            reversal = (in_window & alive_mask & is_pinbar.iloc[b:].values
+                        & is_first_pierce & (close_sub > sub_ema) & mm_not_reached)
+            already = pd.Series(reversal).cumsum().shift(1).fillna(0).values > 0
+            reversal = reversal & ~already
 
-        # 回测/分析用数据
-        df['bars_since_breakout_gp'] = _bars_since_breakout
+            for li in np.where(reversal)[0]:
+                gi = b + int(li)
+                if not bool(signal.iloc[gi]):
+                    signal.iloc[gi] = True
+                    sl_series.iloc[gi] = floor_b
+                    entry_series.iloc[gi] = float(high[gi])
+                    tp_series.iloc[gi] = target_b
+                    floor_series.iloc[gi] = floor_b
+                    psl_series.iloc[gi] = psl_b
+                    top_series.iloc[gi] = float(high[b])
+                    bsb_series.iloc[gi] = float(li)
+            for k in range(sub_n):
+                if alive_mask[k]:
+                    gap_open_all.iloc[b + k] = True
 
-        # ==============================================================================
-        # 第五步：定单参数生成 (Order Parameters)
-        # ==============================================================================
-        # SL = Gap Floor (阻力转支撑)
-        df['sl_gap_pinbar'] = np.where(df['signal_gap_pinbar'], _gap_floor, np.nan)
-
-        # Entry = 信号 K 线最高点 (次日挂 Buy Stop)
-        df['entry_gap_pinbar'] = np.where(df['signal_gap_pinbar'], df['high'], np.nan)
-
-        # TP = 2 * Gap_Floor - Prior_Swing_Low (起涨区间上翻)
-        df['tp_gap_pinbar'] = np.where(df['signal_gap_pinbar'], _target_uncond, np.nan)
-
-        # 关键结构锚点 (绘图/通知使用)
-        df['gap_pinbar_prior_low'] = np.where(df['signal_gap_pinbar'], _prior_swing_low, np.nan)
-        df['gap_pinbar_floor_exact'] = np.where(df['signal_gap_pinbar'], _gap_floor, np.nan)
-
-        # 缺口上沿
-        df['gap_pinbar_top_exact'] = np.where(
-            df['signal_gap_pinbar'], _group_min_low.shift(1), np.nan
-        )
+        # 落列
+        df['signal_gap_pinbar'] = signal
+        df['gap_pinbar_open'] = gap_open_all
+        df['bars_since_breakout_gp'] = bsb_series
+        df['sl_gap_pinbar'] = sl_series
+        df['entry_gap_pinbar'] = entry_series
+        df['tp_gap_pinbar'] = tp_series
+        df['gap_pinbar_prior_low'] = psl_series
+        df['gap_pinbar_floor_exact'] = floor_series
+        df['gap_pinbar_top_exact'] = top_series
 
         # 时间坐标 (绘图用)
         try:

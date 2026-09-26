@@ -4,6 +4,7 @@ import logging
 import time
 import warnings
 import pandas as pd
+import numpy as np
 # 🟢 Suppress FutureWarnings (e.g., from pandas internals)
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -177,7 +178,43 @@ def run_scanner_all(code: str, strategy_names: Optional[List[str]] = None) -> Li
             if latest_signal:
                 display_name = StrategyRegistry.get_metadata(name).get('display_name', strat.name)
                 logger.info(f"✨ 策略命中 [{display_name}]: {code}")
-                hits.append(_build_hit(code, strat, df_strat, name))
+                primary = _build_hit(code, strat, df_strat, name)
+
+                # [多缺口并行] 同一 code 同一策略若同时存活多个缺口, 每个缺口各产一条命中
+                # (同日多缺口 = 两推送两画图). 用缺口锚定日做复合身份证, 避免与同 code 其他缺口混淆.
+                _ag_col = strat.get_metadata().get('active_gaps_column')
+                ag = df_strat.iloc[-1].get(_ag_col) if (_ag_col and _ag_col in df_strat.columns) else None
+                if isinstance(ag, list) and ag:
+                    _meta = strat.get_metadata()
+                    ec = _meta.get('active_entry_column')
+                    sc = _meta.get('active_sl_column')
+                    tp_cols = _meta.get('active_tp_columns') or []
+                    t2r_c = tp_cols[0] if len(tp_cols) >= 1 else None
+                    tp_c = tp_cols[1] if len(tp_cols) >= 2 else None
+
+                    def _tag(hit, g):
+                        hit['info']['gap_anchor_date'] = g.get('anchor_date', '')
+                        hit['info']['gap_anchor_idx'] = g.get('anchor_idx', -1)
+                        hit['info']['signal_date'] = g.get('anchor_date', '')
+                        hit['info']['signal_bar_idx'] = g.get('anchor_idx', -1)
+                        hit['type'] = f"{name}#{g.get('anchor_date', '')}"
+                        return hit
+
+                    primary = _tag(primary, ag[0])
+                    hits.append(primary)
+                    for extra in ag[1:]:
+                        d2 = df_strat.copy()
+                        if ec and ec in d2.columns:
+                            d2[ec].iloc[-1] = extra.get('entry', np.nan)
+                        if sc and sc in d2.columns:
+                            d2[sc].iloc[-1] = extra.get('sl', np.nan)
+                        if t2r_c and t2r_c in d2.columns:
+                            d2[t2r_c].iloc[-1] = extra.get('tp2r', np.nan)
+                        if tp_c and tp_c in d2.columns:
+                            d2[tp_c].iloc[-1] = extra.get('tp', np.nan)
+                        hits.append(_tag(_build_hit(code, strat, d2, name), extra))
+                else:
+                    hits.append(primary)
         except Exception as e:
             logger.warning(f"Strategy {name} error for {code}: {e}")
             continue

@@ -20,13 +20,26 @@ import numpy as np
 import json
 import sys
 import os
+import warnings
 from datetime import datetime
 from collections import defaultdict
+
+# 抑制生产策略里的链式赋值告警 (df['col'].iloc[last]=..., pandas 2.x 仅告警、结果正确;
+# pandas 3.0 才会失效)。回测不依赖 active_* 列, 仅用 signal/entry/sl/tp, 故安全压制噪音。
+# 插入到过滤器最前以保证优先于 pandas 自身过滤器。
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=pd.errors.SettingWithCopyWarning)
+
+# 保证项目根在 sys.path (回测脚本位于 tests/, 其运行时导入 from core.* / from config.* 需根目录)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 # ============================================================
 # 参数配置
 # ============================================================
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "baostock.db")
+# 真实行情库在 <项目根>/data/baostock.db (非 tests/data/)
+DB_PATH = os.path.join(_PROJECT_ROOT, "data", "baostock.db")
 INITIAL_CASH = 1_000_000
 
 # 策略参数 (与 gap_h2_strategy.py 一致)
@@ -95,66 +108,21 @@ def generate_signals(df):
     if n < LOOKBACK_WINDOW + 10:
         return pd.DataFrame()
 
-    # --- Step 1: 突破检测 ---
-    is_hh_hl = (df["high"] > df["high"].shift(1)) & (df["low"] > df["low"].shift(1))
-    gap_floor_raw = df["high"].rolling(min_periods=1, window=LOOKBACK_WINDOW).max().shift(2)
-    df["_is_breakout"] = is_hh_hl & (df["low"] > gap_floor_raw - 1e-3)
-
-    # --- Step 2: 锚定历史数据 ---
-    prior_swing_low_raw = df["low"].rolling(min_periods=1, window=LOOKBACK_WINDOW).min().shift(2)
-
-    _gf = np.where(df["_is_breakout"], gap_floor_raw, np.nan)
-    gap_floor = pd.Series(_gf, index=df.index).ffill()
-
-    _psl = np.where(df["_is_breakout"], prior_swing_low_raw, np.nan)
-    prior_swing_low = pd.Series(_psl, index=df.index).ffill()
-
-    # --- Step 3: 缺口存活 ---
-    bk_cumsum = df["_is_breakout"].cumsum()
-    bar_count = df.groupby(bk_cumsum).cumcount()
-    group_min_low = df["low"].groupby(bk_cumsum).expanding().min().droplevel(0)
-    gap_alive = group_min_low > (gap_floor - 1e-3)
-
-    # --- Step 4: 两腿回调状态机 ---
-    in_window = (bar_count >= MIN_PULLBACK_WINDOW) & (bar_count <= MAX_PULLBACK_WINDOW)
-    in_window = in_window & (bk_cumsum > 0)
-
-    is_lhll = (df["high"] < df["high"].shift(1)) & (df["low"] < df["low"].shift(1))
-    is_hh = df["high"] > df["high"].shift(1)
-
-    # Phase 1: 首根 LHLL
-    lhll_cum = is_lhll.groupby(bk_cumsum).cumsum()
-    phase1_done = lhll_cum >= 1
-
-    # Phase 2: HH after phase 1 (High 1)
-    is_hh_after_pb1 = is_hh & phase1_done
-    hh_cum = is_hh_after_pb1.groupby(bk_cumsum).cumsum()
-    phase2_done = hh_cum >= 1
-
-    # Phase 3: LHLL after phase 2 -> 信号
-    is_lhll_after_h1 = is_lhll & phase2_done
-    lhll_cum2 = is_lhll_after_h1.groupby(bk_cumsum).cumsum()
-    prev_lhll = lhll_cum2.groupby(bk_cumsum).shift(1).fillna(0)
-    is_second_pullback = (prev_lhll == 0) & (lhll_cum2 >= 1)
-
-    # --- 高潮规避器 ---
-    target = 2 * gap_floor - prior_swing_low
-    group_max_high = df["high"].groupby(bk_cumsum).expanding().max().droplevel(0)
-    mm_not_reached = ((group_max_high < target) | target.isna()).fillna(True)
-
-    # --- 组装信号 ---
-    signal_raw = in_window & gap_alive & is_second_pullback & mm_not_reached
-    dedup = signal_raw.groupby(bk_cumsum).cumsum().shift(1).fillna(0) > 0
-    signal_final = signal_raw & ~dedup
-
-    sig_mask = signal_final
+    # [多缺口并行] 直接复用生产策略 GapH2Strategy (单一事实来源, 避免回测与生产漂移)
+    # 旧版在此自实现单组 cumsum 逻辑(已含"弃管旧缺口"bug); 现改为调用生产代码,
+    # 使回测能真实反映 gap_h2_strategy.py 的多缺口并行修复。
+    from core.strategies.gap_h2_strategy import GapH2Strategy
+    if 'atr' not in df.columns or 'ema20' not in df.columns:
+        df = add_indicators(df)
+    out = GapH2Strategy().calculate_signals(df.copy())
+    sig_mask = out['signal_gap_h2'].fillna(False)
     if not sig_mask.any():
         return pd.DataFrame()
 
-    rows = df.loc[sig_mask].copy()
-    rows["entry_level"] = rows["high"].values
-    rows["sl"] = gap_floor[sig_mask].values
-    rows["tp"] = target[sig_mask].values
+    rows = out.loc[sig_mask].copy()
+    rows["entry_level"] = rows["entry_gap_h2"].values
+    rows["sl"] = rows["sl_gap_h2"].values
+    rows["tp"] = rows["tp_gap_h2"].values
 
     # 过滤: SL > 0, TP > entry_level, entry_level > SL
     valid = (rows["sl"] > 0) & (rows["tp"] > rows["entry_level"]) & (rows["entry_level"] > rows["sl"])
