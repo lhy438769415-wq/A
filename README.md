@@ -79,7 +79,7 @@
 - **月线**：月线破位 Pinbar 只读快照（手动跑，不推送）
 - **GAP H2 增强**：仅用于回测对比，不进生产
 
-各策略的逐条规则清单见 `docs/gap_h2_strategy_card.md` 与 `docs/mtr_strategy_card.md`（含典型形态示意图），其余策略文档在 `docs/` 下按名称检索。
+各策略的逐条规则清单见 `docs/gap_h2_strategy_card.html` 与 `docs/mtr_strategy_card.html`（含典型形态示意图），其余策略文档在 `docs/` 下按名称检索。
 
 ---
 
