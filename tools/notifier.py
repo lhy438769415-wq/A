@@ -273,7 +273,7 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
 
     # --- 准备横线 (SL/TP) ---
     h_lines = [sl_price]
-    h_colors = ['green'] # SL
+    h_colors = ['#2962FF'] # SL (blue, avoid red/green candle confusion)
     h_styles = ['-.']
     
     if tp1 > 0:
@@ -334,7 +334,7 @@ def generate_chart_bytes(code, stock_name, strategy_type, sl_price, tp1=0, tp2=0
         # 标注价格标签
         xlim = axlist[0].get_xlim()
         label_x = xlim[1] * 0.99
-        axlist[0].text(label_x, sl_price, f"SL: {sl_price:.2f}", color='green', fontsize=8, fontweight='bold', va='center', ha='right')
+        axlist[0].text(label_x, sl_price, f"SL: {sl_price:.2f}", color='#2962FF', fontsize=8, fontweight='bold', va='center', ha='right')
         if tp1 > 0: axlist[0].text(label_x, tp1, f"TP1: {tp1:.2f}", color='red', fontsize=8, va='center', ha='right')
         if tp2 > 0: axlist[0].text(label_x, tp2, f"TP2: {tp2:.2f}", color='purple', fontsize=8, va='center', ha='right')
 

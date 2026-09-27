@@ -798,9 +798,9 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                                             arrowprops=dict(arrowstyle="-", color='#2E7D32', alpha=0.8),
                                             fontsize=8, color='#2E7D32', ha='center', va='bottom',
                                             bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
-                    # SL1 (回调低点 = 信号K最低价, 新出场规则2的潜在止损位)
+                    # SL1 = 压缩后的缺口顶 = 突破回调阶段的累计最低价 (gap_h2_top_exact)
                     _sk_x = date_list.index(signal_date)
-                    _sk_low = float(plot_df.loc[signal_date, 'low'])
+                    _sk_low = float(exact_top_series)
                     ax.annotate("SL1",
                                 xy=(_sk_x + 0.5, _sk_low),
                                 xytext=(_sk_x + 0.5, _sk_low - _yrange * 0.09),
