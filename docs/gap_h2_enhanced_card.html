@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GAP H2 增强版 策略卡</title>
+<style>
+  body { background:#1e1e1e; color:#e0e0e0; font-family:"Microsoft YaHei",sans-serif; margin:0; padding:24px; }
+  h1 { font-size:20px; color:#d4af37; margin:0 0 4px; }
+  .sub { color:#999; font-size:13px; margin-bottom:14px; line-height:1.6; }
+  .legend { background:#2a2a2a; border-left:3px solid #d4af37; padding:10px 14px; font-size:13px; line-height:1.9; margin-bottom:18px; color:#ccc; }
+  .legend b { color:#d4af37; }
+  .chg { color:#d4af37; font-size:12px; }
+  table { border-collapse:collapse; width:100%; font-size:14px; }
+  th { background:#2d2d2d; color:#d4af37; text-align:left; padding:10px 12px; border-bottom:2px solid #d4af37; }
+  td { padding:9px 12px; border-bottom:1px solid #3a3a3a; vertical-align:top; }
+  tr:hover td { background:#2a2a2a; }
+  .grp { background:#332b16; color:#d4af37; font-size:15px; font-weight:bold; padding:9px 12px; }
+  .grp small { color:#bbb; font-weight:normal; font-size:12px; }
+  .num { color:#d4af37; font-weight:bold; white-space:nowrap; text-align:center; width:28px; }
+  .note { color:#bbb; font-size:13px; line-height:1.8; margin-top:16px; }
+  .note b { color:#d4af37; }
+  .newbox { background:#2a2a2a; border:1px solid #d4af37; padding:10px 14px; font-size:13px; line-height:1.8; margin:14px 0; color:#ddd; }
+  .newbox b { color:#d4af37; }
+</style>
+</head>
+<body>
+<h1>GAP H2 增强版 策略卡</h1>
+<div class="sub">C0+重置 基底 + 分批止盈 / 跟踪止损　|　<b>拟采用设计，待回测</b>，不覆盖原版</div>
+
+<div class="legend">
+<b>两把尺子（止损相关，避免混淆）：</b><br>
+· <b>缺口地板</b> = 前 60 根最高<b>高</b>（突破前"天花板"，突破后变支撑；初始止损 + 触发前闸门）<br>
+· <b>回调低点</b> = 信号K（第二次回调 LHLL）最低价（首次过突破高点后，剩半仓止损移到这里；在入场下方、不锁利，但比缺口地板紧得多）<br>
+位置：<b>回调低点 &gt; 缺口地板</b>。触发后若回落，先碰回调低点（硬底线），缺口地板只在触发前当地基闸门。<br>
+用词约定：「<b>前高 / 突破腿最高点（SH）</b>」专指突破以来的绝对高点；「<b>前根K高点</b>」指前一根 K 的最高价。两者不是一回事。
+</div>
+
+<table>
+<thead>
+<tr><th style="width:28px"> </th><th style="width:140px">规矩</th><th style="width:200px">现在怎么设</th><th>大白话 / 调它会怎样</th></tr>
+</thead>
+<tbody>
+
+<tr><td class="grp" colspan="3">一、背景判断 <small>地基：趋势 + 真缺口</small></td><td class="grp"></td></tr>
+<tr><td class="num">1</td><td>突破周期</td><td>看前 60 根</td><td>价格越过前 60 根最高点才认定有趋势背景。</td></tr>
+<tr><td class="num">2</td><td>缺口认定：真缺口</td><td>突破K最低价 &gt; 前 60 根最高高</td><td>维持原版：必须是真跳空，缺口地板 = 前 60 根最高高。不放宽。</td></tr>
+
+<tr><td class="grp" colspan="3">二、回调过程 <small>两试 + 缺口撑住 + 新高重置</small></td><td class="grp"></td></tr>
+<tr><td class="num">1</td><td>回调最长等</td><td>最多 <b>40</b> 根</td><td>维持原版窗口。</td></tr>
+<tr><td class="num">2</td><td>回调最短隔</td><td>至少 <b>2</b> 根</td><td>维持原版。</td></tr>
+<tr><td class="num">3</td><td>地板不破</td><td>回调全程不破缺口地板（前60根最高高）</td><td>回调途中任一根最低价不得跌破；破了 = 支撑失效，信号撤掉。</td></tr>
+<tr><td class="num">4</td><td>空头两试失败</td><td>先跌 → 涨破<b>前根K高点</b> → 再跌</td><td>H2 核心形态：第二腿完成那根就是信号 K。中间"更高高"指涨过前一根 K 高点（非趋势高点）。</td></tr>
+<tr><td class="num">5</td><td><span class="chg">【新】</span>新高重置</td><td>等 H2 期间创新高则推倒重来</td><td>任一根 high 刷新<b>前高（SH）</b> → ①清空 H1/H2 计数 ②该新高设为新前高 ③从零重新找 H1。防"新高后那次其实是新趋势 H1"被误当 H2。</td></tr>
+
+<tr><td class="grp" colspan="3">三、信号判断 <small>排除高潮、看信号当根成色</small></td><td class="grp"></td></tr>
+<tr><td class="num">1</td><td>涨太猛不追</td><td>信号前没先冲到目标</td><td>已一口气涨到目标价 = 高潮释放，再进就晚了，作废。</td></tr>
+<tr><td class="num">2</td><td>信号当根长相</td><td>收盘越靠上越好</td><td>信号 K 收盘位置高 = 多头控盘。只影响打分，不决定出不出。</td></tr>
+
+<tr><td class="grp" colspan="3">四、开仓计划 <small>买点 / 初始止损 / 风险定义</small></td><td class="grp"></td></tr>
+<tr><td class="num">1</td><td>买点</td><td>突破信号高点才买</td><td>次日挂 Buy Stop，涨过信号 K 最高价才成交，不提前追。</td></tr>
+<tr><td class="num">2</td><td>初始止损</td><td>破缺口地板就跑（前60根最高高）</td><td>初始全仓止损 = 缺口地板。</td></tr>
+<tr><td class="num">3</td><td>风险与 2R 线</td><td>R = 入场 − 地板；2R 线 = 入场 + 2R</td><td>2R 是后面"半仓止盈"的触发线（见五类）。</td></tr>
+
+<tr><td class="grp" colspan="3">五、持仓管理 <small>拟采用：分批止盈 + 跟踪止损，待回测</small></td><td class="grp"></td></tr>
+<tr><td class="num">1</td><td><span class="chg">【新】</span>2R 半仓止盈</td><td>入场后 high ≥ 2R → 平半仓（按 2R 限价）</td><td>先落袋一半利润，剩半仓去博更大空间。</td></tr>
+<tr><td class="num">2</td><td><span class="chg">【新】</span>跟踪启动（硬底线）</td><td>剩半仓首次 high &gt; SH 时，止损移「信号K最低价」</td><td>价格证明自己（吃掉突破高点）后，把剩半仓止损收紧到信号K低点（固定，不随新高抬升；<b>在入场下方、不锁利</b>但比地板紧得多）。</td></tr>
+<tr><td class="num">3</td><td><span class="chg">【新】</span>未过 SH 前</td><td>剩半仓止损维持缺口地板</td><td>还没证明自己前，用初始地板扛着。</td></tr>
+<tr><td class="num">4</td><td><span class="chg">【新】</span>低2 反转出场</td><td>创新高后计数 LL→HH→LL，完成即离场；每次新高重置计数</td><td>新高后若走出"更低低→更高高→更低低"反转结构 = 趋势翻面，剩半仓离场。</td></tr>
+<tr><td class="num">5</td><td>优先级</td><td>规则2 止损是硬底线（优先），低2 反转是底线之上主动离场</td><td>不冲突：底线兜底，反转提前下车。</td></tr>
+<tr><td class="num">6</td><td>原测量止盈废弃</td><td>不再用 2×地板 − 前摆低</td><td>统一由上面 2R + 跟踪方案取代。</td></tr>
+
+<tr><td class="grp" colspan="3">六、其他约束 <small>打分展示层，只改显示不改信号</small></td><td class="grp"></td></tr>
+<tr><td class="num">1</td><td>收盘位置分</td><td>收盘越高加分</td><td rowspan="7" style="border-left:1px solid #3a3a3a">这 7 项只是<b>打分展示</b>，<b>不影响信号是否触发</b>，是后来加的。其中"两腿对称性"回测发现反着赢（经典浅回调在这策略是亏的），已自动反向扣分。缺口宽度 / 缺口存活按<b>真缺口地板</b>量（非实体版）。</td></tr>
+<tr><td class="num">2</td><td>回调速度分</td><td>回得快加分</td></tr>
+<tr><td class="num">3</td><td>缺口宽度分</td><td>缺口越宽加分</td></tr>
+<tr><td class="num">4</td><td>连阴惩罚</td><td>回调阴线多扣分</td></tr>
+<tr><td class="num">5</td><td>时间衰减</td><td>拖太久扣分</td></tr>
+<tr><td class="num">6</td><td>缺口全程存活</td><td>一直没破加分</td></tr>
+<tr><td class="num">7</td><td>两腿对称性</td><td>浅回调反向扣分</td></tr>
+
+</tbody>
+</table>
+
+<div class="newbox">
+<b>相对原版（C0）的改动（回测对照清单）：</b><br>
+1. 「二、回调过程」第 5 条（新增）：<b>新高重置</b> —— 唯一改动信号逻辑的一条<br>
+2. 「四、开仓计划」第 3 条（新增）：<b>2R 线定义</b> —— 为分批止盈服务<br>
+3. 「五、持仓管理」（整体新增）：<b>分批止盈 + 跟踪 + 低2 反转</b>，取代原测量止盈<br>
+· 真缺口 / 40-2 窗口 / 缺口地板止损 / 测量止盈 <b>全部维持原版 C0</b>，未改动（前几版试过的实体缺口 / 20-3 / 紧止损 / 实体版参考线均已回测证伪或放弃）
+</div>
+
+<div class="note">
+<b>怎么用：</b>说「<b>"五、持仓管理"第 2 条改成 ××</b>」或「<b>"二、回调过程"第 5 条</b>」，按大类标题+序号定位，先讲清改完信号变多还是变少、要不要连带动回测，再动手。<br>
+<b>六类含义：</b>一背景（地基）· 二回调（两试+缺口撑住+新高重置）· 三信号（排高潮+看成色）· 四开仓（买卖+风险定义）· 五持仓（拟采用新出场）· 六其他（打分展示）。
+</div>
+</body>
+</html>

@@ -1,14 +1,14 @@
 {
     "signals_gap": [
         {
-            "code": "sz.000017",
-            "name": "深中华A",
+            "code": "sz.000993",
+            "name": "闽东电力",
             "strategy_name": "STRATEGY_STRUCTURAL_GAP",
-            "date": "2026-09-04",
-            "entry": 11.85,
-            "sl": 9.23,
-            "tp": 13.879999999999999,
-            "rr": 0.8,
+            "date": "2026-09-24",
+            "entry": 20.92,
+            "sl": 17.27,
+            "tp": 25.67,
+            "rr": 1.3,
             "sig_quality": 0,
             "bears": 1,
             "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
@@ -19,40 +19,26 @@
             "name": "利仁科技",
             "strategy_name": "STRATEGY_STRUCTURAL_GAP",
             "date": "2026-05-22",
-            "entry": 48.25,
+            "entry": 50.51,
             "sl": 37.97,
             "tp": 57.94501324000001,
-            "rr": 0.9,
+            "rr": 0.6,
             "sig_quality": 0,
-            "bears": 12,
+            "bears": 13,
             "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
             "is_pending": true
         },
         {
-            "code": "sz.002084",
-            "name": "海鸥住工",
+            "code": "sz.002388",
+            "name": "新亚制程",
             "strategy_name": "STRATEGY_STRUCTURAL_GAP",
-            "date": "2026-09-04",
-            "entry": 7.56,
-            "sl": 5.17,
-            "tp": 8.520000000000001,
-            "rr": 0.4,
+            "date": "2026-09-24",
+            "entry": 8.68,
+            "sl": 6.99,
+            "tp": 10.6,
+            "rr": 1.1,
             "sig_quality": 0,
             "bears": 0,
-            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
-            "is_pending": true
-        },
-        {
-            "code": "sz.002412",
-            "name": "汉森制药",
-            "strategy_name": "STRATEGY_STRUCTURAL_GAP",
-            "date": "2026-08-28",
-            "entry": 11.98,
-            "sl": 8.6,
-            "tp": 12.879999999999999,
-            "rr": 0.3,
-            "sig_quality": 0,
-            "bears": 1,
             "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
             "is_pending": true
         },
@@ -66,8 +52,8 @@
             "tp": 166.16266155,
             "rr": 3.1,
             "sig_quality": 0.706,
-            "bears": 2,
-            "pb_bars": 6,
+            "bears": 1,
+            "pb_bars": 5,
             "gap_size_pct": 1.54,
             "ev_score": -3.0,
             "ev_rating": "",
@@ -87,7 +73,7 @@
                     },
                     {
                         "name": "回调速度",
-                        "value": 6.0,
+                        "value": 5.0,
                         "hit": true,
                         "weight": 0.0,
                         "win_rate": null,
@@ -105,7 +91,7 @@
                     },
                     {
                         "name": "连阴数",
-                        "value": 2.0,
+                        "value": 1.0,
                         "hit": true,
                         "weight": 0.0,
                         "win_rate": null,
@@ -114,7 +100,7 @@
                     },
                     {
                         "name": "时间衰减",
-                        "value": 17.0,
+                        "value": 20.0,
                         "hit": false,
                         "weight": -2.0,
                         "win_rate": null,
@@ -126,17 +112,31 @@
                 "calibrated": true
             },
             "is_pending": false,
-            "bars_passed": 17
+            "bars_passed": 20
         },
         {
-            "code": "sz.002528",
-            "name": "*ST英飞",
+            "code": "sz.002631",
+            "name": "德尔未来",
             "strategy_name": "STRATEGY_STRUCTURAL_GAP",
-            "date": "2026-09-04",
-            "entry": 7.71,
-            "sl": 5.65,
-            "tp": 9.96,
-            "rr": 1.1,
+            "date": "2026-09-24",
+            "entry": 14.76,
+            "sl": 12.09,
+            "tp": 20.689999999999998,
+            "rr": 2.2,
+            "sig_quality": 0,
+            "bears": 0,
+            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
+            "is_pending": true
+        },
+        {
+            "code": "sz.002815",
+            "name": "崇达技术",
+            "strategy_name": "STRATEGY_STRUCTURAL_GAP",
+            "date": "2026-09-24",
+            "entry": 26.270000000000003,
+            "sl": 20.7,
+            "tp": 33.17,
+            "rr": 1.2,
             "sig_quality": 0,
             "bears": 0,
             "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
@@ -155,11 +155,11 @@
             "bears": 1,
             "pb_bars": 4,
             "gap_size_pct": 7.11,
-            "ev_score": 5.0,
+            "ev_score": 4.0,
             "ev_rating": "",
             "rating": {
-                "raw_score": 5.0,
-                "score": 100,
+                "raw_score": 4.0,
+                "score": 90,
                 "letter": "A+",
                 "factors": [
                     {
@@ -200,19 +200,19 @@
                     },
                     {
                         "name": "时间衰减",
-                        "value": 4.0,
-                        "hit": true,
-                        "weight": 0.0,
+                        "value": 7.0,
+                        "hit": false,
+                        "weight": -1.0,
                         "win_rate": null,
                         "sop_ref": "SOP Step 12/Step 16",
-                        "note": "新鲜信号"
+                        "note": "拖延过久=预期衰减"
                     }
                 ],
                 "toxic": false,
                 "calibrated": true
             },
             "is_pending": false,
-            "bars_passed": 4
+            "bars_passed": 7
         },
         {
             "code": "sz.002821",
@@ -272,7 +272,7 @@
                     },
                     {
                         "name": "时间衰减",
-                        "value": 1.0,
+                        "value": 4.0,
                         "hit": true,
                         "weight": 0.0,
                         "win_rate": null,
@@ -302,7 +302,7 @@
                 "calibrated": true
             },
             "is_pending": false,
-            "bars_passed": 1
+            "bars_passed": 4
         },
         {
             "code": "sz.002832",
@@ -317,12 +317,12 @@
             "bears": 1,
             "pb_bars": 5,
             "gap_size_pct": 4.78,
-            "ev_score": -1.0,
+            "ev_score": -2.0,
             "ev_rating": "",
             "rating": {
-                "raw_score": -1.0,
-                "score": 40,
-                "letter": "C",
+                "raw_score": -2.0,
+                "score": 30,
+                "letter": "D",
                 "factors": [
                     {
                         "name": "信号K质量",
@@ -362,43 +362,43 @@
                     },
                     {
                         "name": "时间衰减",
-                        "value": 3.0,
-                        "hit": true,
-                        "weight": 0.0,
+                        "value": 6.0,
+                        "hit": false,
+                        "weight": -1.0,
                         "win_rate": null,
                         "sop_ref": "SOP Step 12/Step 16",
-                        "note": "新鲜信号"
+                        "note": "拖延过久=预期衰减"
                     }
                 ],
                 "toxic": false,
                 "calibrated": true
             },
             "is_pending": false,
-            "bars_passed": 3
+            "bars_passed": 6
         },
         {
-            "code": "sz.002870",
-            "name": "香山股份",
-            "strategy_name": "STRATEGY_STRUCTURAL_GAP",
-            "date": "2026-08-31",
-            "entry": 53.45,
-            "sl": 44.92,
-            "tp": 60.89999999999999,
-            "rr": 0.9,
-            "sig_quality": 0.925,
-            "bears": 0,
-            "pb_bars": 1,
-            "gap_size_pct": 2.74,
-            "ev_score": 2.0,
+            "code": "sz.002832",
+            "name": "比音勒芬",
+            "strategy_name": "STRATEGY_GAP_H2",
+            "date": "2026-09-18",
+            "entry": 25.82,
+            "sl": 22.38,
+            "tp": 30.019999999999996,
+            "rr": 1.2,
+            "sig_quality": 0.838,
+            "bears": 1,
+            "pb_bars": 5,
+            "gap_size_pct": 4.78,
+            "ev_score": 1.0,
             "ev_rating": "",
             "rating": {
-                "raw_score": 2.0,
-                "score": 70,
+                "raw_score": 1.0,
+                "score": 60,
                 "letter": "A",
                 "factors": [
                     {
                         "name": "信号K质量",
-                        "value": 0.925,
+                        "value": 0.838,
                         "hit": true,
                         "weight": 1.0,
                         "win_rate": null,
@@ -407,25 +407,25 @@
                     },
                     {
                         "name": "回调速度",
-                        "value": 1.0,
+                        "value": 5.0,
                         "hit": true,
-                        "weight": 2.0,
+                        "weight": 0.0,
                         "win_rate": null,
                         "sop_ref": "SOP Step 8/Step 3",
-                        "note": "快速回调=空头被套"
+                        "note": "回调速度中性"
                     },
                     {
                         "name": "缺口宽度%",
-                        "value": 2.74,
-                        "hit": false,
-                        "weight": -1.0,
+                        "value": 4.78,
+                        "hit": true,
+                        "weight": 0.0,
                         "win_rate": null,
                         "sop_ref": "SOP Step 6 Ind.2",
-                        "note": "窄缺口=失衡弱"
+                        "note": "缺口中性"
                     },
                     {
                         "name": "连阴数",
-                        "value": 0.0,
+                        "value": 1.0,
                         "hit": true,
                         "weight": 0.0,
                         "win_rate": null,
@@ -434,19 +434,51 @@
                     },
                     {
                         "name": "时间衰减",
-                        "value": 0.0,
+                        "value": 1.0,
                         "hit": true,
                         "weight": 0.0,
                         "win_rate": null,
                         "sop_ref": "SOP Step 12/Step 16",
                         "note": "新鲜信号"
+                    },
+                    {
+                        "name": "缺口全程存活",
+                        "value": 1.0,
+                        "hit": true,
+                        "weight": 1.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 6 Gap Integrity",
+                        "note": "回调全期缺口未破=强"
+                    },
+                    {
+                        "name": "两腿对称性",
+                        "value": 1.0,
+                        "hit": true,
+                        "weight": -1.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 6 H2",
+                        "note": "回测倒挂: L2≥L1反而输钱→降权"
                     }
                 ],
                 "toxic": false,
                 "calibrated": true
             },
             "is_pending": false,
-            "bars_passed": 0
+            "bars_passed": 1
+        },
+        {
+            "code": "sz.002849",
+            "name": "威星智能",
+            "strategy_name": "STRATEGY_STRUCTURAL_GAP",
+            "date": "2026-09-24",
+            "entry": 25.19,
+            "sl": 20.2,
+            "tp": 28.39,
+            "rr": 0.6,
+            "sig_quality": 0,
+            "bears": 0,
+            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
+            "is_pending": true
         },
         {
             "code": "sz.003004",
@@ -506,7 +538,7 @@
                     },
                     {
                         "name": "时间衰减",
-                        "value": 11.0,
+                        "value": 14.0,
                         "hit": false,
                         "weight": -2.0,
                         "win_rate": null,
@@ -518,33 +550,19 @@
                 "calibrated": true
             },
             "is_pending": false,
-            "bars_passed": 11
+            "bars_passed": 14
         },
         {
-            "code": "sz.003032",
-            "name": "传智教育",
+            "code": "sh.600354",
+            "name": "敦煌种业",
             "strategy_name": "STRATEGY_STRUCTURAL_GAP",
-            "date": "2026-08-14",
-            "entry": 12.31,
-            "sl": 8.81,
-            "tp": 13.530000000000001,
-            "rr": 0.4,
+            "date": "2026-09-11",
+            "entry": 10.7,
+            "sl": 8.21,
+            "tp": 11.870000000000003,
+            "rr": 0.5,
             "sig_quality": 0,
-            "bears": 3,
-            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
-            "is_pending": true
-        },
-        {
-            "code": "sh.600127",
-            "name": "金健米业",
-            "strategy_name": "STRATEGY_STRUCTURAL_GAP",
-            "date": "2026-09-04",
-            "entry": 13.89,
-            "sl": 9.45,
-            "tp": 15.82,
-            "rr": 0.4,
-            "sig_quality": 0,
-            "bears": 0,
+            "bears": 1,
             "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
             "is_pending": true
         },
@@ -552,11 +570,11 @@
             "code": "sh.600371",
             "name": "万向德农",
             "strategy_name": "STRATEGY_STRUCTURAL_GAP",
-            "date": "2026-09-04",
-            "entry": 14.98,
-            "sl": 10.29,
-            "tp": 16.21,
-            "rr": 0.3,
+            "date": "2026-09-11",
+            "entry": 18.51,
+            "sl": 11.54,
+            "tp": 17.94,
+            "rr": -0.1,
             "sig_quality": 0,
             "bears": 0,
             "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
@@ -573,13 +591,13 @@
             "rr": 1.2,
             "sig_quality": 0.806,
             "bears": 1,
-            "pb_bars": 5,
+            "pb_bars": 4,
             "gap_size_pct": 2.38,
-            "ev_score": 0.0,
+            "ev_score": 1.0,
             "ev_rating": "",
             "rating": {
-                "raw_score": 0.0,
-                "score": 50,
+                "raw_score": 1.0,
+                "score": 60,
                 "letter": "B",
                 "factors": [
                     {
@@ -593,12 +611,12 @@
                     },
                     {
                         "name": "回调速度",
-                        "value": 5.0,
+                        "value": 4.0,
                         "hit": true,
-                        "weight": 0.0,
+                        "weight": 2.0,
                         "win_rate": null,
                         "sop_ref": "SOP Step 8/Step 3",
-                        "note": "回调速度中性"
+                        "note": "快速回调=空头被套"
                     },
                     {
                         "name": "缺口宽度%",
@@ -620,7 +638,197 @@
                     },
                     {
                         "name": "时间衰减",
+                        "value": 7.0,
+                        "hit": false,
+                        "weight": -1.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 12/Step 16",
+                        "note": "拖延过久=预期衰减"
+                    }
+                ],
+                "toxic": false,
+                "calibrated": true
+            },
+            "is_pending": false,
+            "bars_passed": 7
+        },
+        {
+            "code": "sh.600428",
+            "name": "中远海特",
+            "strategy_name": "STRATEGY_GAP_H2",
+            "date": "2026-09-11",
+            "entry": 11.89,
+            "sl": 10.07,
+            "tp": 14.275805300000002,
+            "rr": 1.3,
+            "sig_quality": 0.354,
+            "bears": 1,
+            "pb_bars": 4,
+            "gap_size_pct": 2.38,
+            "ev_score": 1.0,
+            "ev_rating": "",
+            "rating": {
+                "raw_score": 1.0,
+                "score": 60,
+                "letter": "A",
+                "factors": [
+                    {
+                        "name": "信号K质量",
+                        "value": 0.354,
+                        "hit": false,
+                        "weight": -1.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 4",
+                        "note": "收盘弱/影线长=质量差"
+                    },
+                    {
+                        "name": "回调速度",
                         "value": 4.0,
+                        "hit": true,
+                        "weight": 2.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 8/Step 3",
+                        "note": "快速回调=空头被套"
+                    },
+                    {
+                        "name": "缺口宽度%",
+                        "value": 2.38,
+                        "hit": false,
+                        "weight": -1.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 6 Ind.2",
+                        "note": "窄缺口=失衡弱"
+                    },
+                    {
+                        "name": "连阴数",
+                        "value": 1.0,
+                        "hit": true,
+                        "weight": 0.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 7/Step 8",
+                        "note": "连阴可控"
+                    },
+                    {
+                        "name": "时间衰减",
+                        "value": 2.0,
+                        "hit": true,
+                        "weight": 0.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 12/Step 16",
+                        "note": "新鲜信号"
+                    },
+                    {
+                        "name": "缺口全程存活",
+                        "value": 1.0,
+                        "hit": true,
+                        "weight": 1.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 6 Gap Integrity",
+                        "note": "回调全期缺口未破=强"
+                    },
+                    {
+                        "name": "两腿对称性",
+                        "value": 0.0,
+                        "hit": false,
+                        "weight": 0.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 6 H2",
+                        "note": "L2跌破L1(更优)"
+                    }
+                ],
+                "toxic": false,
+                "calibrated": true
+            },
+            "is_pending": false,
+            "bars_passed": 2
+        },
+        {
+            "code": "sh.600584",
+            "name": "长电科技",
+            "strategy_name": "STRATEGY_STRUCTURAL_GAP",
+            "date": "2026-05-29",
+            "entry": 74.51,
+            "sl": 59.73,
+            "tp": 95.46872060000001,
+            "rr": 1.4,
+            "sig_quality": 0,
+            "bears": 10,
+            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
+            "is_pending": true
+        },
+        {
+            "code": "sh.600613",
+            "name": "神奇制药",
+            "strategy_name": "STRATEGY_STRUCTURAL_GAP",
+            "date": "2026-08-28",
+            "entry": 9.61,
+            "sl": 7.53,
+            "tp": 11.12,
+            "rr": 0.7,
+            "sig_quality": 0,
+            "bears": 3,
+            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
+            "is_pending": true
+        },
+        {
+            "code": "sh.600664",
+            "name": "哈药股份",
+            "strategy_name": "STRATEGY_STRUCTURAL_GAP",
+            "date": "2026-09-24",
+            "entry": 9.86,
+            "sl": 6.35,
+            "tp": 10.43,
+            "rr": 0.2,
+            "sig_quality": 0.252,
+            "bears": 0,
+            "pb_bars": 1,
+            "gap_size_pct": 8.98,
+            "ev_score": 3.0,
+            "ev_rating": "",
+            "rating": {
+                "raw_score": 3.0,
+                "score": 80,
+                "letter": "A+",
+                "factors": [
+                    {
+                        "name": "信号K质量",
+                        "value": 0.252,
+                        "hit": false,
+                        "weight": -1.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 4",
+                        "note": "收盘弱/影线长=质量差"
+                    },
+                    {
+                        "name": "回调速度",
+                        "value": 1.0,
+                        "hit": true,
+                        "weight": 2.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 8/Step 3",
+                        "note": "快速回调=空头被套"
+                    },
+                    {
+                        "name": "缺口宽度%",
+                        "value": 8.98,
+                        "hit": true,
+                        "weight": 2.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 6 Ind.2",
+                        "note": "宽缺口=供需失衡"
+                    },
+                    {
+                        "name": "连阴数",
+                        "value": 0.0,
+                        "hit": true,
+                        "weight": 0.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 7/Step 8",
+                        "note": "连阴可控"
+                    },
+                    {
+                        "name": "时间衰减",
+                        "value": 0.0,
                         "hit": true,
                         "weight": 0.0,
                         "win_rate": null,
@@ -632,75 +840,33 @@
                 "calibrated": true
             },
             "is_pending": false,
-            "bars_passed": 4
-        },
-        {
-            "code": "sh.600479",
-            "name": "千金药业",
-            "strategy_name": "STRATEGY_STRUCTURAL_GAP",
-            "date": "2026-09-04",
-            "entry": 14.72,
-            "sl": 11.53,
-            "tp": 13.91,
-            "rr": -0.3,
-            "sig_quality": 0,
-            "bears": 0,
-            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
-            "is_pending": true
-        },
-        {
-            "code": "sh.600584",
-            "name": "长电科技",
-            "strategy_name": "STRATEGY_STRUCTURAL_GAP",
-            "date": "2026-05-29",
-            "entry": 76.39,
-            "sl": 59.73,
-            "tp": 95.46872060000001,
-            "rr": 1.1,
-            "sig_quality": 0,
-            "bears": 9,
-            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
-            "is_pending": true
-        },
-        {
-            "code": "sh.600613",
-            "name": "神奇制药",
-            "strategy_name": "STRATEGY_STRUCTURAL_GAP",
-            "date": "2026-08-28",
-            "entry": 11.99,
-            "sl": 7.53,
-            "tp": 11.959999999999999,
-            "rr": -0.0,
-            "sig_quality": 0,
-            "bears": 1,
-            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
-            "is_pending": true
-        },
-        {
-            "code": "sh.600664",
-            "name": "哈药股份",
-            "strategy_name": "STRATEGY_STRUCTURAL_GAP",
-            "date": "2026-08-14",
-            "entry": 9.52,
-            "sl": 6.35,
-            "tp": 11.219999999999999,
-            "rr": 0.5,
-            "sig_quality": 0,
-            "bears": 2,
-            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
-            "is_pending": true
+            "bars_passed": 0
         },
         {
             "code": "sh.600726",
             "name": "华电能源",
             "strategy_name": "STRATEGY_STRUCTURAL_GAP",
             "date": "2026-03-27",
-            "entry": 5.609999999999999,
+            "entry": 5.39,
             "sl": 4.27,
             "tp": 6.67,
-            "rr": 0.8,
+            "rr": 1.2,
             "sig_quality": 0,
-            "bears": 15,
+            "bears": 16,
+            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
+            "is_pending": true
+        },
+        {
+            "code": "sh.601579",
+            "name": "会稽山",
+            "strategy_name": "STRATEGY_STRUCTURAL_GAP",
+            "date": "2026-09-24",
+            "entry": 41.22,
+            "sl": 27.49,
+            "tp": 45.980000000000004,
+            "rr": 0.3,
+            "sig_quality": 0,
+            "bears": 0,
             "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
             "is_pending": true
         },
@@ -708,13 +874,13 @@
             "code": "sh.601665",
             "name": "齐鲁银行",
             "strategy_name": "STRATEGY_STRUCTURAL_GAP",
-            "date": "2026-09-04",
-            "entry": 7.319999999999999,
-            "sl": 6.58,
-            "tp": 8.1261749,
-            "rr": 1.1,
+            "date": "2026-09-11",
+            "entry": 7.02,
+            "sl": 6.65,
+            "tp": 8.2361749,
+            "rr": 3.4,
             "sig_quality": 0,
-            "bears": 0,
+            "bears": 2,
             "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
             "is_pending": true
         },
@@ -776,7 +942,7 @@
                     },
                     {
                         "name": "时间衰减",
-                        "value": 17.0,
+                        "value": 20.0,
                         "hit": false,
                         "weight": -2.0,
                         "win_rate": null,
@@ -788,19 +954,33 @@
                 "calibrated": true
             },
             "is_pending": false,
-            "bars_passed": 17
+            "bars_passed": 20
+        },
+        {
+            "code": "sh.601988",
+            "name": "中国银行",
+            "strategy_name": "STRATEGY_STRUCTURAL_GAP",
+            "date": "2026-09-04",
+            "entry": 6.71,
+            "sl": 6.29,
+            "tp": 7.5581369,
+            "rr": 2.1,
+            "sig_quality": 0,
+            "bears": 2,
+            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
+            "is_pending": true
         },
         {
             "code": "sh.603137",
             "name": "恒尚节能",
             "strategy_name": "STRATEGY_STRUCTURAL_GAP",
             "date": "2026-07-17",
-            "entry": 24.0,
+            "entry": 21.470000000000002,
             "sl": 17.22,
-            "tp": 25.99,
-            "rr": 0.3,
+            "tp": 24.429999999999996,
+            "rr": 0.7,
             "sig_quality": 0,
-            "bears": 6,
+            "bears": 7,
             "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
             "is_pending": true
         },
@@ -862,7 +1042,7 @@
                     },
                     {
                         "name": "时间衰减",
-                        "value": 53.0,
+                        "value": 56.0,
                         "hit": false,
                         "weight": -2.0,
                         "win_rate": null,
@@ -874,7 +1054,7 @@
                 "calibrated": true
             },
             "is_pending": false,
-            "bars_passed": 53
+            "bars_passed": 56
         },
         {
             "code": "sh.603213",
@@ -934,7 +1114,7 @@
                     },
                     {
                         "name": "时间衰减",
-                        "value": 49.0,
+                        "value": 52.0,
                         "hit": false,
                         "weight": -2.0,
                         "win_rate": null,
@@ -964,49 +1144,151 @@
                 "calibrated": true
             },
             "is_pending": false,
-            "bars_passed": 49
+            "bars_passed": 52
         },
         {
             "code": "sh.603221",
             "name": "爱丽家居",
             "strategy_name": "STRATEGY_STRUCTURAL_GAP",
-            "date": "2026-08-10",
-            "entry": 33.62,
+            "date": "2026-08-28",
+            "entry": 29.9,
             "sl": 22.54,
             "tp": 37.440000000000005,
-            "rr": 0.3,
-            "sig_quality": 0,
-            "bears": 2,
-            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
-            "is_pending": true
-        },
-        {
-            "code": "sh.603682",
-            "name": "锦和商管",
-            "strategy_name": "STRATEGY_STRUCTURAL_GAP",
-            "date": "2026-08-14",
-            "entry": 11.81,
-            "sl": 9.73,
-            "tp": 15.170750720000001,
-            "rr": 1.6,
-            "sig_quality": 0,
-            "bears": 2,
-            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
-            "is_pending": true
+            "rr": 1.0,
+            "sig_quality": 0.805,
+            "bears": 1,
+            "pb_bars": 2,
+            "gap_size_pct": 7.81,
+            "ev_score": 5.0,
+            "ev_rating": "",
+            "rating": {
+                "raw_score": 5.0,
+                "score": 100,
+                "letter": "A+",
+                "factors": [
+                    {
+                        "name": "信号K质量",
+                        "value": 0.805,
+                        "hit": true,
+                        "weight": 1.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 4",
+                        "note": "收盘强/实体大=买方控制"
+                    },
+                    {
+                        "name": "回调速度",
+                        "value": 2.0,
+                        "hit": true,
+                        "weight": 2.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 8/Step 3",
+                        "note": "快速回调=空头被套"
+                    },
+                    {
+                        "name": "缺口宽度%",
+                        "value": 7.81,
+                        "hit": true,
+                        "weight": 2.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 6 Ind.2",
+                        "note": "宽缺口=供需失衡"
+                    },
+                    {
+                        "name": "连阴数",
+                        "value": 1.0,
+                        "hit": true,
+                        "weight": 0.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 7/Step 8",
+                        "note": "连阴可控"
+                    },
+                    {
+                        "name": "时间衰减",
+                        "value": 4.0,
+                        "hit": true,
+                        "weight": 0.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 12/Step 16",
+                        "note": "新鲜信号"
+                    }
+                ],
+                "toxic": false,
+                "calibrated": true
+            },
+            "is_pending": false,
+            "bars_passed": 4
         },
         {
             "code": "sh.603838",
             "name": "*ST四通",
             "strategy_name": "STRATEGY_STRUCTURAL_GAP",
-            "date": "2026-08-28",
-            "entry": 12.709999999999999,
+            "date": "2026-09-11",
+            "entry": 12.88,
             "sl": 10.47,
             "tp": 15.520000000000003,
-            "rr": 1.3,
-            "sig_quality": 0,
+            "rr": 1.1,
+            "sig_quality": 0.951,
             "bears": 1,
-            "ev_rating": "🔎 潜在缺口追踪 (尚未翻转)",
-            "is_pending": true
+            "pb_bars": 3,
+            "gap_size_pct": 3.15,
+            "ev_score": 3.0,
+            "ev_rating": "",
+            "rating": {
+                "raw_score": 3.0,
+                "score": 80,
+                "letter": "A+",
+                "factors": [
+                    {
+                        "name": "信号K质量",
+                        "value": 0.951,
+                        "hit": true,
+                        "weight": 1.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 4",
+                        "note": "收盘强/实体大=买方控制"
+                    },
+                    {
+                        "name": "回调速度",
+                        "value": 3.0,
+                        "hit": true,
+                        "weight": 2.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 8/Step 3",
+                        "note": "快速回调=空头被套"
+                    },
+                    {
+                        "name": "缺口宽度%",
+                        "value": 3.15,
+                        "hit": true,
+                        "weight": 0.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 6 Ind.2",
+                        "note": "缺口中性"
+                    },
+                    {
+                        "name": "连阴数",
+                        "value": 1.0,
+                        "hit": true,
+                        "weight": 0.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 7/Step 8",
+                        "note": "连阴可控"
+                    },
+                    {
+                        "name": "时间衰减",
+                        "value": 2.0,
+                        "hit": true,
+                        "weight": 0.0,
+                        "win_rate": null,
+                        "sop_ref": "SOP Step 12/Step 16",
+                        "note": "新鲜信号"
+                    }
+                ],
+                "toxic": false,
+                "calibrated": true
+            },
+            "is_pending": false,
+            "bars_passed": 2
         },
         {
             "code": "sh.605298",
@@ -1066,7 +1348,7 @@
                     },
                     {
                         "name": "时间衰减",
-                        "value": 43.0,
+                        "value": 46.0,
                         "hit": false,
                         "weight": -2.0,
                         "win_rate": null,
@@ -1078,7 +1360,7 @@
                 "calibrated": true
             },
             "is_pending": false,
-            "bars_passed": 43
+            "bars_passed": 46
         },
         {
             "code": "sh.605298",
@@ -1138,7 +1420,7 @@
                     },
                     {
                         "name": "时间衰减",
-                        "value": 23.0,
+                        "value": 26.0,
                         "hit": false,
                         "weight": -2.0,
                         "win_rate": null,
@@ -1168,7 +1450,7 @@
                 "calibrated": true
             },
             "is_pending": false,
-            "bars_passed": 23
+            "bars_passed": 26
         },
         {
             "code": "sh.605298",
@@ -1228,7 +1510,7 @@
                     },
                     {
                         "name": "时间衰减",
-                        "value": 42.0,
+                        "value": 45.0,
                         "hit": false,
                         "weight": -2.0,
                         "win_rate": null,
@@ -1258,7 +1540,7 @@
                 "calibrated": true
             },
             "is_pending": false,
-            "bars_passed": 42
+            "bars_passed": 45
         }
     ]
 }

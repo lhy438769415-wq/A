@@ -767,9 +767,9 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                     _bo_idx2 = plot_df.index[plot_df[_bo_col2] == True]
                     _bo_before2 = _bo_idx2[_bo_idx2 <= signal_date]
                     _sig_pos2 = plot_df.index.get_loc(signal_date)
-                    # 突破 K 位置: 优先用策略自带的 bars_since_breakout_h2 反推
-                    # (根治"信号前最后突破"启发式在多突破窗口选错的问题; H2 状态机起点必须=真正
-                    #  发起这笔缺口的突破 K, 而非其后的 H1 等次级突破)
+                    # 突破 K 位置: 用策略状态机自带的 bars_since_breakout_h2 反推到
+                    # "发起这笔缺口"的那根突破 K。它对应 gap 策略卡第一条：
+                    # 一根 HH+HL 且 low > 过去 60 根最高价的 K 线。
                     _bo_pos2 = None
                     if 'bars_since_breakout_h2' in plot_df.columns:
                         _bsb = plot_df.loc[signal_date, 'bars_since_breakout_h2']
@@ -777,6 +777,7 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                             _bo_pos2 = _sig_pos2 - int(_bsb)
                             if not (0 <= _bo_pos2 < len(plot_df)):
                                 _bo_pos2 = None
+                    # 兜底：若策略列缺失，回退到信号前最后一根突破 K
                     if _bo_pos2 is None and len(_bo_before2):
                         _bo_pos2 = plot_df.index.get_loc(_bo_before2[-1])
                     if _bo_pos2 is not None:
@@ -784,11 +785,11 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                         _seg2 = plot_df.iloc[_bo_pos2:_sig_pos2 + 1]
                         _lhll2 = (_seg2['high'] < _seg2['high'].shift(1)) & (_seg2['low'] < _seg2['low'].shift(1))
                         _hh2 = _seg2['high'] > _seg2['high'].shift(1)
-                        # BO (突破 K 高点正上方, 垂直向下指)
+                        # BO (突破 K 高点正上方, 垂直向下指, 箭头居中在 K 线)
                         _bo_x2 = date_list.index(_bo_date)
                         ax.annotate("BO",
-                                    xy=(_bo_x2 + 0.5, plot_df.iloc[_bo_pos2]['high']),
-                                    xytext=(_bo_x2 + 0.5, plot_df.iloc[_bo_pos2]['high'] + _yrange * 0.035),
+                                    xy=(_bo_x2, plot_df.iloc[_bo_pos2]['high']),
+                                    xytext=(_bo_x2, plot_df.iloc[_bo_pos2]['high'] + _yrange * 0.035),
                                     arrowprops=dict(arrowstyle="->", color='#E65100', lw=0.8, alpha=0.8, mutation_scale=8),
                                     fontsize=8, color='#E65100', ha='center', va='bottom',
                                     bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
@@ -796,7 +797,7 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                         _pb_list = list(_seg2.index[_lhll2])
                         if _pb_list:
                             _pb = _pb_list[0]
-                            # H1 (首腿 PB 后首根 HH, K 线高点正上方, 垂直指)
+                            # H1 (首腿 PB 后首根 HH, K 线高点正上方, 垂直指, 箭头居中)
                             _h1 = None
                             for _ii in _seg2.index[_seg2.index.get_loc(_pb) + 1:]:
                                 if _hh2.loc[_ii]:
@@ -805,23 +806,24 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                             if _h1 is not None:
                                 _h1_x = date_list.index(_h1)
                                 ax.annotate("H1",
-                                            xy=(_h1_x + 0.5, plot_df.loc[_h1, 'high']),
-                                            xytext=(_h1_x + 0.5, plot_df.loc[_h1, 'high'] + _yrange * 0.035),
+                                            xy=(_h1_x, plot_df.loc[_h1, 'high']),
+                                            xytext=(_h1_x, plot_df.loc[_h1, 'high'] + _yrange * 0.035),
                                             arrowprops=dict(arrowstyle="->", color='#8E24AA', lw=0.8, alpha=0.8, mutation_scale=8),
                                             fontsize=8, color='#8E24AA', ha='center', va='bottom',
                                             bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
-                        # SL1 = 压缩后的缺口顶 = 突破→信号的累计最低价 (gap_h2_top_exact)
-                        # 箭头精确指向制造这个低点的 K 线 (_seg2 内最低 low 的首次出现)
-                        _sk_x = date_list.index(signal_date)
-                        _sk_low = float(exact_top_series)
-                        _sl_bar = _seg2['low'].idxmin()
-                        _sl_x = date_list.index(_sl_bar)
-                        ax.annotate("SL1",
-                                    xy=(_sl_x + 0.5, _sk_low),
-                                    xytext=(_sk_x + 0.5, _sk_low - _yrange * 0.09),
-                                    arrowprops=dict(arrowstyle="->", color='#00695C', lw=0.8, alpha=0.85, mutation_scale=8),
-                                    fontsize=8, color='#00695C', ha='center', va='top',
-                                    bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
+                        # SL1 = 回调低点 = 突破 K 之后（不含 BO 自身）的最低 low
+                        # 视觉上即真正 pullback 的低点，不是突破 K 的低点
+                        _rng2 = _seg2.iloc[1:]
+                        if len(_rng2):
+                            _sl_bar = _rng2['low'].idxmin()
+                            _sk_low = float(_seg2.loc[_sl_bar, 'low'])
+                            _sl_x = date_list.index(_sl_bar)
+                            ax.annotate("SL1",
+                                        xy=(_sl_x, _sk_low),
+                                        xytext=(_sl_x, _sk_low - _yrange * 0.09),
+                                        arrowprops=dict(arrowstyle="->", color='#00695C', lw=0.8, alpha=0.85, mutation_scale=8),
+                                        fontsize=8, color='#00695C', ha='center', va='top',
+                                        bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
             except Exception as _e:
                 logger.debug(f"[{strategy_type}] 状态机节点标注失败: {_e}")
         

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GAP H2 策略卡</title>
+<style>
+  body { background:#1e1e1e; color:#e0e0e0; font-family:"Microsoft YaHei",sans-serif; margin:0; padding:24px; }
+  h1 { font-size:20px; color:#d4af37; margin:0 0 4px; }
+  .sub { color:#999; font-size:13px; margin-bottom:18px; }
+  table { border-collapse:collapse; width:100%; font-size:14px; }
+  th { background:#2d2d2d; color:#d4af37; text-align:left; padding:10px 12px; border-bottom:2px solid #d4af37; }
+  td { padding:9px 12px; border-bottom:1px solid #3a3a3a; vertical-align:top; }
+  tr:hover td { background:#2a2a2a; }
+  .grp { background:#332b16; color:#d4af37; font-size:15px; font-weight:bold; padding:9px 12px; }
+  .grp small { color:#bbb; font-weight:normal; font-size:12px; }
+  .num { color:#d4af37; font-weight:bold; white-space:nowrap; text-align:center; width:28px; }
+  .note { color:#bbb; font-size:13px; line-height:1.8; margin-top:16px; }
+  .note b { color:#d4af37; }
+</style>
+</head>
+<body>
+<h1>GAP H2 策略卡（缺口 + 两腿回调）</h1>
+<div class="sub">按 PA 交易员思路分六类。说「某类里的第 N 条 改成 ××」即可定位微调。</div>
+
+<table>
+<thead>
+<tr><th style="width:28px"> </th><th style="width:124px">规矩</th><th style="width:184px">现在怎么设</th><th>大白话 / 调它会怎样</th></tr>
+</thead>
+<tbody>
+
+<tr><td class="grp" colspan="3">一、背景判断 <small>这笔交易有没有"趋势 + 缺口"的地基</small></td><td class="grp"></td></tr>
+<tr><td class="num">1</td><td>突破周期</td><td>看前 60 根</td><td>认定"趋势背景"的回溯窗口：价格要越过前 60 根最高点才算有背景。调大→更挑剔、信号更少。</td></tr>
+<tr><td class="num">2</td><td>真突破留缺口</td><td>突破K最低价须站上前 60 根最高点</td><td>留下一段"真空区"（缺口），是 H2 成立的地基；没留缺口直接不算。</td></tr>
+
+<tr><td class="grp" colspan="3">二、回调过程 <small>空头两试、缺口是否撑住、耗时多久</small></td><td class="grp"></td></tr>
+<tr><td class="num">1</td><td>回调最长等</td><td>最多 40 根</td><td>突破后 40 根内没走完两试就作废。调大→能接住慢热的机会。</td></tr>
+<tr><td class="num">2</td><td>回调最短隔</td><td>至少 2 根</td><td>突破后至少等 2 根才允许出信号，防毛刺。一般不动。</td></tr>
+<tr><td class="num">3</td><td>地板不破</td><td>缺口下沿全程不破</td><td>回调途中任何一根都不能掉进缺口；破了=支撑失效，信号撤掉。</td></tr>
+<tr><td class="num">4</td><td>空头两试失败</td><td>先跌→涨破前高→再跌</td><td>H2 核心形态：空头两次反扑都被打回。<b>第二腿完成那根就是信号 K</b>。</td></tr>
+
+<tr><td class="grp" colspan="3">三、信号判断 <small>排除高潮、看信号当根成色</small></td><td class="grp"></td></tr>
+<tr><td class="num">1</td><td>涨太猛不追</td><td>信号前没先冲到目标</td><td>若已一口气涨到目标价=高潮释放，再进就晚了，作废。</td></tr>
+<tr><td class="num">2</td><td>信号当根长相</td><td>收盘越靠上越好</td><td>信号 K 收盘位置高=多头控盘。只影响打分，不决定出不出。</td></tr>
+
+<tr><td class="grp" colspan="3">四、开仓计划 <small>买点 / 止损 / 止盈三件套</small></td><td class="grp"></td></tr>
+<tr><td class="num">1</td><td>买点</td><td>突破信号高点才买</td><td>次日挂 Buy Stop，涨过信号 K 最高价才成交，不提前追。</td></tr>
+<tr><td class="num">2</td><td>止损</td><td>破缺口下沿就跑</td><td>地板被跌破=突破失效，认赔离场。</td></tr>
+<tr><td class="num">3</td><td>止盈</td><td>对称目标位</td><td>镜像测量法算出的翻倍空间目标，到了就走。</td></tr>
+
+<tr><td class="grp" colspan="3">五、持仓管理 <small>回测专用，真实扫描不执行</small></td><td class="grp"></td></tr>
+<tr><td class="num">1</td><td>等入场超时</td><td>挂单 30 根没成则放弃</td><td rowspan="5" style="border-left:1px solid #3a3a3a">这几条只在<b>回测模拟历史</b>时用，真实每日扫描<b>不执行</b>撤单/作废/超时。优化信号时一般不用管。</td></tr>
+<tr><td class="num">2</td><td>等待期破地板</td><td>撤单</td></tr>
+<tr><td class="num">3</td><td>等待期先到目标</td><td>作废</td></tr>
+<tr><td class="num">4</td><td>止损出场</td><td>破地板按地板/开盘价</td></tr>
+<tr><td class="num">5</td><td>止盈出场</td><td>到目标按目标价</td></tr>
+
+<tr><td class="grp" colspan="3">六、其他约束 <small>打分展示层，只改显示不改信号</small></td><td class="grp"></td></tr>
+<tr><td class="num">1</td><td>收盘位置分</td><td>收盘越高加分</td><td rowspan="7" style="border-left:1px solid #3a3a3a">这 7 项只是<b>打分展示</b>，<b>不影响信号是否触发</b>，是后来加的。其中"两腿对称性"回测发现反着赢（经典浅回调在这策略是亏的），已自动反向扣分。</td></tr>
+<tr><td class="num">2</td><td>回调速度分</td><td>回得快加分</td></tr>
+<tr><td class="num">3</td><td>缺口宽度分</td><td>缺口越宽加分</td></tr>
+<tr><td class="num">4</td><td>连阴惩罚</td><td>回调阴线多扣分</td></tr>
+<tr><td class="num">5</td><td>时间衰减</td><td>拖太久扣分</td></tr>
+<tr><td class="num">6</td><td>缺口全程存活</td><td>一直没破加分</td></tr>
+<tr><td class="num">7</td><td>两腿对称性</td><td>浅回调反向扣分</td></tr>
+
+</tbody>
+</table>
+
+<div class="note">
+<b>怎么用：</b>说「<b>二类第 3 条改成 ××</b>」或「<b>三类想加个条件</b>」，我按类名+序号定位，先讲清改完信号变多还是变少、要不要连带动回测，再动手。<br>
+<b>六类含义：</b>一背景（地基）· 二回调（两试+缺口撑住）· 三信号（排高潮+看成色）· 四开仓（买卖止损）· 五持仓（回测专用）· 六其他（打分展示）。
+</div>
+</body>
+</html>

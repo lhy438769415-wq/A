@@ -108,5 +108,12 @@ calibration_*.jsonl
 config/rating_factors_*.json
 phase2_closeout_diff.txt
 
+# 仓库审计导出 (31MB 一次性 PDF 快照, 不入库)
+audit_export/
+
+# 扫描/回测运行日志 (根目录临时输出)
+scan_*.log
+
+
 # Ruff 缓存
 .ruff_cache/
