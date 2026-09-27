@@ -15,7 +15,7 @@ from ._shared import logger
 
 
 def archive_signal(code, strategy, timeframe, entry, sl, tp,
-                   ev_rating='', signal_date='', ev_score=None,
+                   ev_rating='', signal_date='', gap_anchor_date='', ev_score=None,
                    rr=0, name='', evidence='', silent=False, **extra) -> str:
     """
     将新信号写入 signal_archive 表。幂等操作 — 相同 signal_id 不会重复插入。
@@ -29,7 +29,12 @@ def archive_signal(code, strategy, timeframe, entry, sl, tp,
     # 标准化策略名
     strategy = strategy.upper()
     
-    signal_id = f"{code}_{strategy}_{timeframe}_{signal_date}"
+    # [修复-多缺口并行] 同日多缺口靠 gap_anchor_date 区分主键, 避免 INSERT OR IGNORE 吞掉第二个缺口。
+    # 无缺口策略 gap_anchor_date 为空, 主键格式不变, 经典策略幂等语义不受影响。
+    if gap_anchor_date:
+        signal_id = f"{code}_{strategy}_{timeframe}_{signal_date}_{gap_anchor_date}"
+    else:
+        signal_id = f"{code}_{strategy}_{timeframe}_{signal_date}"
     scan_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     if not name:

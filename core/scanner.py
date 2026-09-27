@@ -193,11 +193,12 @@ def run_scanner_all(code: str, strategy_names: Optional[List[str]] = None) -> Li
                     tp_c = tp_cols[1] if len(tp_cols) >= 2 else None
 
                     def _tag(hit, g):
+                        # [修复] 仅记录缺口锚定日作为备注(用于区分同 code 同日多缺口),
+                        # 不再覆盖 signal_date/signal_bar_idx, 也不再给 type 加 # 后缀。
+                        # type 必须保持干净的注册名 —— GUI 白名单 / AI 分流 / 显示名都依赖它;
+                        # 多缺口靠 gap_anchor_date 在「去重键 / 主键」层区分, 不在展示层。
                         hit['info']['gap_anchor_date'] = g.get('anchor_date', '')
                         hit['info']['gap_anchor_idx'] = g.get('anchor_idx', -1)
-                        hit['info']['signal_date'] = g.get('anchor_date', '')
-                        hit['info']['signal_bar_idx'] = g.get('anchor_idx', -1)
-                        hit['type'] = f"{name}#{g.get('anchor_date', '')}"
                         return hit
 
                     primary = _tag(primary, ag[0])

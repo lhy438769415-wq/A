@@ -361,7 +361,11 @@ def _scan_market(all_codes, strategies, seen_signals, progress_callback=None, ca
                     if not res or not res.get('code'):
                         continue
                     res['strategy_name'] = res['type']
-                    sig_key = f"{res['code']}_{res['type']}"
+                    # [修复-多缺口并行] 同 code 同日多缺口靠 gap_anchor_date 区分去重键,
+                    # 否则第二个缺口会与第一个同键被吞掉只推一条。无缺口策略 gap_anchor 为空,
+                    # 退化为原 code_type 行为, 不改动经典策略去重语义。
+                    _gap = res.get('info', {}).get('gap_anchor_date', '')
+                    sig_key = f"{res['code']}_{res['type']}_{_gap}" if _gap else f"{res['code']}_{res['type']}"
 
                     if sig_key in seen_signals:
                         continue
@@ -591,6 +595,7 @@ def _archive_passed_signals(items):
                 evidence=factor_evidence_text(info.get('rating'), res['type']),
                 signal_date=info.get('signal_date', ''),
                 signal_bar_idx=info.get('signal_bar_idx', -1),
+                gap_anchor_date=info.get('gap_anchor_date', ''),
                 rr=info.get('rr', 0), name=res.get('name_cn', '')
             )
         except Exception:
