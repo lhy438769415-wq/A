@@ -687,8 +687,8 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                 ax.annotate("Entry",
                             xy=(_em_x + 0.5, entry_mark[1]),
                             xytext=(_em_x + 6.5, entry_mark[1]),
-                            arrowprops=dict(arrowstyle="->", color='#D32F2F', lw=1.5),
-                            fontsize=9, color='#D32F2F', fontweight='bold', ha='left', va='center',
+                            arrowprops=dict(arrowstyle="->", color='#5E35B1', lw=0.8, mutation_scale=8),
+                            fontsize=9, color='#5E35B1', fontweight='bold', ha='left', va='center',
                             bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
                 _entry_drawn = True
             else:
@@ -697,15 +697,15 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
             ax.annotate("Entry", 
                         xy=(signal_x + 0.5, entry_price), 
                         xytext=(signal_x + 6.5, entry_price),
-                        arrowprops=dict(arrowstyle="->", color='#D32F2F', lw=1.5),
-                        fontsize=9, color='#D32F2F', fontweight='bold', ha='left', va='center',
+                        arrowprops=dict(arrowstyle="->", color='#5E35B1', lw=0.8, mutation_scale=8),
+                        fontsize=9, color='#5E35B1', fontweight='bold', ha='left', va='center',
                         bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
         elif not _entry_drawn:
             ax.annotate("Pending Entry", 
                         xy=(signal_x + 0.5, entry_price), 
                         xytext=(signal_x + 6.5, entry_price),
-                        arrowprops=dict(arrowstyle="->", color='#D32F2F', lw=1.5, linestyle="--"),
-                        fontsize=9, color='#D32F2F', fontweight='bold', ha='left', va='center',
+                        arrowprops=dict(arrowstyle="->", color='#5E35B1', lw=0.8, linestyle="--", mutation_scale=8),
+                        fontsize=9, color='#5E35B1', fontweight='bold', ha='left', va='center',
                         bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
 
         # 标注 3a-2. 显式锚点模式补充: H2 信号K标签 + 离场点标记 (成册/复盘用, 生产不受影响)
@@ -718,7 +718,7 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                     ax.annotate("H2",
                                 xy=(_sx9 + 0.5, _sh9),
                                 xytext=(_sx9 + 0.5, _sh9 + _yr9 * 0.035),
-                                arrowprops=dict(arrowstyle="-", color='#6A1B9A', alpha=0.85),
+                                arrowprops=dict(arrowstyle="->", color='#6A1B9A', lw=0.8, alpha=0.85, mutation_scale=8),
                                 fontsize=8, color='#6A1B9A', ha='center', va='bottom',
                                 bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
                 if exit_mark is not None:
@@ -777,7 +777,7 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                         ax.annotate("BO",
                                     xy=(_bo_x2 + 0.5, plot_df.iloc[_bo_pos2]['high']),
                                     xytext=(_bo_x2 + 0.5, plot_df.iloc[_bo_pos2]['high'] + _yrange * 0.035),
-                                    arrowprops=dict(arrowstyle="-", color='#E65100', alpha=0.8),
+                                    arrowprops=dict(arrowstyle="->", color='#E65100', lw=0.8, alpha=0.8, mutation_scale=8),
                                     fontsize=8, color='#E65100', ha='center', va='bottom',
                                     bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
                         # PB 回调低点 (H1 定位依赖首个 PB bar, 不再单独标注)
@@ -795,16 +795,19 @@ def _annotate_gap_strategy(ax, plot_df: pd.DataFrame, strategy_type: str, **kwar
                                 ax.annotate("H1",
                                             xy=(_h1_x + 0.5, plot_df.loc[_h1, 'high']),
                                             xytext=(_h1_x + 0.5, plot_df.loc[_h1, 'high'] + _yrange * 0.035),
-                                            arrowprops=dict(arrowstyle="-", color='#2E7D32', alpha=0.8),
-                                            fontsize=8, color='#2E7D32', ha='center', va='bottom',
+                                            arrowprops=dict(arrowstyle="->", color='#8E24AA', lw=0.8, alpha=0.8, mutation_scale=8),
+                                            fontsize=8, color='#8E24AA', ha='center', va='bottom',
                                             bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
                     # SL1 = 压缩后的缺口顶 = 突破回调阶段的累计最低价 (gap_h2_top_exact)
+                    # 箭头精确指向制造这个低点的 K 线 (_seg2 内最低 low 的首次出现)
                     _sk_x = date_list.index(signal_date)
                     _sk_low = float(exact_top_series)
+                    _sl_bar = _seg2['low'].idxmin()
+                    _sl_x = date_list.index(_sl_bar)
                     ax.annotate("SL1",
-                                xy=(_sk_x + 0.5, _sk_low),
+                                xy=(_sl_x + 0.5, _sk_low),
                                 xytext=(_sk_x + 0.5, _sk_low - _yrange * 0.09),
-                                arrowprops=dict(arrowstyle="-", color='#00695C', alpha=0.85),
+                                arrowprops=dict(arrowstyle="->", color='#00695C', lw=0.8, alpha=0.85, mutation_scale=8),
                                 fontsize=8, color='#00695C', ha='center', va='top',
                                 bbox=dict(boxstyle='square,pad=0.1', facecolor='white', edgecolor='none', alpha=0.8))
             except Exception as _e:
