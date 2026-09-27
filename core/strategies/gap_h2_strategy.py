@@ -277,7 +277,7 @@ class GapH2Strategy(BaseStrategy):
                     tp_series.iloc[gi] = target_b
                     floor_series.iloc[gi] = floor_b
                     psl_series.iloc[gi] = psl_b
-                    top_series.iloc[gi] = float(high[b])
+                    top_series.iloc[gi] = float(cummin_low[li])
                     bsb_series.iloc[gi] = float(li)
                     # 该信号至今是否仍待成交 -> 活跃挂单
                     alive, ref_high = self._project_from_signal(df, gi, floor_b, target_b, timeout=30)

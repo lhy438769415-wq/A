@@ -278,7 +278,7 @@ class GapPinbarStrategy(BaseStrategy):
                     tp_series.iloc[gi] = target_b
                     floor_series.iloc[gi] = floor_b
                     psl_series.iloc[gi] = psl_b
-                    top_series.iloc[gi] = float(high[b])
+                    top_series.iloc[gi] = float(cummin_low[li])
                     bsb_series.iloc[gi] = float(li)
             for k in range(sub_n):
                 if alive_mask[k]:
