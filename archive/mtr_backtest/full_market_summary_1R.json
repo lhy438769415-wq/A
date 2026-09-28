@@ -1,0 +1,300 @@
+{
+  "meta": {
+    "scope": "全市场日线",
+    "limit": 0,
+    "old_signal_logic": "TL后首根阳线收上半部; 入场=信号K最高价",
+    "new_signal_logic": "TL后首根close>EMA20 & 连阳>=2 & close_loc>=0.8; 入场=版本B(先回调再高1)",
+    "sl": "min(L1,TL)-0.01",
+    "tp": "1R",
+    "max_hold": 60,
+    "new_signal_window": 40,
+    "b_scan_window": 250,
+    "generated_at": "2026-09-28T10:52:40+08:00"
+  },
+  "totals": {
+    "symbols": 3266,
+    "symbols_with_struct": 3250,
+    "structures": 39097,
+    "old_invalid": 3452,
+    "new_invalid": 3604,
+    "new_skip_pb": 326,
+    "new_skip_bo": 0,
+    "s2_invalid": 512,
+    "s3_invalid": 223,
+    "errors": 0
+  },
+  "old": {
+    "trades": 32561,
+    "wins": 18582,
+    "win_rate_pct": 57.07,
+    "win_ci_95": [
+      56.53,
+      57.61
+    ],
+    "ev_net_R": 0.0308,
+    "avg_net_R": 0.0308,
+    "avg_gross_R": 0.0753,
+    "avg_bars_held": 18.1
+  },
+  "new": {
+    "trades": 7998,
+    "wins": 4567,
+    "win_rate_pct": 57.1,
+    "win_ci_95": [
+      56.01,
+      58.18
+    ],
+    "ev_net_R": 0.1573,
+    "avg_net_R": 0.1573,
+    "avg_gross_R": 0.1667,
+    "avg_bars_held": 29.1
+  },
+  "s2": {
+    "trades": 10324,
+    "wins": 5977,
+    "win_rate_pct": 57.89,
+    "win_ci_95": [
+      56.94,
+      58.84
+    ],
+    "ev_net_R": 0.0312,
+    "avg_net_R": 0.0312,
+    "avg_gross_R": 0.0633,
+    "avg_bars_held": 21.6
+  },
+  "s3": {
+    "trades": 4156,
+    "wins": 2349,
+    "win_rate_pct": 56.52,
+    "win_ci_95": [
+      55.01,
+      58.02
+    ],
+    "ev_net_R": 0.0952,
+    "avg_net_R": 0.0952,
+    "avg_gross_R": 0.1134,
+    "avg_bars_held": 23.0
+  },
+  "old_no_entry_invalidated": 3452,
+  "new_no_entry_invalidated": 3604,
+  "new_skip_no_pullback": 326,
+  "new_skip_no_breakout": 0,
+  "s2_no_entry_invalidated": 512,
+  "s3_no_entry_invalidated": 223,
+  "by_year_old": {
+    "2023": {
+      "trades": 4461,
+      "wins": 1900,
+      "win_rate_pct": 42.59,
+      "win_ci_95": [
+        41.15,
+        44.05
+      ],
+      "ev_net_R": -0.6844,
+      "avg_net_R": -0.6844,
+      "avg_gross_R": -0.5708,
+      "avg_bars_held": 14.7
+    },
+    "2024": {
+      "trades": 10369,
+      "wins": 5544,
+      "win_rate_pct": 53.47,
+      "win_ci_95": [
+        52.51,
+        54.43
+      ],
+      "ev_net_R": 0.0191,
+      "avg_net_R": 0.0191,
+      "avg_gross_R": 0.0671,
+      "avg_bars_held": 17.4
+    },
+    "2025": {
+      "trades": 11671,
+      "wins": 8151,
+      "win_rate_pct": 69.84,
+      "win_ci_95": [
+        69.0,
+        70.67
+      ],
+      "ev_net_R": 0.361,
+      "avg_net_R": 0.361,
+      "avg_gross_R": 0.3891,
+      "avg_bars_held": 21.9
+    },
+    "2026": {
+      "trades": 6060,
+      "wins": 2987,
+      "win_rate_pct": 49.29,
+      "win_ci_95": [
+        48.03,
+        50.55
+      ],
+      "ev_net_R": -0.0589,
+      "avg_net_R": -0.0589,
+      "avg_gross_R": -0.0394,
+      "avg_bars_held": 14.5
+    }
+  },
+  "by_year_new": {
+    "2023": {
+      "trades": 773,
+      "wins": 334,
+      "win_rate_pct": 43.21,
+      "win_ci_95": [
+        39.76,
+        46.73
+      ],
+      "ev_net_R": -0.1382,
+      "avg_net_R": -0.1382,
+      "avg_gross_R": -0.1261,
+      "avg_bars_held": 27.1
+    },
+    "2024": {
+      "trades": 2606,
+      "wins": 1411,
+      "win_rate_pct": 54.14,
+      "win_ci_95": [
+        52.23,
+        56.05
+      ],
+      "ev_net_R": 0.1198,
+      "avg_net_R": 0.1198,
+      "avg_gross_R": 0.1279,
+      "avg_bars_held": 28.7
+    },
+    "2025": {
+      "trades": 3418,
+      "wins": 2269,
+      "win_rate_pct": 66.38,
+      "win_ci_95": [
+        64.78,
+        67.95
+      ],
+      "ev_net_R": 0.3319,
+      "avg_net_R": 0.3319,
+      "avg_gross_R": 0.3415,
+      "avg_bars_held": 31.9
+    },
+    "2026": {
+      "trades": 1201,
+      "wins": 553,
+      "win_rate_pct": 46.04,
+      "win_ci_95": [
+        43.24,
+        48.87
+      ],
+      "ev_net_R": -0.0678,
+      "avg_net_R": -0.0678,
+      "avg_gross_R": -0.0581,
+      "avg_bars_held": 23.1
+    }
+  },
+  "by_year_s2": {
+    "2023": {
+      "trades": 1227,
+      "wins": 541,
+      "win_rate_pct": 44.09,
+      "win_ci_95": [
+        41.34,
+        46.88
+      ],
+      "ev_net_R": -0.2009,
+      "avg_net_R": -0.2009,
+      "avg_gross_R": -0.1316,
+      "avg_bars_held": 18.4
+    },
+    "2024": {
+      "trades": 3463,
+      "wins": 1940,
+      "win_rate_pct": 56.02,
+      "win_ci_95": [
+        54.36,
+        57.67
+      ],
+      "ev_net_R": -0.0847,
+      "avg_net_R": -0.0847,
+      "avg_gross_R": -0.0564,
+      "avg_bars_held": 20.5
+    },
+    "2025": {
+      "trades": 3909,
+      "wins": 2701,
+      "win_rate_pct": 69.1,
+      "win_ci_95": [
+        67.63,
+        70.53
+      ],
+      "ev_net_R": 0.282,
+      "avg_net_R": 0.282,
+      "avg_gross_R": 0.3118,
+      "avg_bars_held": 25.8
+    },
+    "2026": {
+      "trades": 1725,
+      "wins": 795,
+      "win_rate_pct": 46.09,
+      "win_ci_95": [
+        43.75,
+        48.45
+      ],
+      "ev_net_R": -0.1397,
+      "avg_net_R": -0.1397,
+      "avg_gross_R": -0.1208,
+      "avg_bars_held": 16.4
+    }
+  },
+  "by_year_s3": {
+    "2023": {
+      "trades": 363,
+      "wins": 181,
+      "win_rate_pct": 49.86,
+      "win_ci_95": [
+        44.75,
+        54.98
+      ],
+      "ev_net_R": -0.0671,
+      "avg_net_R": -0.0671,
+      "avg_gross_R": -0.0307,
+      "avg_bars_held": 19.0
+    },
+    "2024": {
+      "trades": 1500,
+      "wins": 737,
+      "win_rate_pct": 49.13,
+      "win_ci_95": [
+        46.61,
+        51.66
+      ],
+      "ev_net_R": -0.0362,
+      "avg_net_R": -0.0362,
+      "avg_gross_R": -0.0208,
+      "avg_bars_held": 22.0
+    },
+    "2025": {
+      "trades": 1640,
+      "wins": 1122,
+      "win_rate_pct": 68.41,
+      "win_ci_95": [
+        66.12,
+        70.62
+      ],
+      "ev_net_R": 0.3276,
+      "avg_net_R": 0.3276,
+      "avg_gross_R": 0.3444,
+      "avg_bars_held": 27.5
+    },
+    "2026": {
+      "trades": 653,
+      "wins": 309,
+      "win_rate_pct": 47.32,
+      "win_ci_95": [
+        43.52,
+        51.15
+      ],
+      "ev_net_R": -0.096,
+      "avg_net_R": -0.096,
+      "avg_gross_R": -0.0787,
+      "avg_bars_held": 16.3
+    }
+  }
+}

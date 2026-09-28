@@ -1,0 +1,92 @@
+{
+  "meta": {
+    "symbol": "603650",
+    "adj": "qfq",
+    "n_structures": 21,
+    "old_signal_logic": "TL后首根阳线收上半部; 入场=信号K最高价",
+    "new_signal_logic": "TL后首根close>EMA20 & 连阳>=2 & close_loc>=0.8; 入场=版本B(先回调再高1)",
+    "new3_signal_logic": "同上但连阳>=3 (2026-09-28 用户指定口径)",
+    "s2_signal_logic": "新信号K(连阳>=2) + 信号K最高价挂BuyStop + SL=min(L1,TL)-0.01 + TP=2R",
+    "s3_signal_logic": "新信号K(连阳>=3) + 信号K最高价挂BuyStop + SL=min(L1,TL)-0.01 + TP=2R (用户 2026-09-28 指定)",
+    "sl": "min(L1,TL)-0.01",
+    "tp": "2R",
+    "max_hold": 60,
+    "new_signal_window": 40,
+    "b_scan_window": 250,
+    "generated_at": "2026-09-28T08:45:25+08:00"
+  },
+  "old": {
+    "trades": 19,
+    "wins": 10,
+    "win_rate_pct": 52.63,
+    "win_ci_95": [
+      31.71,
+      72.67
+    ],
+    "ev_net_R": 0.1616,
+    "avg_net_R": 0.1616,
+    "avg_gross_R": 0.1737,
+    "avg_bars_held": 31.6
+  },
+  "new": {
+    "trades": 14,
+    "wins": 3,
+    "win_rate_pct": 21.43,
+    "win_ci_95": [
+      7.57,
+      47.59
+    ],
+    "ev_net_R": -0.2477,
+    "avg_net_R": -0.2477,
+    "avg_gross_R": -0.2424,
+    "avg_bars_held": 52.6
+  },
+  "new3": {
+    "trades": 11,
+    "wins": 3,
+    "win_rate_pct": 27.27,
+    "win_ci_95": [
+      9.75,
+      56.57
+    ],
+    "ev_net_R": -0.1309,
+    "avg_net_R": -0.1309,
+    "avg_gross_R": -0.1255,
+    "avg_bars_held": 51.4
+  },
+  "s2": {
+    "trades": 16,
+    "wins": 10,
+    "win_rate_pct": 62.5,
+    "win_ci_95": [
+      38.64,
+      81.52
+    ],
+    "ev_net_R": 0.0683,
+    "avg_net_R": 0.0683,
+    "avg_gross_R": 0.0807,
+    "avg_bars_held": 41.9
+  },
+  "s3": {
+    "trades": 12,
+    "wins": 8,
+    "win_rate_pct": 66.67,
+    "win_ci_95": [
+      39.06,
+      86.19
+    ],
+    "ev_net_R": 0.0727,
+    "avg_net_R": 0.0727,
+    "avg_gross_R": 0.0801,
+    "avg_bars_held": 39.7
+  },
+  "old_no_entry_invalidated": 1,
+  "new_no_entry_invalidated": 4,
+  "new_skip_no_pullback": 0,
+  "new_skip_no_breakout": 0,
+  "new3_no_entry_invalidated": 3,
+  "new3_skip_no_pullback": 0,
+  "new3_skip_no_breakout": 0,
+  "s2_no_entry_invalidated": 1,
+  "s3_no_entry_invalidated": 2
+}
