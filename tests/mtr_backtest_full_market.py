@@ -9,9 +9,9 @@ MTR 全市场回测 —— OLD 生产逻辑 vs NEW 信号K/版本B入场
 
 对比口径 (公平, 与单股脚本一致):
   OLD: TL后首根阳线收上半部(close_loc>=0.5); 入场=信号K最高价 Buy Stop。
-  NEW: 用户 2026-09-23 修订选 B
-        - 信号K = ①TL后首根 close>EMA20 ②连续阳>=2 ③close_loc>=0.8
-        - 入场 = 信号后「先回调确认、再突破高1」逐根挂 Buy Stop (版本B)
+  S2/S3 (2026-09-28 用户指定): 同一信号K口径(连阳>=2 / >=3)
+        - 入场 = 信号K最高价挂 Buy Stop (与 OLD 同假设, 便于隔离信号K变量)
+        - SL = min(L1,TL)-0.01 ; TP 由环境变量 MTR_TP_R 决定 (默认 2R)
 
 范围: 全量日线 data/baostock.db 所有标的 (取行数最多的复权版本)。
 约束: 只读本地库, 不改生产代码, 不写库。产物写入 archive/mtr_backtest/。
@@ -46,9 +46,24 @@ OUT_DIR = os.path.join(PROJECT_ROOT, "archive", "mtr_backtest")
 LIMIT = int(os.environ.get("MTR_LIMIT", "0") or "0")   # 0 = 全市场
 NEW_SIGNAL_WINDOW = 40           # TL后找NEW信号K的窗口(根)
 B_SCAN_WINDOW = 250              # 信号后找"回调+突破"的最大窗口(根)
-RISK_MULT = 2.0                 # TP = entry + 2R
+RISK_MULT = float(os.environ.get("MTR_TP_R", "2.0"))  # TP = entry + N*R (默认2R; 用 MTR_TP_R 覆盖)
 MAX_HOLD = 60                    # 最大持仓根数
 MIN_BARS = 130                   # 少于此行数的标的跳过 (warmup=120)
+# 信号K 口径 (2026-09-28 新增):
+#   strict (默认) = 先锁 TL 后【首次收站 EMA20】那根, 再回验; 不达标 -> 本结构无信号 (不顺延)
+#   loose         = 窗口内循环, 首个同时满足全部条件的 K 即信号K (允许顺延到后面)
+# 两版差异已由 tests/mtr_signal_semantics_diff.py 全市场量化:
+#   连阳>=2 严格命中 12,347 / 宽松 32,947; 连阳>=3 严格 5,182 / 宽松 25,840
+SIGNAL_MODE = (os.environ.get("MTR_SIGNAL_MODE", "strict") or "strict").strip().lower()
+if SIGNAL_MODE not in ("strict", "loose"):
+    raise SystemExit(f"MTR_SIGNAL_MODE 只支持 strict / loose, 收到: {SIGNAL_MODE!r}")
+# 产物名后缀: strict 保持旧名(向后兼容), 其他口径加后缀避免互相覆盖
+SUFFIX = "" if SIGNAL_MODE == "strict" else f"_{SIGNAL_MODE}"
+# 探速(设定了 LIMIT)也强制加后缀 —— 否则探速会覆盖全量产物。
+# 教训(2026-09-28): 一次 MTR_LIMIT=150 的验证跑被超时杀掉, 却已把全量
+# full_market_signals_2R.csv (39,097 行) 覆盖成 1,423 行的半成品。
+if LIMIT:
+    SUFFIX += f"_L{LIMIT}"
 
 
 # ============================================================
@@ -128,13 +143,49 @@ def find_old_signal(df, tl_idx):
     return sb
 
 
-def find_new_signal(df, tl_idx):
-    """NEW 信号K = TL 后【首次收站 EMA20】的那根 K 线，再回验：
-    ① 该根自身为阳线 ② 它前一根也是阳线(连续阳线>=2) ③ 收在K线顶部(close_loc>=0.8)。
-    关键顺序（2026-09-23 用户纠正）：先锁「首次收站EMA20」这根，再判连阳——
-    绝不允许顺延到后面第三次才站上的 K 线当信号K；若首次站上的那根连阳不达标，
-    本结构【无信号】返回 None。
-    H1->TL 段内已有 close<EMA20（TL 本身 close<EMA 已保证），不额外判。"""
+def _consec_bull_at(close, open_, k):
+    """从第 k 根往前回溯的连续阳线根数 (含第 k 根自身)。"""
+    n = 0
+    i = k
+    while i >= 0 and close[i] > open_[i]:
+        n += 1
+        i -= 1
+    return n
+
+
+def _find_new_signal_loose(df, tl_idx, min_consec_bull=2):
+    """宽松口径: 窗口内循环, 首个【同时】满足 (阳线 & 连阳>=N & close_loc>=0.8 &
+    close>EMA20) 的 K 即信号K —— 首次站上均线那根不达标时可往后顺延。
+    (2026-09-28 之前的单股脚本用的就是这一版; 全市场信号量约为严格版的 2.7~5.0 倍。)"""
+    close = df["close"].values
+    open_ = df["open"].values
+    high = df["high"].values
+    low = df["low"].values
+    ema = df["ema20"].values
+    end = min(len(df), tl_idx + 1 + NEW_SIGNAL_WINDOW)
+    for k in range(tl_idx + 1, end):
+        c, o, h, lo = close[k], open_[k], high[k], low[k]
+        if h <= lo:
+            continue
+        close_loc = (c - lo) / (h - lo)
+        if (c > o and _consec_bull_at(close, open_, k) >= min_consec_bull
+                and close_loc >= 0.8 and c > ema[k]):
+            return k
+    return None
+
+
+def find_new_signal(df, tl_idx, min_consec_bull=2):
+    """信号K 定位。口径由全局 SIGNAL_MODE 决定 (strict 默认 / loose), 见参数区注释。
+
+    strict (默认) = TL 后【首次收站 EMA20】的那根 K, 再回验:
+        ① 该根自身为阳线 (由 连阳 >= N 保证) ② 连续阳线(往前回溯) >= N ③ close_loc >= 0.8
+        关键顺序 (2026-09-23 用户纠正): 先锁首次站上那根再判 ——
+        绝不允许顺延; 若首次站上那根不达标, 本结构【无信号】返回 None。
+    loose = 窗口内循环取首个同时达标者, 允许顺延 (见 _find_new_signal_loose)。
+
+    H1->TL 段内已有 close<EMA20 (TL 本身 close<EMA 已保证), 不额外判。"""
+    if SIGNAL_MODE == "loose":
+        return _find_new_signal_loose(df, tl_idx, min_consec_bull)
     close = df["close"].values
     open_ = df["open"].values
     high = df["high"].values
@@ -149,16 +200,15 @@ def find_new_signal(df, tl_idx):
             break
     if first_above is None:
         return None
-    # 第二步：回验这根信号K —— 连续阳线(自身+前一根均阳) 且 收在K线顶部
+    # 第二步：回验这根信号K —— 连续阳线(从本根往前回溯 min_consec_bull 根) 且 收在K线顶部
     if first_above - 1 < 0:
         return None
-    is_bull = close[first_above] > open_[first_above]
-    prev_bull = close[first_above - 1] > open_[first_above - 1]
     h, lo = high[first_above], low[first_above]
     if h <= lo:
         return None
     close_loc = (close[first_above] - lo) / (h - lo)
-    if is_bull and prev_bull and close_loc >= 0.8:
+    if (_consec_bull_at(close, open_, first_above) >= min_consec_bull
+            and close_loc >= 0.8):
         return first_above
     return None
 
@@ -230,7 +280,9 @@ def backtest_symbol(symbol, adj, df):
     df = add_indicators(df)
     structures = collect_structures(df)
     old_rows, new_rows = [], []
+    s2_rows, s3_rows = [], []
     old_invalid = new_invalid = new_skip_pb = new_skip_bo = 0
+    s2_invalid = s3_invalid = 0
     out_rows = []
 
     for res in structures:
@@ -278,6 +330,28 @@ def backtest_symbol(symbol, adj, df):
             elif estat == "SKIP_NO_BREAKOUT":
                 new_status, new_skip_bo = "SKIP_NO_BREAKOUT", new_skip_bo + 1
 
+        # S2 / S3: 同一信号K口径(连阳>=2 / >=3) + 信号K最高价挂 Buy Stop, SL=MTR极值低点
+        s_sig = {}
+        for tag, mincb in (("s2", 2), ("s3", 3)):
+            sig_idx = find_new_signal(df, tl_idx, min_consec_bull=mincb)
+            st, en, sim = "NO_SIGNAL", None, None
+            if sig_idx is not None:
+                en = float(df["high"].iloc[sig_idx])
+                sim = simulate_trade_unified(
+                    df, sig_idx, en, sl,
+                    risk_mult=RISK_MULT, max_hold=MAX_HOLD)
+                st = sim["status"]
+                if sim["status"] in ("WIN", "LOSS"):
+                    sim["bars_held"] = compute_bars_held(
+                        df, sim["entry_date"], sim["exit_date"])
+                    (s2_rows if tag == "s2" else s3_rows).append(sim)
+                elif sim["status"] == "INVALIDATED":
+                    if tag == "s2":
+                        s2_invalid += 1
+                    else:
+                        s3_invalid += 1
+            s_sig[tag] = (sig_idx, en, st, sim)
+
         out_rows.append({
             "symbol": symbol, "adj": adj,
             "l1_date": str(df["date"].iloc[l1_idx])[:10],
@@ -292,13 +366,23 @@ def backtest_symbol(symbol, adj, df):
             "new_entry": round(new_entry, 2) if new_entry else "",
             "new_status": new_status,
             "new_net_R": new_sim["net_R"] if new_sim else "",
+            "s2_sig_date": str(df["date"].iloc[s_sig["s2"][0]])[:10] if s_sig["s2"][0] is not None else "",
+            "s2_entry": round(s_sig["s2"][1], 2) if s_sig["s2"][1] else "",
+            "s2_status": s_sig["s2"][2],
+            "s2_net_R": s_sig["s2"][3]["net_R"] if s_sig["s2"][3] else "",
+            "s3_sig_date": str(df["date"].iloc[s_sig["s3"][0]])[:10] if s_sig["s3"][0] is not None else "",
+            "s3_entry": round(s_sig["s3"][1], 2) if s_sig["s3"][1] else "",
+            "s3_status": s_sig["s3"][2],
+            "s3_net_R": s_sig["s3"][3]["net_R"] if s_sig["s3"][3] else "",
         })
 
     return {
         "symbol": symbol, "adj": adj, "n_struct": len(structures),
         "old_rows": old_rows, "new_rows": new_rows,
+        "s2_rows": s2_rows, "s3_rows": s3_rows,
         "old_invalid": old_invalid, "new_invalid": new_invalid,
         "new_skip_pb": new_skip_pb, "new_skip_bo": new_skip_bo,
+        "s2_invalid": s2_invalid, "s3_invalid": s3_invalid,
         "out_rows": out_rows,
     }
 
@@ -308,7 +392,8 @@ def backtest_symbol(symbol, adj, df):
 # ============================================================
 def main():
     t0 = datetime.now()
-    print(f"[{t0:%H:%M:%S}] MTR 全市场回测启动  LIMIT={LIMIT or 'ALL'}")
+    print(f"[{t0:%H:%M:%S}] MTR 全市场回测启动  LIMIT={LIMIT or 'ALL'} TP={RISK_MULT:g}R  "
+          f"信号K口径={SIGNAL_MODE}")
     os.makedirs(OUT_DIR, exist_ok=True)
 
     sym_map = get_symbol_adjust_map(DB_PATH)
@@ -318,16 +403,21 @@ def main():
     print(f"  标的池: 全库 {len(sym_map)} 只, 本次处理 {len(symbols)} 只")
 
     all_old, all_new = [], []
+    all_s2, all_s3 = [], []
     year_old = defaultdict(list)
     year_new = defaultdict(list)
+    year_s2 = defaultdict(list)
+    year_s3 = defaultdict(list)
     totals = dict(symbols=0, symbols_with_struct=0, structures=0,
                   old_invalid=0, new_invalid=0, new_skip_pb=0, new_skip_bo=0,
-                  errors=0)
+                  s2_invalid=0, s3_invalid=0, errors=0)
 
     CSV_FIELDS = ["symbol", "adj", "l1_date", "h1_date", "tl_date", "sl",
                   "old_sig_date", "old_entry", "old_status", "old_net_R",
-                  "new_sig_date", "new_entry", "new_status", "new_net_R"]
-    sig_csv = os.path.join(OUT_DIR, "full_market_signals.csv")
+                  "new_sig_date", "new_entry", "new_status", "new_net_R",
+                  "s2_sig_date", "s2_entry", "s2_status", "s2_net_R",
+                  "s3_sig_date", "s3_entry", "s3_status", "s3_net_R"]
+    sig_csv = os.path.join(OUT_DIR, f"full_market_signals_{RISK_MULT:g}R{SUFFIX}.csv")
     csv_f = open(sig_csv, "w", newline="", encoding="utf-8")
     csv_w = csv.DictWriter(csv_f, fieldnames=CSV_FIELDS)
     csv_w.writeheader()
@@ -347,8 +437,12 @@ def main():
             totals["new_invalid"] += r["new_invalid"]
             totals["new_skip_pb"] += r["new_skip_pb"]
             totals["new_skip_bo"] += r["new_skip_bo"]
+            totals["s2_invalid"] += r["s2_invalid"]
+            totals["s3_invalid"] += r["s3_invalid"]
             all_old.extend(r["old_rows"])
             all_new.extend(r["new_rows"])
+            all_s2.extend(r["s2_rows"])
+            all_s3.extend(r["s3_rows"])
             for row in r["out_rows"]:
                 csv_w.writerow(row)
             csv_f.flush()
@@ -360,6 +454,16 @@ def main():
             for t in r["new_rows"]:
                 try:
                     year_new[pd.Timestamp(t["entry_date"]).year].append(t)
+                except Exception:
+                    pass
+            for t in r["s2_rows"]:
+                try:
+                    year_s2[pd.Timestamp(t["entry_date"]).year].append(t)
+                except Exception:
+                    pass
+            for t in r["s3_rows"]:
+                try:
+                    year_s3[pd.Timestamp(t["entry_date"]).year].append(t)
                 except Exception:
                     pass
         except Exception as e:
@@ -378,6 +482,8 @@ def main():
     print("[1/3] 汇总统计...")
     old_sum = summarize(all_old)
     new_sum = summarize(all_new)
+    s2_sum = summarize(all_s2)
+    s3_sum = summarize(all_s3)
 
     def year_block(bucket):
         out = {}
@@ -393,21 +499,30 @@ def main():
             "scope": "全市场日线" if not LIMIT else f"样本前{LIMIT}只",
             "limit": LIMIT,
             "old_signal_logic": "TL后首根阳线收上半部; 入场=信号K最高价",
-            "new_signal_logic": "TL后首根close>EMA20 & 连阳>=2 & close_loc>=0.8; 入场=版本B(先回调再高1)",
-            "sl": "min(L1,TL)-0.01", "tp": "2R", "max_hold": MAX_HOLD,
+            "new_signal_logic": ("TL后首次收站EMA20那根再回验连阳>=2 & close_loc>=0.8"
+                                 " (strict, 不顺延); 入场=版本B(先回调再高1)"
+                                 if SIGNAL_MODE == "strict" else
+                                 "TL后40根内首个同时满足 close>EMA20 & 连阳>=2 & close_loc>=0.8"
+                                 " (loose, 允许顺延); 入场=版本B(先回调再高1)"),
+            "signal_mode": SIGNAL_MODE,
+            "sl": "min(L1,TL)-0.01", "tp": f"{RISK_MULT:g}R", "max_hold": MAX_HOLD,
             "new_signal_window": NEW_SIGNAL_WINDOW, "b_scan_window": B_SCAN_WINDOW,
             "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         },
         "totals": totals,
-        "old": old_sum, "new": new_sum,
+        "old": old_sum, "new": new_sum, "s2": s2_sum, "s3": s3_sum,
         "old_no_entry_invalidated": totals["old_invalid"],
         "new_no_entry_invalidated": totals["new_invalid"],
         "new_skip_no_pullback": totals["new_skip_pb"],
         "new_skip_no_breakout": totals["new_skip_bo"],
+        "s2_no_entry_invalidated": totals["s2_invalid"],
+        "s3_no_entry_invalidated": totals["s3_invalid"],
         "by_year_old": year_block(year_old),
         "by_year_new": year_block(year_new),
+        "by_year_s2": year_block(year_s2),
+        "by_year_s3": year_block(year_s3),
     }
-    sum_json = os.path.join(OUT_DIR, "full_market_summary.json")
+    sum_json = os.path.join(OUT_DIR, f"full_market_summary_{RISK_MULT:g}R{SUFFIX}.json")
     with open(sum_json, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     print(f"  {sum_json}")
@@ -432,16 +547,30 @@ def main():
         print(f"  EV(净R): {new_sum['ev_net_R']}  平均净R: {new_sum['avg_net_R']}")
         print(f"  平均持仓: {new_sum['avg_bars_held']} 根")
     print("-" * 72)
-    print("按年 (OLD / NEW 净胜率% , EV净R):")
-    yrs = sorted(set(list(year_old.keys()) + list(year_new.keys())))
+    print("S2 信号K高点挂单 (连阳>=2):")
+    print(f"  触发交易: {s2_sum['trades']}  等待期破SL撤单: {totals['s2_invalid']}")
+    if s2_sum["trades"]:
+        print(f"  净胜率: {s2_sum['win_rate_pct']}%  Wilson95%: {s2_sum['win_ci_95']}")
+        print(f"  EV(净R): {s2_sum['ev_net_R']}  平均净R: {s2_sum['avg_net_R']}")
+        print(f"  平均持仓: {s2_sum['avg_bars_held']} 根")
+    print("-" * 72)
+    print("S3 信号K高点挂单 (连阳>=3):")
+    print(f"  触发交易: {s3_sum['trades']}  等待期破SL撤单: {totals['s3_invalid']}")
+    if s3_sum["trades"]:
+        print(f"  净胜率: {s3_sum['win_rate_pct']}%  Wilson95%: {s3_sum['win_ci_95']}")
+        print(f"  EV(净R): {s3_sum['ev_net_R']}  平均净R: {s3_sum['avg_net_R']}")
+        print(f"  平均持仓: {s3_sum['avg_bars_held']} 根")
+    print("-" * 72)
+    print("按年 (OLD / S3 净胜率% , EV净R):")
+    yrs = sorted(set(list(year_old.keys()) + list(year_s3.keys())))
     for y in yrs:
         o = year_old.get(y, [])
-        nw = year_new.get(y, [])
+        s3y = year_s3.get(y, [])
         os_ = summarize(o) if o else None
-        ns_ = summarize(nw) if nw else None
+        s3s_ = summarize(s3y) if s3y else None
         ostr = f"{os_['win_rate_pct']}%/{os_['ev_net_R']}(n={os_['trades']})" if os_ else "-"
-        nstr = f"{ns_['win_rate_pct']}%/{ns_['ev_net_R']}(n={ns_['trades']})" if ns_ else "-"
-        print(f"  {y}: OLD {ostr}   NEW {nstr}")
+        s3str = f"{s3s_['win_rate_pct']}%/{s3s_['ev_net_R']}(n={s3s_['trades']})" if s3s_ else "-"
+        print(f"  {y}: OLD {ostr}   S3 {s3str}")
     print("=" * 72)
     el = (datetime.now() - t0).total_seconds()
     print(f"完成! 耗时 {el:.1f}s")
